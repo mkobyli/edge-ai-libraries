@@ -260,6 +260,49 @@ func TestViewMarksStaleData(t *testing.T) {
 	wantContains(t, stale.View(), "1h00m ago")
 }
 
+func TestViewRendersTrendCharts(t *testing.T) {
+	m := testModel(nil)
+	for sample, memory := range []float64{40, 50, 60} {
+		m, _ = update(t, m, snapshotMsg(source.Snapshot{
+			At: fixedNow.Add(time.Duration(sample) * time.Second),
+			Samples: parseFixture(t, fmt.Sprintf(`
+cpu_usage_idle{cpu="cpu-total"} %g
+mem_used_percent %g
+`, 100-memory, memory)),
+		}))
+	}
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 100})
+	m, _ = update(t, m, key("2"))
+
+	view := m.View()
+	wantContains(t, view, "[2 Trends]")
+	wantContains(t, view, "CPU utilization")
+	wantContains(t, view, "Memory used")
+	wantContains(t, view, "now 60.0%")
+	wantContains(t, view, "-5m")
+	wantContains(t, view, "●")
+
+	for _, line := range strings.Split(view, "\n") {
+		if width := lipgloss.Width(line); width > 120 {
+			t.Errorf("trend line is %d columns wide, want at most 120: %q", width, line)
+		}
+	}
+}
+
+func TestViewOmitsChartsWithoutMeasurements(t *testing.T) {
+	m := testModel(nil)
+	m, _ = update(t, m, snapshotMsg(source.Snapshot{
+		At:      fixedNow,
+		Samples: parseFixture(t, hostExposition),
+	}))
+	m, _ = update(t, m, key("2"))
+
+	view := m.View()
+	if strings.Contains(view, "GPU utilization") || strings.Contains(view, "NPU utilization") {
+		t.Errorf("view renders charts for absent accelerators\n%s", view)
+	}
+}
+
 func TestViewLimitsDisplayedProcesses(t *testing.T) {
 	config := DefaultDashboardConfig()
 	config.Processes.MaxDisplayed = 2

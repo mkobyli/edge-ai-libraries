@@ -49,6 +49,8 @@ func main() {
 		"column width to render at with -once")
 	configPath := flag.String("config", tui.DefaultConfigPath,
 		"dashboard configuration file; built-in defaults are used when absent")
+	chartsConfigPath := flag.String("charts-config", tui.DefaultChartsConfigPath,
+		"trend chart configuration file; built-in defaults are used when absent")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -62,23 +64,33 @@ func main() {
 		fmt.Fprintln(os.Stderr, "mm-tui:", err)
 		os.Exit(1)
 	}
+	chartsConfig, err := tui.LoadChartsConfig(*chartsConfigPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mm-tui:", err)
+		os.Exit(1)
+	}
 
 	if *once {
-		if err := renderOnce(*endpoint, *width, config); err != nil {
+		if err := renderOnce(*endpoint, *width, config, chartsConfig); err != nil {
 			fmt.Fprintln(os.Stderr, "mm-tui:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	if err := run(*endpoint, *interval, config); err != nil {
+	if err := run(*endpoint, *interval, config, chartsConfig); err != nil {
 		fmt.Fprintln(os.Stderr, "mm-tui:", err)
 		os.Exit(1)
 	}
 }
 
 // renderOnce takes one reading and prints the frame it would display.
-func renderOnce(endpoint string, width int, config tui.DashboardConfig) error {
+func renderOnce(
+	endpoint string,
+	width int,
+	config tui.DashboardConfig,
+	chartsConfig tui.ChartsConfig,
+) error {
 	poller, err := source.New(endpoint)
 	if err != nil {
 		return err
@@ -92,14 +104,19 @@ func renderOnce(endpoint string, width int, config tui.DashboardConfig) error {
 		return err
 	}
 
-	fmt.Println(tui.RenderOnceWithConfig(
-		source.Snapshot{At: time.Now(), Samples: samples}, width, config,
+	fmt.Println(tui.RenderOnceWithConfigs(
+		source.Snapshot{At: time.Now(), Samples: samples}, width, config, chartsConfig,
 	))
 
 	return nil
 }
 
-func run(endpoint string, interval time.Duration, config tui.DashboardConfig) error {
+func run(
+	endpoint string,
+	interval time.Duration,
+	config tui.DashboardConfig,
+	chartsConfig tui.ChartsConfig,
+) error {
 	if interval <= 0 {
 		return fmt.Errorf("interval must be greater than zero, got %v", interval)
 	}
@@ -115,5 +132,5 @@ func run(endpoint string, interval time.Duration, config tui.DashboardConfig) er
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return tui.RunWithConfig(ctx, poller, config)
+	return tui.RunWithConfigs(ctx, poller, config, chartsConfig)
 }

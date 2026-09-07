@@ -164,6 +164,7 @@ sudo systemctl disable 'metrics-manager-*'
 | `/etc/metrics-manager/telegraf.conf` | Collection and publishing configuration |
 | `/etc/metrics-manager/metrics-manager.env` | Settings shared by every service |
 | `/etc/metrics-manager/tui-dashboard.json` | Dashboard thresholds, alert behavior and process display limit |
+| `/etc/metrics-manager/tui-charts.json` | Trend history window, chart size and selected metrics |
 | `/etc/metrics-manager/telegraf.d/` | Drop-in directory for local configuration |
 | `/etc/metrics-manager/custom-metrics.d/` | Operator-supplied metric scripts |
 | `/run/metrics-manager/` | Ingest socket and the qmassa FIFO |
@@ -171,8 +172,9 @@ sudo systemctl disable 'metrics-manager-*'
 ## The dashboard
 
 `mm-tui` reads the same Prometheus endpoint the package publishes, so it shows
-exactly what any scraper would see. It holds no state and needs no privileges;
-running it as an ordinary user is enough.
+exactly what any scraper would see. It keeps only a bounded in-memory trend
+history, writes nothing, and needs no privileges; running it as an ordinary user
+is enough.
 
 ```bash
 mm-tui
@@ -181,14 +183,16 @@ mm-tui
 | Key | Action |
 |---|---|
 | `q`, `Esc`, `Ctrl+C` | Quit |
+| `Tab`, `Shift+Tab` | Switch between Overview and Trends |
+| `1`, `2` | Open Overview or Trends directly |
 | `↑` `↓`, `k` `j` | Scroll a line |
 | `PgUp` `PgDn`, `Space` | Scroll a screen |
 | `Home` `End`, `g` `G` | Jump to the top or the bottom |
 
-The dashboard is longer than most terminal windows, so scrolling is the normal
-way to use it rather than an edge case. The panels are ordered with the
-hardware first and the process list last, so the top of the view is the part
-that rarely needs scrolling to.
+Overview responds to the terminal width. It uses one column in a narrow window,
+two columns once each panel can remain readable, and up to three columns in a
+wide terminal. Scrolling remains available when the resulting rows do not fit
+the terminal height. The panels retain their hardware-first reading order.
 
 The footer reports which lines you are looking at, as in `lines 1-28 of 42`, so
 a short terminal hides content rather than dropping it. The header reports how
@@ -210,6 +214,13 @@ What each panel shows:
 | GPU | Power, temperature, memory, engine occupancy, per-tile frequencies and throttle reasons, and the processes using the device |
 | NPU | Utilisation, frequency, power, temperature, bandwidth, memory, tile configuration |
 | Processes | The busiest by CPU and by resident memory |
+
+The Trends tab retains the most recent five minutes by default. It shows CPU
+utilisation, memory usage, CPU temperature, and utilisation and temperature for
+each available GPU and the NPU. Missing hardware produces no empty chart.
+GPU utilisation is the busiest engine on that device for each sample. When
+there are more samples than terminal columns, each horizontal bucket keeps its
+peak so a short spike does not disappear during downsampling.
 
 One figure is easy to misread. **Memory bandwidth is whole-system DRAM
 throughput, not GPU bandwidth.** Neither Intel GPU driver publishes a
@@ -353,6 +364,30 @@ memory candidates the collector publishes, while `processes.maxDisplayed=10`
 controls how many combined rows `mm-tui` renders. Raising the collector limit
 increases Prometheus series churn; raise only the display limit when the desired
 processes are already present at the metrics endpoint.
+
+### Trend chart configuration
+
+`/etc/metrics-manager/tui-charts.json` controls the bounded history and the
+order and range of the charts. The defaults are a five-minute window, 600
+points per series (five minutes at the default 500 ms polling cadence), and
+six-row charts. Supported metrics are:
+
+- `cpu.totalPercent`
+- `cpu.temperatureC`
+- `memory.usedPercent`
+- `memory.bandwidthMiBps`
+- `gpu.utilizationPercent`
+- `gpu.temperatureC`
+- `npu.utilizationPercent`
+- `npu.temperatureC`
+
+Omit `min` or `max` to derive that side of the scale from the retained data.
+The history duration accepts Go duration syntax such as `30s`, `5m` or `1h`.
+The file is validated at startup, including metric names, duplicate charts,
+ranges and memory bounds. Use `mm-tui -charts-config <path>` to try another
+file without changing the packaged configuration. Both `historyDuration` and
+`maxPoints` are retention limits; when `-interval` is reduced, raise
+`maxPoints` if the configured time window must remain fully represented.
 
 ## Adding your own metrics
 

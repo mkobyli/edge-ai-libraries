@@ -103,10 +103,16 @@ func (m Model) bodyLines(width int) []string {
 		b.WriteString(platform)
 		b.WriteString("\n")
 	}
+	b.WriteString(m.tabLine())
+	b.WriteString("\n")
 	b.WriteString(ruleStyle.Render(strings.Repeat("─", width)))
 	b.WriteString("\n\n")
 
-	b.WriteString(m.panelGrid(width))
+	if m.activeTab == TrendsTab {
+		b.WriteString(m.trendsGrid(width))
+	} else {
+		b.WriteString(m.panelGrid(width))
+	}
 
 	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
 	for i := range lines {
@@ -141,12 +147,16 @@ func (m Model) panelGrid(width int) string {
 		panels = append(panels, m.processSection())
 	}
 
-	columns := (width + panelGap) / (panelMinWidth + panelGap)
+	return packPanels(panels, width, panelMinWidth, 3)
+}
+
+func packPanels(panels []string, width, minWidth, maxColumns int) string {
+	columns := (width + panelGap) / (minWidth + panelGap)
 	if columns < 1 {
 		columns = 1
 	}
-	if columns > 3 {
-		columns = 3
+	if columns > maxColumns {
+		columns = maxColumns
 	}
 	if columns == 1 {
 		for i := range panels {
@@ -236,11 +246,25 @@ func clip(lines []string, rows, offset int) ([]string, int) {
 // used when everything already fits, where scrolling keys would be noise.
 func footerHint(total, rows, offset int) string {
 	if rows <= 0 || total <= rows {
-		return "q quit"
+		return "1 overview · 2 trends · tab switch · q quit"
 	}
 
-	return fmt.Sprintf("q quit · ↑↓ pgup pgdn g G scroll · lines %d-%d of %d",
+	return fmt.Sprintf("1 overview · 2 trends · tab switch · q quit · ↑↓ pgup pgdn g G scroll · lines %d-%d of %d",
 		offset+1, offset+rows, total)
+}
+
+func (m Model) tabLine() string {
+	overview := "1 Overview"
+	trends := "2 Trends"
+	if m.activeTab == OverviewTab {
+		overview = titleStyle.Render("[" + overview + "]")
+		trends = labelStyle.Render(trends)
+	} else {
+		overview = labelStyle.Render(overview)
+		trends = titleStyle.Render("[" + trends + "]")
+	}
+
+	return overview + "   " + trends
 }
 
 // platformLine names the machine under the title, and is omitted entirely on a

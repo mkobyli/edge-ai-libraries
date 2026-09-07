@@ -76,33 +76,43 @@ func DefaultDashboardConfig() DashboardConfig {
 // file is absent. An existing but invalid file is always reported.
 func LoadDashboardConfig(path string) (DashboardConfig, error) {
 	config := DefaultDashboardConfig()
+	config, err := decodeConfig(path, "dashboard", config)
+	if err != nil {
+		return DashboardConfig{}, err
+	}
+	if err := config.Validate(); err != nil {
+		return DashboardConfig{}, fmt.Errorf("validate dashboard config %q: %w", path, err)
+	}
+
+	return config, nil
+}
+
+func decodeConfig[T any](path, kind string, config T) (T, error) {
+	var zero T
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return config, nil
 	}
 	if err != nil {
-		return DashboardConfig{}, fmt.Errorf("open dashboard config %q: %w", path, err)
+		return zero, fmt.Errorf("open %s config %q: %w", kind, path, err)
 	}
 	defer file.Close()
 
 	info, err := file.Stat()
 	if err != nil {
-		return DashboardConfig{}, fmt.Errorf("stat dashboard config %q: %w", path, err)
+		return zero, fmt.Errorf("stat %s config %q: %w", kind, path, err)
 	}
 	if info.Size() > maxConfigSize {
-		return DashboardConfig{}, fmt.Errorf("dashboard config %q exceeds %d bytes", path, maxConfigSize)
+		return zero, fmt.Errorf("%s config %q exceeds %d bytes", kind, path, maxConfigSize)
 	}
 
 	decoder := json.NewDecoder(io.LimitReader(file, maxConfigSize))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&config); err != nil {
-		return DashboardConfig{}, fmt.Errorf("decode dashboard config %q: %w", path, err)
+		return zero, fmt.Errorf("decode %s config %q: %w", kind, path, err)
 	}
 	if err := ensureJSONEnd(decoder); err != nil {
-		return DashboardConfig{}, fmt.Errorf("decode dashboard config %q: %w", path, err)
-	}
-	if err := config.Validate(); err != nil {
-		return DashboardConfig{}, fmt.Errorf("validate dashboard config %q: %w", path, err)
+		return zero, fmt.Errorf("decode %s config %q: %w", kind, path, err)
 	}
 
 	return config, nil

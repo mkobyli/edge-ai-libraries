@@ -21,6 +21,13 @@ import (
 // snapshotMsg delivers one poll result into the update loop.
 type snapshotMsg source.Snapshot
 
+type Tab int
+
+const (
+	OverviewTab Tab = iota
+	TrendsTab
+)
+
 // Model is the dashboard state.
 type Model struct {
 	snapshots <-chan source.Snapshot
@@ -36,8 +43,12 @@ type Model struct {
 	// err is the reason the most recent poll failed, or nil.
 	err error
 
-	config DashboardConfig
-	alerts AlertTracker
+	config       DashboardConfig
+	chartsConfig ChartsConfig
+	alerts       AlertTracker
+	history      History
+	activeTab    Tab
+	tabOffsets   [2]int
 
 	width  int
 	height int
@@ -57,11 +68,21 @@ func NewModel(ch <-chan source.Snapshot) Model {
 }
 
 func NewModelWithConfig(ch <-chan source.Snapshot, config DashboardConfig) Model {
+	return NewModelWithConfigs(ch, config, DefaultChartsConfig())
+}
+
+func NewModelWithConfigs(
+	ch <-chan source.Snapshot,
+	config DashboardConfig,
+	chartsConfig ChartsConfig,
+) Model {
 	return Model{
-		snapshots: ch,
-		config:    config,
-		alerts:    NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed),
-		now:       time.Now,
+		snapshots:    ch,
+		config:       config,
+		chartsConfig: chartsConfig,
+		alerts:       NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed),
+		history:      NewHistory(chartsConfig),
+		now:          time.Now,
 	}
 }
 
@@ -77,18 +98,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
+		case "tab":
+			m.switchTab((m.activeTab + 1) % 2)
+		case "shift+tab":
+			m.switchTab((m.activeTab + 1) % 2)
+		case "1":
+			m.switchTab(OverviewTab)
+		case "2":
+			m.switchTab(TrendsTab)
 		case "up", "k":
-			m.offset = m.scrollTo(m.offset - 1)
+			m.setOffset(m.offset - 1)
 		case "down", "j":
-			m.offset = m.scrollTo(m.offset + 1)
+			m.setOffset(m.offset + 1)
 		case "pgup":
-			m.offset = m.scrollTo(m.offset - m.visibleRows())
+			m.setOffset(m.offset - m.visibleRows())
 		case "pgdown", " ":
-			m.offset = m.scrollTo(m.offset + m.visibleRows())
+			m.setOffset(m.offset + m.visibleRows())
 		case "home", "g":
-			m.offset = 0
+			m.setOffset(0)
 		case "end", "G":
-			m.offset = m.maxOffset()
+			m.setOffset(m.maxOffset())
 		}
 
 	case tea.WindowSizeMsg:
@@ -96,7 +125,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		// A window that just grew can leave the view scrolled past the
 		// end, which would show a screen of blank lines.
-		m.offset = m.scrollTo(m.offset)
+		m.setOffset(m.offset)
 
 	case snapshotMsg:
 		m.err = msg.Err
@@ -104,6 +133,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dash = BuildDashboard(msg.Samples)
 			m.updatedAt = msg.At
 			m.alerts.Update(m.dash, m.config.Thresholds, msg.At)
+			m.history.Update(m.dash, msg.At)
 		}
 		// Re-arm immediately: the poller paces itself, so the update
 		// loop should never be the thing that throttles refreshes.
@@ -116,6 +146,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *Model) switchTab(tab Tab) {
+	if tab == m.activeTab {
+		return
+	}
+	m.tabOffsets[m.activeTab] = m.offset
+	m.activeTab = tab
+	m.offset = m.scrollTo(m.tabOffsets[tab])
+}
+
+func (m *Model) setOffset(offset int) {
+	m.offset = m.scrollTo(offset)
+	m.tabOffsets[m.activeTab] = m.offset
 }
 
 // streamClosedMsg reports that the snapshot channel was closed.
@@ -167,6 +211,15 @@ func Run(ctx context.Context, poller *source.Poller) error {
 }
 
 func RunWithConfig(ctx context.Context, poller *source.Poller, config DashboardConfig) error {
+	return RunWithConfigs(ctx, poller, config, DefaultChartsConfig())
+}
+
+func RunWithConfigs(
+	ctx context.Context,
+	poller *source.Poller,
+	config DashboardConfig,
+	chartsConfig ChartsConfig,
+) error {
 	// The caller's context is kept so shutdownErr can tell an operator's
 	// signal apart from the cancel below, which always fires.
 	parent := ctx
@@ -185,7 +238,11 @@ func RunWithConfig(ctx context.Context, poller *source.Poller, config DashboardC
 		poller.Run(ctx, func(s source.Snapshot) { send(ch, s) })
 	}()
 
-	program := tea.NewProgram(NewModelWithConfig(ch, config), tea.WithContext(ctx), tea.WithAltScreen())
+	program := tea.NewProgram(
+		NewModelWithConfigs(ch, config, chartsConfig),
+		tea.WithContext(ctx),
+		tea.WithAltScreen(),
+	)
 	_, err := program.Run()
 
 	// Stop the poller and wait for it, so the process does not exit while
@@ -220,7 +277,16 @@ func RenderOnce(s source.Snapshot, width int) string {
 }
 
 func RenderOnceWithConfig(s source.Snapshot, width int, config DashboardConfig) string {
-	m := NewModelWithConfig(nil, config)
+	return RenderOnceWithConfigs(s, width, config, DefaultChartsConfig())
+}
+
+func RenderOnceWithConfigs(
+	s source.Snapshot,
+	width int,
+	config DashboardConfig,
+	chartsConfig ChartsConfig,
+) string {
+	m := NewModelWithConfigs(nil, config, chartsConfig)
 	m.width = width
 
 	next, _ := m.Update(snapshotMsg(s))
