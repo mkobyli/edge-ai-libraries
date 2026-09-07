@@ -5,11 +5,13 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/open-edge-platform/edge-ai-libraries/microservices/metrics-manager/native/internal/source"
 )
@@ -149,33 +151,97 @@ func TestViewSanitizesRemoteText(t *testing.T) {
 }
 
 func TestViewFitsRequestedWidth(t *testing.T) {
-	m, _ := update(t, testModel(nil), snapshotMsg(source.Snapshot{
-		At:      fixedNow,
-		Samples: parseFixture(t, hostExposition),
-	}))
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	for _, width := range []int{20, 60, 79, 80, 100, 138, 139, 209, 210} {
+		t.Run(fmt.Sprintf("%d_columns", width), func(t *testing.T) {
+			m, _ := update(t, testModel(nil), snapshotMsg(source.Snapshot{
+				At:      fixedNow,
+				Samples: parseFixture(t, hostExposition+acceleratorExposition),
+			}))
+			m, _ = update(t, m, tea.WindowSizeMsg{Width: width, Height: 200})
 
-	for _, line := range strings.Split(m.View(), "\n") {
-		if n := len([]rune(line)); n > 100 {
-			t.Errorf("line of %d runes exceeds the 100 column window: %q", n, line)
-		}
+			for _, line := range strings.Split(m.View(), "\n") {
+				if n := lipgloss.Width(line); n > width {
+					t.Errorf("line of %d columns exceeds the %d-column window: %q",
+						n, width, line)
+				}
+			}
+		})
 	}
 }
 
-func TestViewUsesFloorWidthForTinyWindows(t *testing.T) {
-	// A very narrow window must not collapse the layout into unreadable
-	// fragments; the floor keeps the columns intact and lets the terminal
-	// wrap instead. The height is generous so this stays a test about
-	// width alone, rather than also exercising the scroll clipping.
+func TestViewUsesReportedWidthForNarrowWindows(t *testing.T) {
 	m, _ := update(t, testModel(nil), snapshotMsg(source.Snapshot{
 		At:      fixedNow,
 		Samples: parseFixture(t, hostExposition),
 	}))
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 10, Height: 60})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 40, Height: 100})
 
 	view := m.View()
 	wantContains(t, view, "CPU")
 	wantContains(t, view, "Memory")
+	for _, line := range strings.Split(view, "\n") {
+		if n := lipgloss.Width(line); n > 40 {
+			t.Errorf("line of %d columns exceeds the terminal: %q", n, line)
+		}
+	}
+}
+
+func TestViewPacksPanelsAcrossWideWindows(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		width       int
+		sameLine    []string
+		notSameLine []string
+	}{
+		{
+			name:        "single column",
+			width:       138,
+			notSameLine: []string{"CPU", "Memory"},
+		},
+		{
+			name:     "two columns",
+			width:    139,
+			sameLine: []string{"CPU", "Memory"},
+		},
+		{
+			name:     "three columns",
+			width:    210,
+			sameLine: []string{"CPU", "Memory", "GPU 0"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := update(t, testModel(nil), snapshotMsg(source.Snapshot{
+				At:      fixedNow,
+				Samples: parseFixture(t, hostExposition+acceleratorExposition),
+			}))
+			m, _ = update(t, m, tea.WindowSizeMsg{Width: tt.width, Height: 200})
+
+			lines := strings.Split(m.View(), "\n")
+			if len(tt.sameLine) > 0 && !lineContainsAll(lines, tt.sameLine...) {
+				t.Errorf("%v are not rendered in the same row\n%s", tt.sameLine, m.View())
+			}
+			if len(tt.notSameLine) > 0 && lineContainsAll(lines, tt.notSameLine...) {
+				t.Errorf("%v unexpectedly share a row\n%s", tt.notSameLine, m.View())
+			}
+		})
+	}
+}
+
+func lineContainsAll(lines []string, values ...string) bool {
+	for _, line := range lines {
+		all := true
+		for _, value := range values {
+			if !strings.Contains(line, value) {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestViewMarksStaleData(t *testing.T) {

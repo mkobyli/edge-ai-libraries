@@ -12,9 +12,15 @@ import (
 	"github.com/open-edge-platform/edge-ai-libraries/microservices/metrics-manager/native/internal/source"
 )
 
-// defaultWidth is used until the terminal reports its size, and as a floor so
-// the layout does not collapse in a very narrow window.
+// defaultWidth is used until the terminal reports its size.
 const defaultWidth = 80
+
+const (
+	// panelMinWidth leaves enough room for the widest hardware tables. Wider
+	// terminals gain columns only when every panel can remain readable.
+	panelMinWidth = 68
+	panelGap      = 3
+)
 
 // staleAfter is how old the displayed numbers may get before the freshness
 // indicator is highlighted. It is a multiple of the poll interval so a single
@@ -51,15 +57,16 @@ func (m Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(ruleStyle.Render(strings.Repeat("─", width)))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(footerHint(len(lines), rows, offset)))
+	b.WriteString(fitWidth(footerStyle.Render(footerHint(len(lines), rows, offset)), width))
 
 	return b.String()
 }
 
-// renderWidth is the width to lay out at, floored so the layout does not
-// collapse in a very narrow window.
+// renderWidth is the width to lay out at. Once Bubble Tea reports the terminal
+// size, the dashboard honours it instead of rendering hidden columns beyond
+// the right edge.
 func (m Model) renderWidth() int {
-	if m.width < defaultWidth {
+	if m.width <= 0 {
 		return defaultWidth
 	}
 
@@ -92,30 +99,103 @@ func (m Model) bodyLines(width int) []string {
 	b.WriteString(ruleStyle.Render(strings.Repeat("─", width)))
 	b.WriteString("\n\n")
 
-	b.WriteString(m.cpuSection())
-	b.WriteString("\n")
-	b.WriteString(m.memorySection())
+	b.WriteString(m.panelGrid(width))
 
+	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	for i := range lines {
+		lines[i] = fitWidth(lines[i], width)
+	}
+
+	return lines
+}
+
+// panelGrid packs independent panels into as many columns as can fit without
+// squeezing their tables. The source order remains the reading order: left to
+// right, then top to bottom.
+func (m Model) panelGrid(width int) string {
+	panels := []string{m.cpuSection(), m.memorySection()}
 	for _, gpu := range m.dash.GPUs {
-		b.WriteString("\n")
-		b.WriteString(m.gpuSection(gpu))
+		panels = append(panels, m.gpuSection(gpu))
 	}
 
 	// A machine without an NPU publishes no npu_ series at all, and a panel
 	// of dashes would suggest a broken sensor rather than absent hardware.
 	if m.dash.NPU.Present {
-		b.WriteString("\n")
-		b.WriteString(m.npuSection())
+		panels = append(panels, m.npuSection())
 	}
 
-	// Processes go last because the list is the longest thing on screen and
-	// the hardware panels are what the dashboard is for.
+	// Processes go last because the hardware panels are what the dashboard
+	// is for, but on a wide terminal they can use otherwise idle space.
 	if len(m.dash.Processes) > 0 {
-		b.WriteString("\n")
-		b.WriteString(m.processSection())
+		panels = append(panels, m.processSection())
 	}
 
-	return strings.Split(b.String(), "\n")
+	columns := (width + panelGap) / (panelMinWidth + panelGap)
+	if columns < 1 {
+		columns = 1
+	}
+	if columns > 3 {
+		columns = 3
+	}
+	if columns == 1 {
+		for i := range panels {
+			panels[i] = strings.TrimRight(panels[i], "\n")
+		}
+
+		return strings.Join(panels, "\n")
+	}
+
+	columnWidth := (width - panelGap*(columns-1)) / columns
+	rows := make([]string, 0, (len(panels)+columns-1)/columns)
+	for start := 0; start < len(panels); start += columns {
+		end := start + columns
+		if end > len(panels) {
+			end = len(panels)
+		}
+
+		row := make([]string, 0, end-start)
+		for _, content := range panels[start:end] {
+			content = strings.TrimRight(content, "\n")
+			row = append(row, lipgloss.NewStyle().
+				Width(columnWidth).
+				MaxWidth(columnWidth).
+				Render(content))
+		}
+
+		rows = append(rows, lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			joinWithGap(row, panelGap)...,
+		))
+	}
+
+	return strings.Join(rows, "\n\n")
+}
+
+// joinWithGap inserts fixed-width separators between columns.
+func joinWithGap(columns []string, gap int) []string {
+	if len(columns) < 2 {
+		return columns
+	}
+
+	out := make([]string, 0, len(columns)*2-1)
+	for i, column := range columns {
+		if i > 0 {
+			out = append(out, strings.Repeat(" ", gap))
+		}
+		out = append(out, column)
+	}
+
+	return out
+}
+
+// fitWidth keeps every rendered line inside the terminal. Lip Gloss accounts
+// for escape sequences and wide runes, unlike slicing the rendered string.
+func fitWidth(line string, width int) string {
+	if width <= 0 || lipgloss.Width(line) <= width {
+		return line
+	}
+
+	return lipgloss.NewStyle().MaxWidth(width).Render(line)
 }
 
 // clip selects the visible window of lines and reports the offset actually
@@ -185,6 +265,13 @@ func (m Model) header(width int) string {
 	left := titleStyle.Render(title)
 
 	right := m.status(width)
+	if lipgloss.Width(left)+1+lipgloss.Width(right) > width {
+		if lipgloss.Width(left) <= width {
+			return left
+		}
+
+		return fitWidth(left, width)
+	}
 
 	// Push the status to the right margin, accounting for the fact that
 	// styled strings carry escape sequences that do not occupy columns.
