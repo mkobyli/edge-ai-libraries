@@ -36,6 +36,9 @@ type Model struct {
 	// err is the reason the most recent poll failed, or nil.
 	err error
 
+	config DashboardConfig
+	alerts AlertTracker
+
 	width  int
 	height int
 
@@ -50,7 +53,16 @@ type Model struct {
 
 // NewModel returns a Model that renders snapshots as they arrive on ch.
 func NewModel(ch <-chan source.Snapshot) Model {
-	return Model{snapshots: ch, now: time.Now}
+	return NewModelWithConfig(ch, DefaultDashboardConfig())
+}
+
+func NewModelWithConfig(ch <-chan source.Snapshot, config DashboardConfig) Model {
+	return Model{
+		snapshots: ch,
+		config:    config,
+		alerts:    NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed),
+		now:       time.Now,
+	}
 }
 
 // Init starts waiting for the first snapshot.
@@ -91,6 +103,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.dash = BuildDashboard(msg.Samples)
 			m.updatedAt = msg.At
+			m.alerts.Update(m.dash, m.config.Thresholds, msg.At)
 		}
 		// Re-arm immediately: the poller paces itself, so the update
 		// loop should never be the thing that throttles refreshes.
@@ -150,6 +163,10 @@ func waitForSnapshot(ch <-chan source.Snapshot) tea.Cmd {
 // Run drives a Bubble Tea program that renders the endpoint until the operator
 // quits or ctx is cancelled.
 func Run(ctx context.Context, poller *source.Poller) error {
+	return RunWithConfig(ctx, poller, DefaultDashboardConfig())
+}
+
+func RunWithConfig(ctx context.Context, poller *source.Poller, config DashboardConfig) error {
 	// The caller's context is kept so shutdownErr can tell an operator's
 	// signal apart from the cancel below, which always fires.
 	parent := ctx
@@ -168,7 +185,7 @@ func Run(ctx context.Context, poller *source.Poller) error {
 		poller.Run(ctx, func(s source.Snapshot) { send(ch, s) })
 	}()
 
-	program := tea.NewProgram(NewModel(ch), tea.WithContext(ctx), tea.WithAltScreen())
+	program := tea.NewProgram(NewModelWithConfig(ch, config), tea.WithContext(ctx), tea.WithAltScreen())
 	_, err := program.Run()
 
 	// Stop the poller and wait for it, so the process does not exit while
@@ -199,7 +216,11 @@ func shutdownErr(err error, parent context.Context) error {
 // check against the REST output, or a quick look on a host where running an
 // interactive program is inconvenient.
 func RenderOnce(s source.Snapshot, width int) string {
-	m := NewModel(nil)
+	return RenderOnceWithConfig(s, width, DefaultDashboardConfig())
+}
+
+func RenderOnceWithConfig(s source.Snapshot, width int, config DashboardConfig) string {
+	m := NewModelWithConfig(nil, config)
 	m.width = width
 
 	next, _ := m.Update(snapshotMsg(s))

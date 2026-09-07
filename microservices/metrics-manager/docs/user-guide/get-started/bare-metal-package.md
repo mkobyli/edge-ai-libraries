@@ -163,6 +163,7 @@ sudo systemctl disable 'metrics-manager-*'
 | `/usr/libexec/metrics-manager/` | Telegraf, qmassa and the three collector plugins |
 | `/etc/metrics-manager/telegraf.conf` | Collection and publishing configuration |
 | `/etc/metrics-manager/metrics-manager.env` | Settings shared by every service |
+| `/etc/metrics-manager/tui-dashboard.json` | Dashboard thresholds, alert behavior and process display limit |
 | `/etc/metrics-manager/telegraf.d/` | Drop-in directory for local configuration |
 | `/etc/metrics-manager/custom-metrics.d/` | Operator-supplied metric scripts |
 | `/run/metrics-manager/` | Ingest socket and the qmassa FIFO |
@@ -324,8 +325,34 @@ alone by upgrades.
 sudo systemctl restart 'metrics-manager-*.service'
 ```
 
-Both files are marked as configuration, so an upgrade preserves your edits and
+These files are marked as configuration, so an upgrade preserves your edits and
 leaves the new packaged version alongside as `.dpkg-dist`.
+
+### Dashboard thresholds and warnings
+
+The dashboard colors monitored readings as OK, careful, warning or critical.
+An alert appears only after the threshold is exceeded in three consecutive
+samples. It clears after three consecutive samples below the threshold exit,
+with a 5% hysteresis by default so a value close to a boundary does not make the
+alert repeatedly appear and disappear.
+
+The defaults and the maximum number of displayed processes are configured in
+`/etc/metrics-manager/tui-dashboard.json`. The installed file documents the
+complete JSON shape. After editing it, restart `mm-tui`; the collection services
+do not need to be restarted.
+
+The default thresholds are diagnostic starting points, not hardware safety
+limits. Temperature behavior depends on the processor, accelerator, cooling
+solution and sensor location, so tune the values for the deployed platform.
+An existing configuration with invalid JSON, unknown fields, unsupported metric
+names or unordered thresholds prevents the dashboard from starting and reports
+the exact validation error instead of silently using different values.
+
+By default, `PROCESS_LIMIT=10` in `metrics-manager.env` controls how many CPU and
+memory candidates the collector publishes, while `processes.maxDisplayed=10`
+controls how many combined rows `mm-tui` renders. Raising the collector limit
+increases Prometheus series churn; raise only the display limit when the desired
+processes are already present at the metrics endpoint.
 
 ## Adding your own metrics
 

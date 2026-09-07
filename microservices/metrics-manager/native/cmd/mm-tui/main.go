@@ -47,6 +47,8 @@ func main() {
 		"render a single frame to stdout and exit, for debugging and parity checks")
 	width := flag.Int("width", 100,
 		"column width to render at with -once")
+	configPath := flag.String("config", tui.DefaultConfigPath,
+		"dashboard configuration file; built-in defaults are used when absent")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -55,22 +57,28 @@ func main() {
 		return
 	}
 
+	config, err := tui.LoadDashboardConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mm-tui:", err)
+		os.Exit(1)
+	}
+
 	if *once {
-		if err := renderOnce(*endpoint, *width); err != nil {
+		if err := renderOnce(*endpoint, *width, config); err != nil {
 			fmt.Fprintln(os.Stderr, "mm-tui:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	if err := run(*endpoint, *interval); err != nil {
+	if err := run(*endpoint, *interval, config); err != nil {
 		fmt.Fprintln(os.Stderr, "mm-tui:", err)
 		os.Exit(1)
 	}
 }
 
 // renderOnce takes one reading and prints the frame it would display.
-func renderOnce(endpoint string, width int) error {
+func renderOnce(endpoint string, width int, config tui.DashboardConfig) error {
 	poller, err := source.New(endpoint)
 	if err != nil {
 		return err
@@ -84,12 +92,14 @@ func renderOnce(endpoint string, width int) error {
 		return err
 	}
 
-	fmt.Println(tui.RenderOnce(source.Snapshot{At: time.Now(), Samples: samples}, width))
+	fmt.Println(tui.RenderOnceWithConfig(
+		source.Snapshot{At: time.Now(), Samples: samples}, width, config,
+	))
 
 	return nil
 }
 
-func run(endpoint string, interval time.Duration) error {
+func run(endpoint string, interval time.Duration, config tui.DashboardConfig) error {
 	if interval <= 0 {
 		return fmt.Errorf("interval must be greater than zero, got %v", interval)
 	}
@@ -105,5 +115,5 @@ func run(endpoint string, interval time.Duration) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return tui.Run(ctx, poller)
+	return tui.RunWithConfig(ctx, poller, config)
 }

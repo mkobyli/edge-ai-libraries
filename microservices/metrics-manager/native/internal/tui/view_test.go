@@ -260,6 +260,46 @@ func TestViewMarksStaleData(t *testing.T) {
 	wantContains(t, stale.View(), "1h00m ago")
 }
 
+func TestViewLimitsDisplayedProcesses(t *testing.T) {
+	config := DefaultDashboardConfig()
+	config.Processes.MaxDisplayed = 2
+	m := NewModelWithConfig(nil, config)
+	m.now = func() time.Time { return fixedNow }
+	m.dash.Processes = []Process{
+		{PID: "1", Command: "first", CPUPercent: reading(90)},
+		{PID: "2", Command: "second", CPUPercent: reading(80)},
+		{PID: "3", Command: "third", CPUPercent: reading(70)},
+	}
+
+	view := m.View()
+	wantContains(t, view, "first")
+	wantContains(t, view, "second")
+	if strings.Contains(view, "third") {
+		t.Errorf("view exceeded the configured process limit\n%s", view)
+	}
+}
+
+func TestViewShowsActiveWarnings(t *testing.T) {
+	config := DefaultDashboardConfig()
+	m := NewModelWithConfig(nil, config)
+	m.now = func() time.Time { return fixedNow }
+	for range config.Alerts.SamplesToRaise {
+		next, _ := m.Update(snapshotMsg(source.Snapshot{
+			At: fixedNow,
+			Samples: parseFixture(t, `
+mem_used_percent{host="h"} 95
+mem_available_percent{host="h"} 5
+`),
+		}))
+		m = next.(Model)
+	}
+
+	view := m.View()
+	wantContains(t, view, "Warnings (1)")
+	wantContains(t, view, "CRITICAL")
+	wantContains(t, view, "Inspect memory-intensive processes")
+}
+
 func TestViewShowsMemoryTotals(t *testing.T) {
 	view := renderFixture(t, hostExposition)
 
