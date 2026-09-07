@@ -1,0 +1,54 @@
+{
+  "SPDX-FileCopyrightText": "(C) 2026 Intel Corporation",
+  "SPDX-License-Identifier": "Apache-2.0",
+  "processes": {
+    "maxDisplayed": 10
+  },
+  "alerts": {
+    "samplesToRaise": 3,
+    "samplesToClear": 3,
+    "hysteresisPercent": 5
+  },
+  "thresholds": {
+    "cpu.totalPercent": {
+      "careful": 65,
+      "warning": 75,
+      "critical": 85
+    },
+    "cpu.temperatureC": {
+      "careful": 70,
+      "warning": 85,
+      "critical": 95
+    },
+    "memory.usedPercent": {
+      "careful": 50,
+      "warning": 70,
+      "critical": 90
+    },
+    "gpu.utilizationPercent": {
+      "careful": 50,
+      "warning": 70,
+      "critical": 90
+    },
+    "gpu.temperatureC": {
+      "careful": 60,
+      "warning": 70,
+      "critical": 80
+    },
+    "npu.utilizationPercent": {
+      "careful": 50,
+      "warning": 70,
+      "critical": 90
+    },
+    "npu.temperatureC": {
+      "careful": 70,
+      "warning": 85,
+      "critical": 95
+    },
+    "process.cpuPercent": {
+      "careful": 50,
+      "warning": 70,
+      "critical": 90
+    }
+  }
+}

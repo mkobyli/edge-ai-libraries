@@ -5,11 +5,13 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/open-edge-platform/edge-ai-libraries/microservices/metrics-manager/native/internal/source"
 )
@@ -149,33 +151,97 @@ func TestViewSanitizesRemoteText(t *testing.T) {
 }
 
 func TestViewFitsRequestedWidth(t *testing.T) {
-	m, _ := update(t, testModel(nil), snapshotMsg(source.Snapshot{
-		At:      fixedNow,
-		Samples: parseFixture(t, hostExposition),
-	}))
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	for _, width := range []int{20, 60, 79, 80, 100, 138, 139, 209, 210} {
+		t.Run(fmt.Sprintf("%d_columns", width), func(t *testing.T) {
+			m, _ := update(t, testModel(nil), snapshotMsg(source.Snapshot{
+				At:      fixedNow,
+				Samples: parseFixture(t, hostExposition+acceleratorExposition),
+			}))
+			m, _ = update(t, m, tea.WindowSizeMsg{Width: width, Height: 200})
 
-	for _, line := range strings.Split(m.View(), "\n") {
-		if n := len([]rune(line)); n > 100 {
-			t.Errorf("line of %d runes exceeds the 100 column window: %q", n, line)
-		}
+			for _, line := range strings.Split(m.View(), "\n") {
+				if n := lipgloss.Width(line); n > width {
+					t.Errorf("line of %d columns exceeds the %d-column window: %q",
+						n, width, line)
+				}
+			}
+		})
 	}
 }
 
-func TestViewUsesFloorWidthForTinyWindows(t *testing.T) {
-	// A very narrow window must not collapse the layout into unreadable
-	// fragments; the floor keeps the columns intact and lets the terminal
-	// wrap instead. The height is generous so this stays a test about
-	// width alone, rather than also exercising the scroll clipping.
+func TestViewUsesReportedWidthForNarrowWindows(t *testing.T) {
 	m, _ := update(t, testModel(nil), snapshotMsg(source.Snapshot{
 		At:      fixedNow,
 		Samples: parseFixture(t, hostExposition),
 	}))
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 10, Height: 60})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 40, Height: 100})
 
 	view := m.View()
 	wantContains(t, view, "CPU")
 	wantContains(t, view, "Memory")
+	for _, line := range strings.Split(view, "\n") {
+		if n := lipgloss.Width(line); n > 40 {
+			t.Errorf("line of %d columns exceeds the terminal: %q", n, line)
+		}
+	}
+}
+
+func TestViewPacksPanelsAcrossWideWindows(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		width       int
+		sameLine    []string
+		notSameLine []string
+	}{
+		{
+			name:        "single column",
+			width:       138,
+			notSameLine: []string{"CPU", "Memory"},
+		},
+		{
+			name:     "two columns",
+			width:    139,
+			sameLine: []string{"CPU", "Memory"},
+		},
+		{
+			name:     "three columns",
+			width:    210,
+			sameLine: []string{"CPU", "Memory", "GPU 0"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := update(t, testModel(nil), snapshotMsg(source.Snapshot{
+				At:      fixedNow,
+				Samples: parseFixture(t, hostExposition+acceleratorExposition),
+			}))
+			m, _ = update(t, m, tea.WindowSizeMsg{Width: tt.width, Height: 200})
+
+			lines := strings.Split(m.View(), "\n")
+			if len(tt.sameLine) > 0 && !lineContainsAll(lines, tt.sameLine...) {
+				t.Errorf("%v are not rendered in the same row\n%s", tt.sameLine, m.View())
+			}
+			if len(tt.notSameLine) > 0 && lineContainsAll(lines, tt.notSameLine...) {
+				t.Errorf("%v unexpectedly share a row\n%s", tt.notSameLine, m.View())
+			}
+		})
+	}
+}
+
+func lineContainsAll(lines []string, values ...string) bool {
+	for _, line := range lines {
+		all := true
+		for _, value := range values {
+			if !strings.Contains(line, value) {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestViewMarksStaleData(t *testing.T) {
@@ -192,6 +258,89 @@ func TestViewMarksStaleData(t *testing.T) {
 	// the age readout itself.
 	wantContains(t, fresh.View(), "0.1s ago")
 	wantContains(t, stale.View(), "1h00m ago")
+}
+
+func TestViewRendersTrendCharts(t *testing.T) {
+	m := testModel(nil)
+	for sample, memory := range []float64{40, 50, 60} {
+		m, _ = update(t, m, snapshotMsg(source.Snapshot{
+			At: fixedNow.Add(time.Duration(sample) * time.Second),
+			Samples: parseFixture(t, fmt.Sprintf(`
+cpu_usage_idle{cpu="cpu-total"} %g
+mem_used_percent %g
+`, 100-memory, memory)),
+		}))
+	}
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 100})
+	m, _ = update(t, m, key("2"))
+
+	view := m.View()
+	wantContains(t, view, "[2 Trends]")
+	wantContains(t, view, "CPU utilization")
+	wantContains(t, view, "Memory used")
+	wantContains(t, view, "now 60.0%")
+	wantContains(t, view, "-5m")
+	wantContains(t, view, "●")
+
+	for _, line := range strings.Split(view, "\n") {
+		if width := lipgloss.Width(line); width > 120 {
+			t.Errorf("trend line is %d columns wide, want at most 120: %q", width, line)
+		}
+	}
+}
+
+func TestViewOmitsChartsWithoutMeasurements(t *testing.T) {
+	m := testModel(nil)
+	m, _ = update(t, m, snapshotMsg(source.Snapshot{
+		At:      fixedNow,
+		Samples: parseFixture(t, hostExposition),
+	}))
+	m, _ = update(t, m, key("2"))
+
+	view := m.View()
+	if strings.Contains(view, "GPU utilization") || strings.Contains(view, "NPU utilization") {
+		t.Errorf("view renders charts for absent accelerators\n%s", view)
+	}
+}
+
+func TestViewLimitsDisplayedProcesses(t *testing.T) {
+	config := DefaultDashboardConfig()
+	config.Processes.MaxDisplayed = 2
+	m := NewModelWithConfig(nil, config)
+	m.now = func() time.Time { return fixedNow }
+	m.dash.Processes = []Process{
+		{PID: "1", Command: "first", CPUPercent: reading(90)},
+		{PID: "2", Command: "second", CPUPercent: reading(80)},
+		{PID: "3", Command: "third", CPUPercent: reading(70)},
+	}
+
+	view := m.View()
+	wantContains(t, view, "first")
+	wantContains(t, view, "second")
+	if strings.Contains(view, "third") {
+		t.Errorf("view exceeded the configured process limit\n%s", view)
+	}
+}
+
+func TestViewShowsActiveWarnings(t *testing.T) {
+	config := DefaultDashboardConfig()
+	m := NewModelWithConfig(nil, config)
+	m.now = func() time.Time { return fixedNow }
+	for range config.Alerts.SamplesToRaise {
+		next, _ := m.Update(snapshotMsg(source.Snapshot{
+			At: fixedNow,
+			Samples: parseFixture(t, `
+mem_used_percent{host="h"} 95
+mem_available_percent{host="h"} 5
+`),
+		}))
+		m = next.(Model)
+	}
+
+	view := m.View()
+	wantContains(t, view, "Warnings (1)")
+	wantContains(t, view, "CRITICAL")
+	wantContains(t, view, "Inspect memory-intensive processes")
 }
 
 func TestViewShowsMemoryTotals(t *testing.T) {

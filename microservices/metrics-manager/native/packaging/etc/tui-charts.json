@@ -1,0 +1,51 @@
+{
+  "SPDX-FileCopyrightText": "(C) 2026 Intel Corporation",
+  "SPDX-License-Identifier": "Apache-2.0",
+  "historyDuration": "5m",
+  "maxPoints": 600,
+  "chartHeight": 6,
+  "charts": [
+    {
+      "metric": "cpu.totalPercent",
+      "title": "CPU utilization",
+      "unit": "%",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "metric": "memory.usedPercent",
+      "title": "Memory used",
+      "unit": "%",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "metric": "cpu.temperatureC",
+      "title": "CPU temperature",
+      "unit": "°C",
+      "min": 0,
+      "max": 110
+    },
+    {
+      "metric": "gpu.utilizationPercent",
+      "title": "GPU utilization",
+      "unit": "%",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "metric": "gpu.temperatureC",
+      "title": "GPU temperature",
+      "unit": "°C",
+      "min": 0,
+      "max": 110
+    },
+    {
+      "metric": "npu.utilizationPercent",
+      "title": "NPU utilization",
+      "unit": "%",
+      "min": 0,
+      "max": 100
+    }
+  ]
+}

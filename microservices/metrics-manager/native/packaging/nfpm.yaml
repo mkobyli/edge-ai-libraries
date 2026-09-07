@@ -99,6 +99,16 @@ contents:
     type: config|noreplace
     file_info: { mode: 0644 }
 
+  - src: etc/tui-dashboard.json
+    dst: /etc/metrics-manager/tui-dashboard.json
+    type: config|noreplace
+    file_info: { mode: 0644 }
+
+  - src: etc/tui-charts.json
+    dst: /etc/metrics-manager/tui-charts.json
+    type: config|noreplace
+    file_info: { mode: 0644 }
+
   # Drop-in directory for local Telegraf configuration, read after the main
   # file and never touched by an upgrade.
   - dst: /etc/metrics-manager/telegraf.d

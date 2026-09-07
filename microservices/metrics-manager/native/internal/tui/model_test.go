@@ -84,6 +84,40 @@ func TestUpdateIgnoresOtherKeys(t *testing.T) {
 	}
 }
 
+func TestUpdateSwitchesTabs(t *testing.T) {
+	m := testModel(nil)
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.activeTab != TrendsTab {
+		t.Errorf("activeTab = %v, want TrendsTab", m.activeTab)
+	}
+	m, _ = update(t, m, key("1"))
+	if m.activeTab != OverviewTab {
+		t.Errorf("activeTab = %v, want OverviewTab", m.activeTab)
+	}
+	m, _ = update(t, m, key("2"))
+	if m.activeTab != TrendsTab {
+		t.Errorf("activeTab = %v after key 2, want TrendsTab", m.activeTab)
+	}
+}
+
+func TestUpdateKeepsIndependentTabOffsets(t *testing.T) {
+	m := acceleratorModel(t, 24)
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyEnd})
+	overviewOffset := m.offset
+	if overviewOffset == 0 {
+		t.Fatal("overview did not scroll")
+	}
+
+	m, _ = update(t, m, key("2"))
+	if m.offset != 0 {
+		t.Errorf("new trends tab offset = %d, want 0", m.offset)
+	}
+	m, _ = update(t, m, key("1"))
+	if m.offset != overviewOffset {
+		t.Errorf("restored overview offset = %d, want %d", m.offset, overviewOffset)
+	}
+}
+
 func TestUpdateWindowSize(t *testing.T) {
 	m, _ := update(t, testModel(nil), tea.WindowSizeMsg{Width: 120, Height: 40})
 

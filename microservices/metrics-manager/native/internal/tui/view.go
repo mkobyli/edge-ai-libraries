@@ -5,6 +5,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -12,9 +13,15 @@ import (
 	"github.com/open-edge-platform/edge-ai-libraries/microservices/metrics-manager/native/internal/source"
 )
 
-// defaultWidth is used until the terminal reports its size, and as a floor so
-// the layout does not collapse in a very narrow window.
+// defaultWidth is used until the terminal reports its size.
 const defaultWidth = 80
+
+const (
+	// panelMinWidth leaves enough room for the widest hardware tables. Wider
+	// terminals gain columns only when every panel can remain readable.
+	panelMinWidth = 68
+	panelGap      = 3
+)
 
 // staleAfter is how old the displayed numbers may get before the freshness
 // indicator is highlighted. It is a multiple of the poll interval so a single
@@ -25,13 +32,19 @@ const staleAfter = 5 * source.DefaultInterval
 // Styles are adaptive so the dashboard stays readable on both light and dark
 // terminals rather than assuming a dark background.
 var (
-	titleStyle   = lipgloss.NewStyle().Bold(true)
-	headingStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
-	labelStyle   = lipgloss.NewStyle().Faint(true)
-	ruleStyle    = lipgloss.NewStyle().Faint(true)
-	staleStyle   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "130", Dark: "214"})
-	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "160", Dark: "203"})
-	footerStyle  = lipgloss.NewStyle().Faint(true)
+	titleStyle    = lipgloss.NewStyle().Bold(true)
+	headingStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
+	labelStyle    = lipgloss.NewStyle().Faint(true)
+	ruleStyle     = lipgloss.NewStyle().Faint(true)
+	staleStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "130", Dark: "214"})
+	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "160", Dark: "203"})
+	footerStyle   = lipgloss.NewStyle().Faint(true)
+	okStyle       = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "28", Dark: "42"})
+	carefulStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "45"})
+	warningStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "130", Dark: "214"})
+	criticalStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.AdaptiveColor{Light: "160", Dark: "203"})
 )
 
 // View renders the dashboard.
@@ -51,15 +64,16 @@ func (m Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(ruleStyle.Render(strings.Repeat("─", width)))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(footerHint(len(lines), rows, offset)))
+	b.WriteString(fitWidth(footerStyle.Render(footerHint(len(lines), rows, offset)), width))
 
 	return b.String()
 }
 
-// renderWidth is the width to lay out at, floored so the layout does not
-// collapse in a very narrow window.
+// renderWidth is the width to lay out at. Once Bubble Tea reports the terminal
+// size, the dashboard honours it instead of rendering hidden columns beyond
+// the right edge.
 func (m Model) renderWidth() int {
-	if m.width < defaultWidth {
+	if m.width <= 0 {
 		return defaultWidth
 	}
 
@@ -89,33 +103,120 @@ func (m Model) bodyLines(width int) []string {
 		b.WriteString(platform)
 		b.WriteString("\n")
 	}
+	b.WriteString(m.tabLine())
+	b.WriteString("\n")
 	b.WriteString(ruleStyle.Render(strings.Repeat("─", width)))
 	b.WriteString("\n\n")
 
-	b.WriteString(m.cpuSection())
-	b.WriteString("\n")
-	b.WriteString(m.memorySection())
+	if m.activeTab == TrendsTab {
+		b.WriteString(m.trendsGrid(width))
+	} else {
+		b.WriteString(m.panelGrid(width))
+	}
 
+	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	for i := range lines {
+		lines[i] = fitWidth(lines[i], width)
+	}
+
+	return lines
+}
+
+// panelGrid packs independent panels into as many columns as can fit without
+// squeezing their tables. The source order remains the reading order: left to
+// right, then top to bottom.
+func (m Model) panelGrid(width int) string {
+	var panels []string
+	if len(m.alerts.Active()) > 0 {
+		panels = append(panels, m.alertSection())
+	}
+	panels = append(panels, m.cpuSection(), m.memorySection())
 	for _, gpu := range m.dash.GPUs {
-		b.WriteString("\n")
-		b.WriteString(m.gpuSection(gpu))
+		panels = append(panels, m.gpuSection(gpu))
 	}
 
 	// A machine without an NPU publishes no npu_ series at all, and a panel
 	// of dashes would suggest a broken sensor rather than absent hardware.
 	if m.dash.NPU.Present {
-		b.WriteString("\n")
-		b.WriteString(m.npuSection())
+		panels = append(panels, m.npuSection())
 	}
 
-	// Processes go last because the list is the longest thing on screen and
-	// the hardware panels are what the dashboard is for.
+	// Processes go last because the hardware panels are what the dashboard
+	// is for, but on a wide terminal they can use otherwise idle space.
 	if len(m.dash.Processes) > 0 {
-		b.WriteString("\n")
-		b.WriteString(m.processSection())
+		panels = append(panels, m.processSection())
 	}
 
-	return strings.Split(b.String(), "\n")
+	return packPanels(panels, width, panelMinWidth, 3)
+}
+
+func packPanels(panels []string, width, minWidth, maxColumns int) string {
+	columns := (width + panelGap) / (minWidth + panelGap)
+	if columns < 1 {
+		columns = 1
+	}
+	if columns > maxColumns {
+		columns = maxColumns
+	}
+	if columns == 1 {
+		for i := range panels {
+			panels[i] = strings.TrimRight(panels[i], "\n")
+		}
+
+		return strings.Join(panels, "\n")
+	}
+
+	columnWidth := (width - panelGap*(columns-1)) / columns
+	rows := make([]string, 0, (len(panels)+columns-1)/columns)
+	for start := 0; start < len(panels); start += columns {
+		end := start + columns
+		if end > len(panels) {
+			end = len(panels)
+		}
+
+		row := make([]string, 0, end-start)
+		for _, content := range panels[start:end] {
+			content = strings.TrimRight(content, "\n")
+			row = append(row, lipgloss.NewStyle().
+				Width(columnWidth).
+				MaxWidth(columnWidth).
+				Render(content))
+		}
+
+		rows = append(rows, lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			joinWithGap(row, panelGap)...,
+		))
+	}
+
+	return strings.Join(rows, "\n\n")
+}
+
+// joinWithGap inserts fixed-width separators between columns.
+func joinWithGap(columns []string, gap int) []string {
+	if len(columns) < 2 {
+		return columns
+	}
+
+	out := make([]string, 0, len(columns)*2-1)
+	for i, column := range columns {
+		if i > 0 {
+			out = append(out, strings.Repeat(" ", gap))
+		}
+		out = append(out, column)
+	}
+
+	return out
+}
+
+// fitWidth keeps every rendered line inside the terminal. Lip Gloss accounts
+// for escape sequences and wide runes, unlike slicing the rendered string.
+func fitWidth(line string, width int) string {
+	if width <= 0 || lipgloss.Width(line) <= width {
+		return line
+	}
+
+	return lipgloss.NewStyle().MaxWidth(width).Render(line)
 }
 
 // clip selects the visible window of lines and reports the offset actually
@@ -145,11 +246,25 @@ func clip(lines []string, rows, offset int) ([]string, int) {
 // used when everything already fits, where scrolling keys would be noise.
 func footerHint(total, rows, offset int) string {
 	if rows <= 0 || total <= rows {
-		return "q quit"
+		return "1 overview · 2 trends · tab switch · q quit"
 	}
 
-	return fmt.Sprintf("q quit · ↑↓ pgup pgdn g G scroll · lines %d-%d of %d",
+	return fmt.Sprintf("1 overview · 2 trends · tab switch · q quit · ↑↓ pgup pgdn g G scroll · lines %d-%d of %d",
 		offset+1, offset+rows, total)
+}
+
+func (m Model) tabLine() string {
+	overview := "1 Overview"
+	trends := "2 Trends"
+	if m.activeTab == OverviewTab {
+		overview = titleStyle.Render("[" + overview + "]")
+		trends = labelStyle.Render(trends)
+	} else {
+		overview = labelStyle.Render(overview)
+		trends = titleStyle.Render("[" + trends + "]")
+	}
+
+	return overview + "   " + trends
 }
 
 // platformLine names the machine under the title, and is omitted entirely on a
@@ -185,6 +300,13 @@ func (m Model) header(width int) string {
 	left := titleStyle.Render(title)
 
 	right := m.status(width)
+	if lipgloss.Width(left)+1+lipgloss.Width(right) > width {
+		if lipgloss.Width(left) <= width {
+			return left
+		}
+
+		return fitWidth(left, width)
+	}
 
 	// Push the status to the right margin, accounting for the fact that
 	// styled strings carry escape sequences that do not occupy columns.
@@ -234,12 +356,14 @@ func (m Model) cpuSection() string {
 	b.WriteString("\n")
 
 	cpu := m.dash.CPU
-	b.WriteString(field("usage", fmt.Sprintf("user %s   system %s   idle %s",
+	total := totalCPUUsage(cpu)
+	b.WriteString(field("usage", fmt.Sprintf("total %s   user %s   system %s   idle %s",
+		m.thresholdPercent("cpu.totalPercent", total),
 		formatPercent(cpu.UsageUser),
 		formatPercent(cpu.UsageSystem),
 		formatPercent(cpu.UsageIdle))))
 	b.WriteString(field("frequency", formatFrequencyKHz(cpu.FrequencyKHz)))
-	b.WriteString(field("package temp", formatTemperature(cpu.PackageTempC)))
+	b.WriteString(field("package temp", m.thresholdTemperature("cpu.temperatureC", cpu.PackageTempC)))
 	b.WriteString(field("package power", powerAgainstLimit(cpu.PackagePowerW, cpu.TDPW)))
 	b.WriteString(field("freq limits", frequencyLimits(cpu)))
 
@@ -365,7 +489,7 @@ func (m Model) memorySection() string {
 	b.WriteString("\n")
 
 	mem := m.dash.Memory
-	used := formatPercent(mem.UsedPercent)
+	used := m.thresholdPercent("memory.usedPercent", mem.UsedPercent)
 	if mem.UsedBytes.OK && mem.TotalBytes.OK {
 		used += fmt.Sprintf("   (%s of %s)", formatBytes(mem.UsedBytes), formatBytes(mem.TotalBytes))
 	}
@@ -407,7 +531,7 @@ func (m Model) gpuSection(g GPU) string {
 
 	b.WriteString(field("power", fmt.Sprintf("graphics %s   package %s",
 		formatWatts(g.PowerW), formatWatts(g.PackagePowerW))))
-	b.WriteString(field("temperature", formatTemperature(g.TempC)))
+	b.WriteString(field("temperature", m.thresholdTemperature("gpu.temperatureC", g.TempC)))
 	b.WriteString(field("shared mem", memoryPair(g.SharedUsedBytes, g.SharedTotalBytes)))
 
 	// An integrated GPU reports a zero VRAM total rather than omitting the
@@ -418,7 +542,7 @@ func (m Model) gpuSection(g GPU) string {
 
 	if len(g.Engines) > 0 {
 		b.WriteString("\n")
-		b.WriteString(engineTable(g.Engines))
+		b.WriteString(m.engineTable(g.Engines))
 	}
 	if len(g.Tiles) > 0 {
 		b.WriteString("\n")
@@ -482,15 +606,20 @@ func (m Model) processSection() string {
 	b.WriteString(headingStyle.Render("Processes"))
 	b.WriteString("\n")
 
-	rows := make([][]string, 0, len(m.dash.Processes))
-	for _, p := range m.dash.Processes {
+	limit := m.config.Processes.MaxDisplayed
+	processes := m.dash.Processes
+	if len(processes) > limit {
+		processes = processes[:limit]
+	}
+	rows := make([][]string, 0, len(processes))
+	for _, p := range processes {
 		rows = append(rows, []string{
 			// A process names itself, so both of these are attacker
 			// controlled and are bounded and escaped like every other
 			// external string that reaches the terminal.
 			sanitize(p.PID, 8),
 			sanitize(p.Command, 20),
-			formatPercent(p.CPUPercent),
+			m.thresholdPercent("process.cpuPercent", p.CPUPercent),
 			formatBytes(p.MemoryBytes),
 		})
 	}
@@ -517,12 +646,12 @@ var engineColumns = []column{
 	{"usage", 9, false},
 }
 
-func engineTable(engines []GPUEngine) string {
+func (m Model) engineTable(engines []GPUEngine) string {
 	rows := make([][]string, 0, len(engines))
 	for _, e := range engines {
 		rows = append(rows, []string{
 			sanitize(e.Name, engineColumns[0].width),
-			formatPercent(e.Usage),
+			m.thresholdPercent("gpu.utilizationPercent", e.Usage),
 		})
 	}
 
@@ -581,10 +710,10 @@ func (m Model) npuSection() string {
 	b.WriteString("\n")
 
 	npu := m.dash.NPU
-	b.WriteString(field("utilization", formatPercent(npu.Utilization)))
+	b.WriteString(field("utilization", m.thresholdPercent("npu.utilizationPercent", npu.Utilization)))
 	b.WriteString(field("frequency", npuFrequency(npu)))
 	b.WriteString(field("power", formatWatts(npu.PowerW)))
-	b.WriteString(field("temperature", formatTemperature(npu.TempC)))
+	b.WriteString(field("temperature", m.thresholdTemperature("npu.temperatureC", npu.TempC)))
 	b.WriteString(field("bandwidth", formatBandwidth(npu.BandwidthMBps)))
 	b.WriteString(field("memory", formatMegabytes(npu.MemoryMB)))
 	b.WriteString(field("tile config", formatCount(npu.TileConfig)))
@@ -656,4 +785,56 @@ func field(label, value string) string {
 	padded := fmt.Sprintf("  %-*s", fieldLabelWidth, label)
 
 	return labelStyle.Render(padded) + value + "\n"
+}
+
+func (m Model) thresholdPercent(metric string, value Reading) string {
+	return m.thresholdValue(metric, value, formatPercent)
+}
+
+func (m Model) thresholdTemperature(metric string, value Reading) string {
+	return m.thresholdValue(metric, value, formatTemperature)
+}
+
+func (m Model) thresholdValue(metric string, value Reading, format func(Reading) string) string {
+	text := format(value)
+	threshold, enabled := m.config.Thresholds[metric]
+	if !enabled || !value.OK || math.IsNaN(value.Value) || math.IsInf(value.Value, 0) {
+		return text
+	}
+
+	return severityStyle(classify(value.Value, threshold)).Render(text)
+}
+
+func severityStyle(severity Severity) lipgloss.Style {
+	switch severity {
+	case SeverityCareful:
+		return carefulStyle
+	case SeverityWarning:
+		return warningStyle
+	case SeverityCritical:
+		return criticalStyle
+	default:
+		return okStyle
+	}
+}
+
+func (m Model) alertSection() string {
+	var b strings.Builder
+	alerts := m.alerts.Active()
+	b.WriteString(criticalStyle.Render(fmt.Sprintf("Warnings (%d)", len(alerts))))
+	b.WriteString("\n")
+	for _, alert := range alerts {
+		label := alert.Metric
+		if alert.Device != "" {
+			label = alert.Device + " · " + label
+		}
+		line := fmt.Sprintf("%-8s %s: current %.1f · threshold %.1f", alert.Severity, label,
+			alert.Value, alert.Threshold)
+		b.WriteString(severityStyle(alert.Severity).Render(line))
+		b.WriteString("\n")
+		b.WriteString(labelStyle.Render("  " + alert.Message))
+		b.WriteString("\n")
+	}
+
+	return b.String()
 }
