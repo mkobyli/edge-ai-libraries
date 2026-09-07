@@ -175,10 +175,6 @@ spec:
               value: {{ if .Values.hardware.telemetry.enabled }}"true"{{ else }}{{ .Values.config.hardwareTelemetryEnabled | quote }}{{ end }}
             - name: QMASSA_FIFO_PATH
               value: {{ if .Values.hardware.telemetry.enabled }}"/app/qmassa.fifo"{{ else }}"/tmp/qmassa.fifo"{{ end }}
-            - name: QMASSA_LOG_TO_STDERR
-              value: {{ if .Values.hardware.telemetry.enabled }}"false"{{ else }}"true"{{ end }}
-            - name: NPU_READER_LOG_FILE
-              value: {{ if .Values.hardware.telemetry.enabled }}"/app/npu_reader_trace.log"{{ else }}"/tmp/npu_reader_trace.log"{{ end }}
             - name: METRICS_MANAGER_HOSTNAME
               value: {{ .Values.config.hostnameOverride | quote }}
             - name: CUSTOM_METRICS_DIR

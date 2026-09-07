@@ -304,7 +304,12 @@ metrics-manager/
 │   ├── logging_config.py    # Structured logging setup
 │   └── responses.py         # API response models
 ├── tests/                   # Pytest test suite
-├── scripts/                 # System metrics scripts
+├── native/                  # Go telemetry plugins, shared by the container
+│   ├── cmd/                 #   and the bare-metal package
+│   │   ├── mm-plugin-cpu/   # CPU frequency and per-core-class utilisation
+│   │   ├── mm-plugin-gpu/   # Intel GPU, parsed from the qmassa named pipe
+│   │   └── mm-plugin-npu/   # Intel NPU, read via PMT sysfs
+│   └── internal/            # Shared parsing and line-protocol packages
 ├── helm/                    # Helm chart published as oci://.../metrics-manager:<VERSION>-helm
 │   └── metrics-manager/
 │       ├── Chart.yaml       # Chart metadata (version, appVersion)
@@ -340,6 +345,7 @@ metrics-manager/
 | [Environment Variables](./docs/user-guide/get-started/environment-variables.md) | Configuration through environment variables and Telegraf config     |
 | [Custom Metrics](./docs/user-guide/get-started/custom-metrics.md)               | Using the REST API for custom metrics                               |
 | [Deploy with Helm](./docs/user-guide/get-started/deploy-with-helm.md)           | Kubernetes deployment via the published OCI Helm chart              |
+| [Bare-metal Package](./docs/user-guide/get-started/bare-metal-package.md)       | Installing telemetry and the terminal dashboard without a container |
 | [Testing](./docs/user-guide/get-started/testing.md)                             | Unit tests, smoke tests, development setup                          |
 | [How It Works](./docs/user-guide/how-it-works.md)                               | Architecture, data flow, and component relationships                |
 | [API Reference](./docs/user-guide/api-reference.md)                             | All endpoints, formats, examples, response models                   |

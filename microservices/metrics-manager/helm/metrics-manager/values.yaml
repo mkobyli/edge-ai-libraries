@@ -41,7 +41,7 @@ controller:
 # Pod-level configuration
 # -----------------------------------------------------------------------------
 pod:
-  # Required for the bundled npu_reader to read /proc/<pid>/... and the
+  # Required for the bundled mm-plugin-npu to read /proc/<pid>/... and the
   # Telegraf [[inputs.system]] / [[inputs.processes]] plugins to see all
   # processes on the host. Equivalent to `pid: host` in compose.yaml.
   hostPID: false
@@ -145,7 +145,7 @@ config:
   metricsRetentionSeconds: 300
   maxMetricsBatchSize: 1000
   hardwareTelemetryEnabled: false
-  # Optional: stable host label for Telegraf, qmassa_reader and npu_reader.
+  # Optional: stable host label for Telegraf and the `mm-plugin-*` collectors.
   # Empty -> kernel hostname (default Telegraf behaviour).
   hostnameOverride: ""
   # Free-form extra environment variables. Use this for any setting not

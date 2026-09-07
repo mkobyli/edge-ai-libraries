@@ -201,8 +201,8 @@ ls /sys/class/intel_pmt/
 # Verify privileged mode
 docker inspect metrics-manager | grep Privileged
 
-# Check npu_reader logs
-docker exec metrics-manager cat /app/npu_reader_trace.log
+# Check the NPU plugin's diagnostics (it logs to stderr, which Telegraf relays)
+docker logs metrics-manager 2>&1 | grep mm-plugin-npu
 
 # View supervisord status
 docker exec metrics-manager supervisorctl -c /etc/supervisor/supervisord.conf status

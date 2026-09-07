@@ -452,7 +452,10 @@ async def prometheus_metrics() -> str:
 
     lines: list[str] = []
     seen_metric_names: set = set()
-    for name, metric in latest.items():
+    # The mapping is keyed per series, so the key may carry tags; the bare
+    # measurement name lives on the metric itself.
+    for metric in latest.values():
+        name = metric.name
         escaped_tags = {
             k: _escape_prometheus_label_value(str(v)) for k, v in (metric.tags or {}).items()
         }

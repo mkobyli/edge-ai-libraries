@@ -25,8 +25,8 @@ docker pull intel/metrics-manager:2026.1.0
 The image is based on `python:3.12-slim` and includes:
 
 - Telegraf 1.39.3 (system metrics agent)
-- qmassa 1.3.1 (Intel® GPU telemetry)
-- Intel® NPU reader (`npu_reader.py`)
+- qmassa 2.1.0 (Intel® GPU telemetry)
+- Native Go collectors: `mm-plugin-cpu`, `mm-plugin-gpu`, `mm-plugin-npu`
 - Python 3.12 runtime with FastAPI
 - supervisord process manager
 
@@ -415,6 +415,7 @@ See [Troubleshooting](./troubleshooting.md) for more issues.
 - **Configure**: See [Environment Variables](./get-started/environment-variables.md)
 - **Custom metrics**: See [Custom Metrics Scripts](./get-started/custom-metrics.md)
 - **Kubernetes**: See [Helm Deployment](./get-started/deploy-with-helm.md)
+- **Without a container**: See [Bare-metal Package](./get-started/bare-metal-package.md)
 
 ## Supporting Resources
 
@@ -437,6 +438,7 @@ SPDX-License-Identifier: Apache-2.0
 ./get-started/deploy-with-helm.md
 ./get-started/environment-variables.md
 ./get-started/custom-metrics.md
+./get-started/bare-metal-package.md
 ./get-started/testing.md
 
 :::

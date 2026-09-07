@@ -11,6 +11,23 @@ TAG     ?= $(VERSION)
 REGISTRY ?=
 INSTALL_OPENVINO ?= false
 
+# Third-party component versions (Telegraf, qmassa, toolchain images).
+# versions.env is the single source of truth; the Dockerfile only carries
+# mirrored ARG defaults so a plain `docker build .` still works. Edit
+# versions.env, then run `make sync-versions`.
+include versions.env
+export TELEGRAF_VERSION TELEGRAF_SHA256 QMASSA_VERSION QMMD_VERSION
+export RUST_IMAGE GO_IMAGE
+
+# Passed to every image build so the pins in versions.env win over the
+# Dockerfile ARG defaults.
+BUILD_ARGS := \
+	--build-arg TELEGRAF_VERSION=$(TELEGRAF_VERSION) \
+	--build-arg TELEGRAF_SHA256=$(TELEGRAF_SHA256) \
+	--build-arg QMASSA_VERSION=$(QMASSA_VERSION) \
+	--build-arg QMMD_VERSION=$(QMMD_VERSION) \
+	--build-arg RUST_IMAGE=$(RUST_IMAGE)
+
 # Helm packaging configuration. Charts are pushed to the same OCI path as
 # the container image; the chart version carries a `-helm` suffix so the
 # two artefacts coexist under intel/metrics-manager:<X.Y.Z> (image) and
@@ -24,12 +41,14 @@ export TAG
 export REGISTRY
 export INSTALL_OPENVINO
 
-.PHONY: help version build build-test up down logs test clean bump \
+.PHONY: help version versions sync-versions build build-test up down logs test clean bump \
         helm-lint helm-template helm-package helm-push generate-helm
 
 help:
 	@echo "Metrics Manager - available targets:"
 	@echo "  make version            Print the version read from VERSION"
+	@echo "  make versions           Print the third-party pins read from versions.env"
+	@echo "  make sync-versions      Mirror versions.env into the Dockerfile ARG defaults"
 	@echo "  make build              Build the slim metrics-manager image tagged $(REGISTRY)metrics-manager:$(TAG)"
 	@echo "  INSTALL_OPENVINO=true make build  Build the extended image with OpenVINO and Intel media VA drivers"
 	@echo "  make build-test         Build the metrics-manager-test image"
@@ -52,12 +71,32 @@ help:
 version:
 	@echo $(VERSION)
 
+versions:
+	@echo "TELEGRAF_VERSION = $(TELEGRAF_VERSION)"
+	@echo "TELEGRAF_SHA256  = $(TELEGRAF_SHA256)"
+	@echo "QMASSA_VERSION   = $(QMASSA_VERSION)"
+	@echo "QMMD_VERSION     = $(QMMD_VERSION)"
+	@echo "RUST_IMAGE       = $(RUST_IMAGE)"
+	@echo "GO_IMAGE         = $(GO_IMAGE)"
+
+# Mirror versions.env into the Dockerfile ARG defaults. Run this after editing
+# versions.env; tests/test_versions.py fails if the two drift apart.
+sync-versions:
+	@sed -i.bak -E \
+		-e 's|^ARG RUST_IMAGE=.*|ARG RUST_IMAGE=$(RUST_IMAGE)|' \
+		-e 's|^ARG QMASSA_VERSION=.*|ARG QMASSA_VERSION=$(QMASSA_VERSION)|' \
+		-e 's|^ARG QMMD_VERSION=.*|ARG QMMD_VERSION=$(QMMD_VERSION)|' \
+		-e 's|^ARG TELEGRAF_VERSION=.*|ARG TELEGRAF_VERSION=$(TELEGRAF_VERSION)|' \
+		-e 's|^ARG TELEGRAF_SHA256=.*|ARG TELEGRAF_SHA256=$(TELEGRAF_SHA256)|' \
+		Dockerfile && rm Dockerfile.bak
+	@echo "Dockerfile ARG defaults synced from versions.env"
+
 build:
 	@test -n "$(VERSION)" || (echo "ERROR: VERSION file is missing or empty" && exit 1)
-	docker compose build metrics-manager
+	docker compose build $(BUILD_ARGS) metrics-manager
 
 build-test:
-	docker compose build metrics-manager-test
+	docker compose build $(BUILD_ARGS) metrics-manager-test
 
 up:
 	docker compose up -d metrics-manager

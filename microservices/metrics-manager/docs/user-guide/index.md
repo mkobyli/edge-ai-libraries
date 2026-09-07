@@ -87,6 +87,7 @@ For details, see [How It Works](./how-it-works.md).
 - [Environment Variables](./get-started/environment-variables.md)
 - [Custom Metrics Scripts](./get-started/custom-metrics.md)
 - [Helm Deployment](./get-started/deploy-with-helm.md)
+- [Bare-metal Package](./get-started/bare-metal-package.md)
 - [Building from Source](./get-started/build-from-source.md)
 - [Troubleshooting](./troubleshooting.md)
 - [Release Notes](./release-notes.md)

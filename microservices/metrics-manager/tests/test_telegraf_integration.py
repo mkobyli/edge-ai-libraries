@@ -70,25 +70,26 @@ class TestDefaultTelegrafConfig:
     def test_hostname_override_wired_in_agent(self, telegraf_text: str):
         # METRICS_MANAGER_HOSTNAME must reach Telegraf's [agent] block so the
         # built-in inputs (cpu/mem/temp) carry the same `host=` tag as the
-        # custom readers (qmassa_reader.py, npu_reader.py).
+        # native plugins.
         assert 'hostname = "${METRICS_MANAGER_HOSTNAME}"' in telegraf_text
 
 
 class TestHostnameOverrideWiring:
-    """METRICS_MANAGER_HOSTNAME must be wired through compose + both readers."""
+    """METRICS_MANAGER_HOSTNAME must be wired through compose + the native plugins."""
 
     def test_compose_passes_env_var(self, compose_text: str):
         assert "METRICS_MANAGER_HOSTNAME=${METRICS_MANAGER_HOSTNAME:-}" in compose_text
 
-    def test_qmassa_reader_reads_env_var(self):
-        text = (REPO_ROOT / "scripts" / "qmassa_reader.py").read_text(encoding="utf-8")
-        assert 'os.environ.get("METRICS_MANAGER_HOSTNAME")' in text
-        assert "or os.uname()[1]" in text
-
-    def test_npu_reader_reads_env_var(self):
-        text = (REPO_ROOT / "scripts" / "npu_reader.py").read_text(encoding="utf-8")
-        assert 'os.environ.get("METRICS_MANAGER_HOSTNAME")' in text
-        assert "or os.uname()[1]" in text
+    @pytest.mark.parametrize("plugin", ["mm-plugin-gpu", "mm-plugin-npu"])
+    def test_native_plugin_reads_env_var(self, plugin: str):
+        # The GPU and NPU plugins stamp the host tag themselves, so they have to
+        # honour the override independently of Telegraf's [agent] hostname. The
+        # CPU plugin emits no host tag at all and inherits Telegraf's, matching
+        # the shell script it replaced.
+        source = REPO_ROOT / "native" / "cmd" / plugin / "main.go"
+        text = source.read_text(encoding="utf-8")
+        assert 'os.Getenv("METRICS_MANAGER_HOSTNAME")' in text
+        assert "os.Hostname()" in text
 
 
 class TestComposeWiring:
@@ -184,7 +185,7 @@ class TestImageDirectories:
 5. Confirm the SSE stream is delivering metrics:
    curl -N -H 'Accept: text/event-stream' http://localhost:9090/metrics/stream
 
-6. Verify NPU reader (on NPU-equipped hosts only):
-   docker exec metrics-manager ps -ef | grep npu_reader
+6. Verify the NPU plugin (on NPU-equipped hosts only):
+   docker exec metrics-manager ps -ef | grep mm-plugin-npu
    curl -s http://localhost:9273/metrics | grep '^npu_'
 """

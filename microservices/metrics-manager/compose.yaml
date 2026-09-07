@@ -59,7 +59,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
 
-      # Stable host label for Telegraf, qmassa_reader and npu_reader.
+      # Stable host label for Telegraf and the `mm-plugin-*` collectors.
       # When unset all three fall back to the kernel hostname; set it to a
       # fixed value (e.g. an asset tag) to keep Grafana dashboards stable
       # across reboots where the kernel hostname may change.

@@ -11,7 +11,8 @@
 # - Python FastAPI service for metrics relay and custom metrics ingestion
 # - qmassa for GPU metrics (Intel GPUs) - long-running, JSON FIFO output
 # - qmmd Prometheus exporter (bundled, OPT-IN; not started by default)
-# - npu_monitor_tool / npu_reader for Intel NPU telemetry via PMT sysfs
+# - Native Go plugins for CPU, Intel GPU and Intel NPU telemetry, shared
+#   verbatim with the bare-metal package
 # - Supervisor for process management
 #
 # Mount points for custom configuration:
@@ -24,12 +25,26 @@
 # Source repository / issues / docs:
 #   https://github.com/open-edge-platform/edge-ai-libraries
 #   (subdirectory: metrics-manager)
+#
+# Third-party component versions are pinned in ./versions.env (single source of
+# truth). The ARG defaults below mirror that file so a plain `docker build .`
+# keeps working; `make build` passes them explicitly and tests/test_versions.py
+# fails the build if the two ever drift apart. Run `make sync-versions` after
+# editing versions.env.
 # =============================================================================
+
+# Toolchain base images (mirrors versions.env).
+ARG RUST_IMAGE=docker.io/library/rust:1.88
+ARG GO_IMAGE=docker.io/library/golang:1.26.6
 
 # -----------------------------------------------------------------------------
 # Stage 1: Build qmassa for GPU metrics
 # -----------------------------------------------------------------------------
-FROM docker.io/library/rust:1.88 AS qmassa-builder
+FROM ${RUST_IMAGE} AS qmassa-builder
+
+# Upstream tags for the two workspace members (mirrors versions.env).
+ARG QMASSA_VERSION=2.1.0
+ARG QMMD_VERSION=0.2.0
 
 # Proxy settings (passed from docker-compose build args)
 ARG http_proxy
@@ -62,19 +77,26 @@ RUN apt-get update && \
 # The --locked flag is kept, so the build stays fully reproducible. This
 # avoids build failures if a pinned crates.io version is ever yanked from
 # the registry by the upstream maintainer.
-RUN cargo install --locked --git https://github.com/ulissesf/qmassa --tag qmmd-v0.2.0 qmmd
-RUN cargo install --locked --git https://github.com/ulissesf/qmassa --tag qmassa-v2.1.0 qmassa
+RUN cargo install --locked --git https://github.com/ulissesf/qmassa --tag qmmd-v${QMMD_VERSION} qmmd
+RUN cargo install --locked --git https://github.com/ulissesf/qmassa --tag qmassa-v${QMASSA_VERSION} qmassa
 
 # -----------------------------------------------------------------------------
-# Stage 2: Build Telegraf from source with patched dependencies
+# Stage 2: Fetch the official Telegraf binary
 # -----------------------------------------------------------------------------
-# Built from source (instead of the upstream .deb) to patch known CVEs in
-# bundled Go dependencies:
-# Using golang:1.26 (1.26.6+) also resolves stdlib CVEs fixed in Go 1.26.6.
-# Digest pinned for reproducible builds — decoupled from Docker Hub tag updates.
-FROM golang:1.26.6@sha256:0d1d3a794be25f809dd2cb3160d8c73276c4056a9f8242a138e908ddeee7b6b6 AS telegraf-builder
+# The official upstream release archive is used so that the container image and
+# the bare-metal .deb ship one identical, reproducible Telegraf binary. The
+# archive is verified against a pinned SHA-256 digest BEFORE extraction, so a
+# tampered, truncated or man-in-the-middled download aborts the build.
+#
+# Trade-off: the official binary bundles Go dependencies that may carry known
+# CVEs not yet fixed upstream. This is accepted deliberately and must be
+# re-evaluated on every bump of TELEGRAF_VERSION in versions.env.
+FROM debian:12-slim AS telegraf-builder
 
+# Mirrors versions.env.
 ARG TELEGRAF_VERSION=1.39.3
+ARG TELEGRAF_SHA256=2904d5332a27a1a3f7ccd990139af2e9bc3b393cf5f7c6ac13e26ebc18df1d52
+ARG TELEGRAF_BASE_URL=https://dl.influxdata.com/telegraf/releases
 
 ARG http_proxy
 ARG HTTP_PROXY
@@ -90,33 +112,71 @@ ENV http_proxy=${http_proxy} \
     no_proxy=${no_proxy} \
     NO_PROXY=${NO_PROXY}
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && \
-    apt-get install --yes --no-install-recommends git libudev-dev && \
+    apt-get install --yes --no-install-recommends ca-certificates curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 --branch v${TELEGRAF_VERSION} \
-    https://github.com/influxdata/telegraf /telegraf
-
-WORKDIR /telegraf
-
-# Cache Go module downloads across builds to avoid re-fetching on every run.
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go get github.com/moby/go-archive@v0.3.0 && \
-    go mod tidy
-
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go build \
-        -ldflags="-s -w -X github.com/influxdata/telegraf/internal.Version=${TELEGRAF_VERSION}" \
-        -o /usr/bin/telegraf ./cmd/telegraf
+# Download over TLS only, verify the digest, then extract just the binary.
+# `sha256sum --check --strict` exits non-zero on mismatch, failing the build.
+RUN set -eux; \
+    archive="telegraf-${TELEGRAF_VERSION}_linux_amd64.tar.gz"; \
+    curl --fail --silent --show-error --location \
+         --proto '=https' --tlsv1.2 \
+         --output "/tmp/${archive}" "${TELEGRAF_BASE_URL}/${archive}"; \
+    echo "${TELEGRAF_SHA256}  /tmp/${archive}" | sha256sum --check --strict -; \
+    tar --extract --gzip --file "/tmp/${archive}" --directory /tmp \
+        "telegraf-${TELEGRAF_VERSION}/usr/bin/telegraf"; \
+    install -m 0755 "/tmp/telegraf-${TELEGRAF_VERSION}/usr/bin/telegraf" /usr/bin/telegraf; \
+    rm -rf "/tmp/${archive}" "/tmp/telegraf-${TELEGRAF_VERSION}"; \
+    /usr/bin/telegraf --version
 
 # -----------------------------------------------------------------------------
-# Stage 3: Build Python dependencies
+# Stage 3: Build the native telemetry plugins
+# -----------------------------------------------------------------------------
+# The CPU, GPU and NPU collectors are Go programs that speak InfluxDB Line
+# Protocol on stdout, so Telegraf runs them through inputs.execd. The very same
+# binaries are shipped in the bare-metal .deb, which is why the collection
+# logic lives here rather than in the container-only Python layer.
+#
+# The plugins themselves have no third-party dependencies, but the module also
+# holds the bare-metal TUI, which pulls in Bubble Tea and Lip Gloss. The image
+# does not ship the TUI; it is only compiled here because the vet and test
+# steps below cover the whole module.
+#
+# Those dependencies are fetched from the module proxy and verified against the
+# hashes in go.sum, so a tampered or substituted module fails the build. This
+# stage therefore needs network access. -mod=readonly is what makes the build
+# honest about it: the toolchain may download what go.mod already pins, but it
+# refuses to edit go.mod or go.sum, so a missing or drifted requirement fails
+# here instead of being silently rewritten into the image.
+FROM ${GO_IMAGE} AS go-builder
+
+ARG VERSION=unknown
+
+WORKDIR /src
+COPY native/ ./
+
+# CGO is disabled so the result is a static binary that does not depend on the
+# glibc of the final image. -trimpath keeps build paths out of the binary,
+# which makes the output reproducible.
+ENV CGO_ENABLED=0 GOFLAGS=-mod=readonly
+
+RUN set -eux; \
+    mkdir -p /out; \
+    go vet ./...; \
+    go test ./...; \
+    for plugin in mm-plugin-cpu mm-plugin-gpu mm-plugin-npu mm-plugin-proc mm-plugin-membw; do \
+        go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+            -o "/out/${plugin}" "./cmd/${plugin}"; \
+    done
+
+# -----------------------------------------------------------------------------
+# Stage 4: Build Python dependencies
 # -----------------------------------------------------------------------------
 FROM python:3.12-slim AS python-builder
-
 # Proxy settings (passed from docker-compose build args)
 ARG http_proxy
 ARG HTTP_PROXY
@@ -154,7 +214,7 @@ RUN if [ "$INSTALL_OPENVINO" = "true" ]; then \
     fi
 
 # -----------------------------------------------------------------------------
-# Stage 3: Test image
+# Stage 5: Test image
 # -----------------------------------------------------------------------------
 FROM python-builder AS test
 
@@ -166,10 +226,11 @@ RUN uv sync --group test --no-install-project
 # Copy source code, tests, and all config files read by wiring tests
 COPY app ./app
 COPY tests ./tests
-COPY scripts ./scripts
+COPY native ./native
 COPY helm ./helm
 COPY pyproject.toml ./
 COPY VERSION ./
+COPY versions.env ./
 COPY .env.example ./
 COPY telegraf.conf ./
 COPY compose.yaml ./
@@ -180,7 +241,7 @@ COPY Dockerfile ./
 CMD ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]
 
 # -----------------------------------------------------------------------------
-# Stage 4: Final image
+# Stage 6: Final image
 # -----------------------------------------------------------------------------
 FROM python:3.12-slim AS production
 
@@ -208,7 +269,11 @@ ENV http_proxy=${http_proxy} \
 COPY --from=qmassa-builder /usr/local/cargo/bin/qmassa /usr/local/bin/qmassa
 COPY --from=qmassa-builder /usr/local/cargo/bin/qmmd /usr/local/bin/qmmd
 
-# Copy Telegraf binary (built from source with patched dependencies)
+# Copy the telemetry plugins. They live in /usr/libexec so the container and
+# the bare-metal .deb refer to them by the very same path.
+COPY --from=go-builder /out/ /usr/libexec/metrics-manager/
+
+# Copy the official Telegraf binary (digest-verified in the fetch stage)
 COPY --from=telegraf-builder /usr/bin/telegraf /usr/bin/telegraf
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -262,20 +327,15 @@ RUN mkdir -p /app/custom-metrics /app/config
 
 # Copy application files
 COPY app ./app
-COPY scripts ./scripts
 COPY VERSION ./
 COPY telegraf.conf /etc/telegraf/telegraf.conf
 COPY supervisord.conf /etc/supervisor/supervisord.conf
 COPY entrypoint.sh /entrypoint.sh
 
 # Strip CRLF (handles files copied from Windows working directories)
-RUN sed -i 's/\r$//' /entrypoint.sh /etc/telegraf/telegraf.conf /etc/supervisor/supervisord.conf && \
-    find /app/scripts -name "*.sh" -o -name "*.py" | xargs sed -i 's/\r$//'
+RUN sed -i 's/\r$//' /entrypoint.sh /etc/telegraf/telegraf.conf /etc/supervisor/supervisord.conf
 
-# Make scripts executable
 RUN chmod +x /entrypoint.sh && \
-    find /app/scripts -name "*.sh" -exec chmod +x {} + && \
-    find /app/scripts -name "*.py" -exec chmod +x {} + && \
     groupadd --gid ${METRICS_MANAGER_GID} metrics-manager && \
     useradd --uid ${METRICS_MANAGER_UID} --gid ${METRICS_MANAGER_GID} \
         --create-home --shell /usr/sbin/nologin metrics-manager && \
@@ -287,8 +347,6 @@ ENV METRICS_PORT=9090
 ENV TELEGRAF_PORT=9273
 ENV HARDWARE_TELEMETRY_ENABLED=false
 ENV QMASSA_FIFO_PATH=/app/qmassa.fifo
-ENV QMASSA_LOG_TO_STDERR=false
-ENV NPU_READER_LOG_FILE=/app/npu_reader_trace.log
 ENV LOG_LEVEL=INFO
 ENV CORS_ORIGINS="*"
 ENV CUSTOM_METRICS_DIR=/app/custom-metrics

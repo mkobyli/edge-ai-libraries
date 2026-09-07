@@ -16,7 +16,7 @@ Configuration is managed via environment variables. All variables map directly t
 | `LOG_INCLUDE_TIMESTAMP` | `true` | Include timestamp field in log entries |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins (comma-separated or JSON array). Set to `http://localhost:3000,http://my-dashboard:3000` to restrict |
 | `CORS_ALLOW_CREDENTIALS` | `false` | Allow credentials in CORS requests (cookies, etc.) |
-| `METRICS_MANAGER_HOSTNAME` | _(unset)_ | Override the `host=` tag stamped on every metric (Telegraf, qmassa_reader.py, npu_reader.py). Unset = use kernel hostname. Set to a stable value (e.g., `lab-node-42`) to keep Grafana dashboards stable across reboots |
+| `METRICS_MANAGER_HOSTNAME` | _(unset)_ | Override the `host=` tag stamped on every metric (Telegraf and the `mm-plugin-*` collectors). Unset = use kernel hostname. Set to a stable value (e.g., `lab-node-42`) to keep Grafana dashboards stable across reboots |
 
 ## Metrics Storage
 
@@ -181,7 +181,7 @@ The Metrics Manager image includes optional components that are bundled but not 
 
 **Current Status:** Bundled in the image but **NOT started by default**.
 
-**Why not enabled:** The default Metrics Manager already collects GPU metrics via `qmassa_reader.py` and Telegraf's `inputs.execd`. Using both would be redundant.
+**Why not enabled:** The default Metrics Manager already collects GPU metrics via `mm-plugin-gpu` and Telegraf's `inputs.execd`. Using both would be redundant.
 
 **When to enable:** If you want a dedicated GPU metrics exporter that outputs to a separate Prometheus port (typically `:9100` or similar) without going through Telegraf.
 

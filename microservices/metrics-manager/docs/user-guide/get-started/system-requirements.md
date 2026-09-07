@@ -51,7 +51,7 @@ The capabilities endpoint (`GET /api/v1/capabilities`) is available wherever the
 
 - Requires Intel Arc GPU to be installed on the system
 - No additional drivers needed in the container (GPU metrics read from sysfs)
-- The qmassa reader (`scripts/qmassa_reader.py`) automatically detects the GPU and publishes metrics
+- The GPU plugin (`mm-plugin-gpu`) automatically detects the GPU and publishes metrics
 
 **Collected metrics:**
 

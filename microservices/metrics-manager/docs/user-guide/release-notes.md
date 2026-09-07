@@ -13,7 +13,12 @@
 
 **Improved:**
 
-- **Telegraf 1.38.4 Built from Source**: Compiled from the upstream `v1.38.4` tag using a digest-pinned Go 1.26.4 toolchain. Patches vulnerable bundled dependencies (`rclone` → 1.73.5, `go-billy` → 5.9.0), remediating known CVEs and producing a fully reproducible build.
+- **Native Go Telemetry Plugins**: The CPU, Intel® GPU and Intel® NPU collectors are now single static Go binaries (`mm-plugin-cpu`, `mm-plugin-gpu`, `mm-plugin-npu`) in `/usr/libexec/metrics-manager/`, replacing the previous shell and Python readers. Output is unchanged for existing series, so dashboards and Prometheus queries keep working. The same binaries are shipped by the bare-metal package, so a container and a native install report identical metrics from one codebase.
+  - **New GPU series**: per-tile frequency and throttle reasons, GPU memory, and GPU temperature. Multi-tile parts such as Meteor Lake now report every graphics tile instead of only the first, so `gpu_frequency` carries an additional `tile` label.
+  - **New CPU series**: `cpu_core_class` breaks frequency and utilisation down by P, E and low-power-E cores.
+  - **Opt-in per-process GPU usage**: `mm-plugin-gpu -clients` emits a `gpu_client` measurement tagged by PID. It is excluded from the Prometheus endpoint by default, because one series per process is unbounded cardinality.
+- **Telegraf 1.39.3**: The official upstream release archive is used and verified against a pinned SHA-256 digest before extraction, so a tampered or truncated download fails the build.
+- **Pinned Third-Party Versions**: All third-party component versions live in a single `versions.env`, mirrored into the `Dockerfile` and enforced by tests, so the container and the bare-metal package cannot drift apart.
 - **qmassa 2.1.0 and qmmd 0.2.0**: Installed with `cargo install --locked --git … --tag …` from upstream instead of crates.io, preventing build failures from yanked versions and bringing the latest Intel® GPU telemetry improvements.
 - **Security Hardening**: Several attack-surface reductions in the production image: `supervisor` installed via `pip` (4.3.0), `perl-base` purged, `curl` removed (healthcheck replaced with a Python one-liner), and supervisord's Unix socket configured with an explicit user/password placeholder.
 - **Build and Developer Loop**: Go module and build caches added to the `Dockerfile`, with leaner service startup/shutdown in `Makefile` and `compose.yaml` for shorter `make test` and `docker compose up/down` turnaround.
@@ -121,13 +126,13 @@ None at this release. See GitHub issues for feature requests and discussions.
 
 - Intel® Metrics Manager **2026.1.0**
 - Telegraf **1.39.3** (system metrics agent)
-- qmassa **1.3.1** (Intel® GPU telemetry via named pipe)
-- qmmd **0.1.1** _(optional)_ — Lightweight Prometheus GPU exporter (bundled but **not started by default**; use only if you need a separate GPU metrics port)
-- Intel® NPU telemetry via bundled `npu_monitor_tool` / `npu_reader`
+- qmassa **2.1.0** (Intel® GPU telemetry via named pipe)
+- qmmd **0.2.0** _(optional)_ — Lightweight Prometheus GPU exporter (bundled but **not started by default**; use only if you need a separate GPU metrics port)
+- Native Go collectors `mm-plugin-cpu` / `mm-plugin-gpu` / `mm-plugin-npu` in `/usr/libexec/metrics-manager/`
 - Python **3.12** runtime + FastAPI service
 - supervisord process supervisor
 
-> **Note on qmmd:** The default Metrics Manager already collects GPU metrics via `qmassa_reader.py` and Telegraf. Enable qmmd only if you need a standalone Prometheus exporter on a separate port. See [Environment Variables](./get-started/environment-variables.md#optional-components) for details.
+> **Note on qmmd:** The default Metrics Manager already collects GPU metrics via `mm-plugin-gpu` and Telegraf. Enable qmmd only if you need a standalone Prometheus exporter on a separate port. See [Environment Variables](./get-started/environment-variables.md#optional-components) for details.
 
 ---
 

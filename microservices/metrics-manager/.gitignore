@@ -26,6 +26,12 @@ venv/
 # uv lock file (generated automatically by uv sync, not committed)
 uv.lock
 
+# Go build output (native/ collector plugins and TUI)
+native/bin/
+
+# Staging tree and .deb produced by native/build.sh
+native/packaging/dist/
+
 # Misc
 *.log
 .DS_Store

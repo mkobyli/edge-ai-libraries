@@ -194,8 +194,7 @@ tests/test_routes.py::...                PASSED
 tests/test_metrics.py::...               PASSED
 tests/test_rate_limit.py::...            PASSED
 tests/test_sse.py::...                   PASSED
-tests/test_npu_monitor_tool.py::...      PASSED
-tests/test_npu_reader.py::...            PASSED
+tests/test_versions.py::...              PASSED
 tests/test_telegraf_integration.py::...  SKIPPED (requires Docker)
 ========================= 179 passed in 1.70s ==========================
 ```

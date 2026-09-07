@@ -109,9 +109,16 @@ pytest tests/test_models.py -v
 | `test_metrics.py`              | Internal service metrics counters and uptime                               |
 | `test_rate_limit.py`           | IP-based rate limiting middleware                                          |
 | `test_sse.py`                  | SSE endpoint `/metrics/stream`: streaming, parsing, errors                 |
-| `test_npu_monitor_tool.py`     | NPU bit slicing, register maps, value decoding                             |
-| `test_npu_reader.py`           | `npu_reader.py` syntax, Telegraf wiring, InfluxDB fields                   |
+| `test_versions.py`             | Pinned third-party versions stay in sync between `versions.env` and `Dockerfile` |
 | `test_telegraf_integration.py` | Telegraf configuration mounting and custom-metrics (integration)           |
+
+The native collectors have their own Go test suite, run separately:
+
+```bash
+cd native && go test ./...
+```
+
+It also runs inside the image build, so `make build` fails if a collector regresses.
 
 ---
 
@@ -229,8 +236,7 @@ tests/test_routes.py::...                PASSED
 tests/test_metrics.py::...               PASSED
 tests/test_rate_limit.py::...            PASSED
 tests/test_sse.py::...                   PASSED
-tests/test_npu_monitor_tool.py::...      PASSED
-tests/test_npu_reader.py::...            PASSED
+tests/test_versions.py::...              PASSED
 tests/test_telegraf_integration.py::...  SKIPPED (requires Docker)
 ========================= 179 passed, 1 skipped in 1.70s ==============
 ```
