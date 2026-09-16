@@ -18,16 +18,18 @@ type HistoryPoint struct {
 }
 
 type HistorySeries struct {
-	Key    string
-	Metric string
-	Label  string
-	Points []HistoryPoint
+	Key       string
+	Metric    string
+	Label     string
+	Points    []HistoryPoint
+	Available bool
 }
 
 type History struct {
 	window    time.Duration
 	maxPoints int
 	series    map[string]*HistorySeries
+	limited   bool
 }
 
 type chartObservation struct {
@@ -44,6 +46,12 @@ func NewHistory(config ChartsConfig) History {
 }
 
 func (h *History) Update(dashboard Dashboard, at time.Time) {
+	// Reclaim expired slots before admitting new devices.
+	h.Prune(at)
+	h.limited = false
+	for _, series := range h.series {
+		series.Available = false
+	}
 	for _, observation := range chartObservations(dashboard) {
 		if !observation.value.OK ||
 			math.IsNaN(observation.value.Value) ||
@@ -54,6 +62,7 @@ func (h *History) Update(dashboard Dashboard, at time.Time) {
 		series := h.series[observation.key]
 		if series == nil {
 			if len(h.series) >= maxHistorySeries {
+				h.limited = true
 				continue
 			}
 			series = &HistorySeries{
@@ -61,9 +70,24 @@ func (h *History) Update(dashboard Dashboard, at time.Time) {
 			}
 			h.series[observation.key] = series
 		}
-		series.Points = append(series.Points, HistoryPoint{At: at, Value: observation.value.Value})
+		point := HistoryPoint{At: at, Value: observation.value.Value}
+		i := sort.Search(len(series.Points), func(i int) bool {
+			return !series.Points[i].At.Before(at)
+		})
+		if i < len(series.Points) && series.Points[i].At.Equal(at) {
+			series.Points[i] = point
+		} else {
+			series.Points = append(series.Points, HistoryPoint{})
+			copy(series.Points[i+1:], series.Points[i:])
+			series.Points[i] = point
+		}
+		series.Available = true
+		h.prune(series, at)
 	}
+}
 
+// Prune ages retained data even when no new snapshot is received.
+func (h *History) Prune(at time.Time) {
 	for key, series := range h.series {
 		h.prune(series, at)
 		if len(series.Points) == 0 {
@@ -77,11 +101,12 @@ func (h *History) prune(series *HistorySeries, now time.Time) {
 	first := sort.Search(len(series.Points), func(i int) bool {
 		return !series.Points[i].At.Before(cutoff)
 	})
+	first = max(first, len(series.Points)-h.maxPoints)
 	if first > 0 {
-		series.Points = append([]HistoryPoint(nil), series.Points[first:]...)
-	}
-	if overflow := len(series.Points) - h.maxPoints; overflow > 0 {
-		series.Points = append([]HistoryPoint(nil), series.Points[overflow:]...)
+		// Reuse storage instead of allocating for each expired sample.
+		n := copy(series.Points, series.Points[first:])
+		clear(series.Points[n:])
+		series.Points = series.Points[:n]
 	}
 }
 
@@ -139,7 +164,7 @@ func chartObservations(d Dashboard) []chartObservation {
 func maxEngineUsage(engines []GPUEngine) Reading {
 	maximum := Reading{}
 	for _, engine := range engines {
-		if !engine.Usage.OK {
+		if !engine.Usage.OK || math.IsNaN(engine.Usage.Value) || math.IsInf(engine.Usage.Value, 0) {
 			continue
 		}
 		if !maximum.OK || engine.Usage.Value > maximum.Value {

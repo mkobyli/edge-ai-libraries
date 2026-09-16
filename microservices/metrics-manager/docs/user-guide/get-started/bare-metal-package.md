@@ -225,6 +225,27 @@ What each panel shows:
 The Trends tab retains the most recent five minutes by default. It shows CPU
 utilisation, memory usage, CPU temperature, and utilisation and temperature for
 each available GPU and the NPU. Missing hardware produces no empty chart.
+
+The time axis always spans the configured window ending at the current time.
+New samples appear near the right edge during startup; a short history is never
+stretched to look like five minutes of data. Each plot column represents an
+equal time interval and displays the highest observed value in that interval.
+Columns with no samples stay blank, including interruptions and the part of
+the window before TUI startup. There is no interpolation or zero-filling.
+Gaps shorter than a column's time interval may share a column with valid data.
+
+`last` is the latest retained sample, accompanied by its age, not a claim that
+the value is still current. Min, sample average and max are calculated from all
+retained samples inside the displayed window, not from the plotted peaks.
+The average is sample-weighted, not time-weighted, and missing samples do not
+contribute. A missing/non-finite metric or a failed poll does not add a sample;
+a successfully measured zero does. The clock advances and expires history
+once per second even while a request is blocked or the poller is backing off.
+Fully expired series disappear until a valid measurement is received again.
+
+History timestamps describe when the TUI received a successful poll, not when
+the underlying hardware counter was sampled. An endpoint returning cached
+values cannot be distinguished from a fresh hardware measurement here.
 GPU utilisation is the busiest engine on that device for each sample. When
 there are more samples than terminal columns, each horizontal bucket keeps its
 peak so a short spike does not disappear during downsampling.
@@ -419,6 +440,11 @@ ranges and memory bounds. Use `mm-tui -charts-config <path>` to try another
 file without changing the packaged configuration. Both `historyDuration` and
 `maxPoints` are retention limits; when `-interval` is reduced, raise
 `maxPoints` if the configured time window must remain fully represented.
+With fewer retained points, the uncovered part of the time axis remains blank
+instead of being rescaled. History is capped at 128 series; reaching this cap
+displays a notice, and expired series free slots for newly observed devices.
+At extremely narrow widths the statistics remain readable and the view asks
+for more space for the plot rather than drawing outside the terminal.
 
 ## Adding your own metrics
 

@@ -21,6 +21,12 @@ import (
 // snapshotMsg delivers one poll result into the update loop.
 type snapshotMsg source.Snapshot
 
+type clockMsg struct{}
+
+func clockTick() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg { return clockMsg{} })
+}
+
 type Tab int
 
 const (
@@ -88,14 +94,19 @@ func NewModelWithConfigs(
 	}
 }
 
-// Init starts waiting for the first snapshot.
+// Init polls data and advances the time axis independently of network replies.
 func (m Model) Init() tea.Cmd {
-	return waitForSnapshot(m.snapshots)
+	return tea.Batch(waitForSnapshot(m.snapshots), clockTick())
 }
 
 // Update folds one message into the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case clockMsg:
+		m.history.Prune(m.now())
+		m.setOffset(m.offset)
+		return m, clockTick()
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -146,6 +157,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.history.Update(m.dash, msg.At)
 		} else {
 			m.alerts.Interrupt()
+			m.history.Update(Dashboard{}, msg.At)
 		}
 		m.setOffset(m.offset)
 		// Re-arm immediately: the poller paces itself, so the update

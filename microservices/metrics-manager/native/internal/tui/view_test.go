@@ -271,6 +271,7 @@ mem_used_percent %g
 `, 100-memory, memory)),
 		}))
 	}
+	m.now = func() time.Time { return fixedNow.Add(2 * time.Second) }
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 100})
 	m, _ = update(t, m, key("2"))
 
@@ -278,7 +279,7 @@ mem_used_percent %g
 	wantContains(t, view, "[2 Trends]")
 	wantContains(t, view, "CPU utilization")
 	wantContains(t, view, "Memory used")
-	wantContains(t, view, "now 60.0%")
+	wantContains(t, view, "last 60.0%")
 	wantContains(t, view, "-5m")
 	wantContains(t, view, "●")
 
