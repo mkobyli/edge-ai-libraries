@@ -32,6 +32,8 @@ type AlertConfig struct {
 	SamplesToRaise    int     `json:"samplesToRaise"`
 	SamplesToClear    int     `json:"samplesToClear"`
 	HysteresisPercent float64 `json:"hysteresisPercent"`
+	ShowCareful       bool    `json:"showCareful"`
+	MaxHistory        int     `json:"maxHistory"`
 }
 
 type Threshold struct {
@@ -58,6 +60,7 @@ func DefaultDashboardConfig() DashboardConfig {
 			SamplesToRaise:    3,
 			SamplesToClear:    3,
 			HysteresisPercent: 5,
+			MaxHistory:        50,
 		},
 		Thresholds: map[string]Threshold{
 			"cpu.totalPercent":       {Careful: 65, Warning: 75, Critical: 85},
@@ -142,6 +145,9 @@ func (c DashboardConfig) Validate() error {
 	}
 	if c.Alerts.HysteresisPercent < 0 || c.Alerts.HysteresisPercent >= 100 {
 		return fmt.Errorf("alerts.hysteresisPercent must be at least 0 and less than 100")
+	}
+	if c.Alerts.MaxHistory < 0 || c.Alerts.MaxHistory > 1000 {
+		return fmt.Errorf("alerts.maxHistory must be between 0 and 1000")
 	}
 	for name, threshold := range c.Thresholds {
 		if !supportedThresholds[name] {

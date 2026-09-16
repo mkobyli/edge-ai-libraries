@@ -54,19 +54,26 @@ var (
 // NPU panels off the bottom without saying so.
 func (m Model) View() string {
 	width := m.renderWidth()
+	chrome := m.chromeLines(width)
+	if m.height > 0 && m.height <= len(chrome)+2 {
+		return strings.Join(chrome[:min(len(chrome), m.height)], "\n")
+	}
 	lines := m.bodyLines(width)
 	rows := m.visibleRows()
 	visible, offset := clip(lines, rows, m.offset)
-
-	var b strings.Builder
-
-	b.WriteString(strings.Join(visible, "\n"))
-	b.WriteString("\n")
-	b.WriteString(ruleStyle.Render(strings.Repeat("─", width)))
-	b.WriteString("\n")
-	b.WriteString(fitWidth(footerStyle.Render(footerHint(len(lines), rows, offset)), width))
-
-	return b.String()
+	out := append(chrome, visible...)
+	if m.height > 0 {
+		for len(out) < m.height-2 {
+			out = append(out, "")
+		}
+	}
+	out = append(out, ruleStyle.Render(strings.Repeat("─", width)))
+	hint := footerHint(len(lines), rows, offset)
+	if m.showAlerts {
+		hint = strings.Replace(hint, "a alerts", "a/esc back", 1)
+	}
+	out = append(out, fitWidth(footerStyle.Render(hint), width))
+	return strings.Join(out, "\n")
 }
 
 // renderWidth is the width to lay out at. Once Bubble Tea reports the terminal
@@ -83,40 +90,39 @@ func (m Model) renderWidth() int {
 // visibleRows is how many body lines fit above the footer, or 0 when the
 // window size is unknown and everything should simply be rendered.
 func (m Model) visibleRows() int {
-	// The closing rule and the footer line are reserved.
-	const reserved = 2
-
-	if m.height <= reserved {
+	if m.height <= 0 {
 		return 0
 	}
-
-	return m.height - reserved
+	return max(0, m.height-len(m.chromeLines(m.renderWidth()))-2)
 }
 
-// bodyLines renders everything above the closing rule.
-func (m Model) bodyLines(width int) []string {
-	var b strings.Builder
-
-	b.WriteString(m.header(width))
-	b.WriteString("\n")
+func (m Model) chromeLines(width int) []string {
+	lines := []string{m.header(width)}
 	if platform := m.platformLine(); platform != "" {
-		b.WriteString(platform)
-		b.WriteString("\n")
+		lines = append(lines, platform)
 	}
-	b.WriteString(m.tabLine())
-	b.WriteString("\n")
-	b.WriteString(ruleStyle.Render(strings.Repeat("─", width)))
-	b.WriteString("\n\n")
-
-	if m.activeTab == TrendsTab {
-		b.WriteString(m.trendsGrid(width))
-	} else {
-		b.WriteString(m.panelGrid(width))
-	}
-
-	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	lines = append(lines, m.tabLine(), m.alertSummary(width),
+		ruleStyle.Render(strings.Repeat("─", width)))
 	for i := range lines {
 		lines[i] = fitWidth(lines[i], width)
+	}
+	return lines
+}
+
+// bodyLines contains only scrollable content; status and navigation stay fixed.
+func (m Model) bodyLines(width int) []string {
+	var content string
+	if m.showAlerts {
+		content = m.alertDetails(width)
+	} else if m.activeTab == TrendsTab {
+		content = m.trendsGrid(width)
+	} else {
+		content = m.panelGrid(width)
+	}
+
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	for i := range lines {
+		lines[i] = fitWidth(strings.TrimRight(lines[i], " "), width)
 	}
 
 	return lines
@@ -126,11 +132,7 @@ func (m Model) bodyLines(width int) []string {
 // squeezing their tables. The source order remains the reading order: left to
 // right, then top to bottom.
 func (m Model) panelGrid(width int) string {
-	var panels []string
-	if len(m.alerts.Active()) > 0 {
-		panels = append(panels, m.alertSection())
-	}
-	panels = append(panels, m.cpuSection(), m.memorySection())
+	panels := []string{m.cpuSection(), m.memorySection()}
 	for _, gpu := range m.dash.GPUs {
 		panels = append(panels, m.gpuSection(gpu))
 	}
@@ -147,7 +149,19 @@ func (m Model) panelGrid(width int) string {
 		panels = append(panels, m.processSection())
 	}
 
+	// Wrap descriptive values rather than silently discarding their right
+	// edge. Tables switch to labelled rows when they do not fit.
+	panelWidth := m.panelWidth()
+	for i := range panels {
+		panels[i] = lipgloss.NewStyle().Width(panelWidth).Render(panels[i])
+	}
 	return packPanels(panels, width, panelMinWidth, 3)
+}
+
+func (m Model) panelWidth() int {
+	width := m.renderWidth()
+	columns := max(1, min(3, (width+panelGap)/(panelMinWidth+panelGap)))
+	return (width - panelGap*(columns-1)) / columns
 }
 
 func packPanels(panels []string, width, minWidth, maxColumns int) string {
@@ -236,20 +250,12 @@ func clip(lines []string, rows, offset int) ([]string, int) {
 	return lines[offset : offset+rows], offset
 }
 
-// footerHint spells out the keys, and says where the view is when the content
-// does not fit on screen.
-// footerHint names the keys that do something here.
-//
-// Paging is listed alongside the arrows because the dashboard is routinely
-// twice the height of the window, and a reader who only learns about single
-// line scrolling will scroll a screenful one line at a time. The short form is
-// used when everything already fits, where scrolling keys would be noise.
 func footerHint(total, rows, offset int) string {
 	if rows <= 0 || total <= rows {
-		return "1 overview · 2 trends · tab switch · q quit"
+		return "a alerts · q quit · 1/2 tab switch"
 	}
 
-	return fmt.Sprintf("1 overview · 2 trends · tab switch · q quit · ↑↓ pgup pgdn g G scroll · lines %d-%d of %d",
+	return fmt.Sprintf("a alerts · q quit · lines %d-%d of %d · ↑↓ PgUp/PgDn g/G scroll",
 		offset+1, offset+rows, total)
 }
 
@@ -373,7 +379,7 @@ func (m Model) cpuSection() string {
 
 	if len(cpu.Classes) > 0 {
 		b.WriteString("\n")
-		b.WriteString(coreClassTable(cpu.Classes))
+		b.WriteString(coreClassTable(cpu.Classes, m.panelWidth()))
 	}
 
 	return b.String()
@@ -436,7 +442,18 @@ var coreClassColumns = []struct {
 	{"source", 10},
 }
 
-func coreClassTable(classes []CoreClass) string {
+func coreClassTable(classes []CoreClass, width int) string {
+	if width < panelMinWidth {
+		columns := []column{{title: "class"}, {title: "cores"}, {title: "frequency"},
+			{title: "user"}, {title: "system"}, {title: "idle"}, {title: "source"}}
+		var rows [][]string
+		for _, c := range classes {
+			rows = append(rows, []string{sanitize(c.Name, 8), formatCount(c.Cores),
+				formatFrequencyKHz(c.FrequencyKHz), formatPercent(c.UsageUser),
+				formatPercent(c.UsageSystem), formatPercent(c.UsageIdle), sanitize(c.Source, 16)})
+		}
+		return compactTable(columns, rows)
+	}
 	var b strings.Builder
 
 	var header strings.Builder
@@ -546,11 +563,15 @@ func (m Model) gpuSection(g GPU) string {
 	}
 	if len(g.Tiles) > 0 {
 		b.WriteString("\n")
-		b.WriteString(tileTable(g.Tiles))
+		b.WriteString(tileTable(g.Tiles, m.panelWidth()))
 	}
 	if len(g.Processes) > 0 {
 		b.WriteString("\n")
-		b.WriteString(gpuProcessTable(g.Processes))
+		processes := g.Processes
+		if len(processes) > m.config.Processes.MaxDisplayed {
+			processes = processes[:m.config.Processes.MaxDisplayed]
+		}
+		b.WriteString(gpuProcessTable(processes, m.panelWidth()))
 	}
 
 	return b.String()
@@ -564,7 +585,7 @@ var gpuProcessColumns = []column{
 	{title: "memory", width: 12},
 }
 
-func gpuProcessTable(processes []GPUProcess) string {
+func gpuProcessTable(processes []GPUProcess, width int) string {
 	rows := make([][]string, 0, len(processes))
 	for _, p := range processes {
 		rows = append(rows, []string{
@@ -577,7 +598,7 @@ func gpuProcessTable(processes []GPUProcess) string {
 		})
 	}
 
-	return table(gpuProcessColumns, rows)
+	return responsiveTable(gpuProcessColumns, rows, width)
 }
 
 // npuFrequency shows the current clock against the driver's ceiling, because
@@ -624,7 +645,7 @@ func (m Model) processSection() string {
 		})
 	}
 
-	b.WriteString(table(processColumns, rows))
+	b.WriteString(responsiveTable(processColumns, rows, m.panelWidth()))
 
 	return b.String()
 }
@@ -655,7 +676,7 @@ func (m Model) engineTable(engines []GPUEngine) string {
 		})
 	}
 
-	return table(engineColumns, rows)
+	return responsiveTable(engineColumns, rows, m.panelWidth())
 }
 
 var tileColumns = []column{
@@ -667,7 +688,7 @@ var tileColumns = []column{
 	{"throttle", 12, true},
 }
 
-func tileTable(tiles []GPUTile) string {
+func tileTable(tiles []GPUTile, width int) string {
 	rows := make([][]string, 0, len(tiles))
 	for _, t := range tiles {
 		rows = append(rows, []string{
@@ -680,7 +701,7 @@ func tileTable(tiles []GPUTile) string {
 		})
 	}
 
-	return table(tileColumns, rows)
+	return responsiveTable(tileColumns, rows, width)
 }
 
 // throttleText summarises a tile's throttle state.
@@ -747,6 +768,25 @@ func table(columns []column, rows [][]string) string {
 	return b.String()
 }
 
+func responsiveTable(columns []column, rows [][]string, width int) string {
+	expanded := table(columns, rows)
+	if lipgloss.Width(expanded) <= width {
+		return expanded
+	}
+	return compactTable(columns, rows)
+}
+
+func compactTable(columns []column, rows [][]string) string {
+	var b strings.Builder
+	for _, cells := range rows {
+		for i, value := range cells {
+			b.WriteString("  " + labelStyle.Render(columns[i].title+": ") + value + "\n")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func titles(columns []column) []string {
 	out := make([]string, 0, len(columns))
 	for _, c := range columns {
@@ -764,6 +804,7 @@ func tableRow(columns []column, cells []string) string {
 		if i >= len(cells) {
 			break
 		}
+		padding := strings.Repeat(" ", max(0, c.width-lipgloss.Width(cells[i])))
 		if c.left {
 			// A right-aligned cell can fill its width exactly, so a
 			// left-aligned column following one needs a separator of
@@ -771,10 +812,10 @@ func tableRow(columns []column, cells []string) string {
 			if i > 0 {
 				b.WriteString("  ")
 			}
-			b.WriteString(fmt.Sprintf("%-*s", c.width, cells[i]))
+			b.WriteString(cells[i] + padding)
 			continue
 		}
-		b.WriteString(fmt.Sprintf("%*s", c.width, cells[i]))
+		b.WriteString(padding + cells[i])
 	}
 
 	return strings.TrimRight(b.String(), " ")
@@ -816,25 +857,4 @@ func severityStyle(severity Severity) lipgloss.Style {
 	default:
 		return okStyle
 	}
-}
-
-func (m Model) alertSection() string {
-	var b strings.Builder
-	alerts := m.alerts.Active()
-	b.WriteString(criticalStyle.Render(fmt.Sprintf("Warnings (%d)", len(alerts))))
-	b.WriteString("\n")
-	for _, alert := range alerts {
-		label := alert.Metric
-		if alert.Device != "" {
-			label = alert.Device + " · " + label
-		}
-		line := fmt.Sprintf("%-8s %s: current %.1f · threshold %.1f", alert.Severity, label,
-			alert.Value, alert.Threshold)
-		b.WriteString(severityStyle(alert.Severity).Render(line))
-		b.WriteString("\n")
-		b.WriteString(labelStyle.Render("  " + alert.Message))
-		b.WriteString("\n")
-	}
-
-	return b.String()
 }

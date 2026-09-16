@@ -173,7 +173,7 @@ sudo systemctl disable 'metrics-manager-*'
 
 `mm-tui` reads the same Prometheus endpoint the package publishes, so it shows
 exactly what any scraper would see. It keeps only a bounded in-memory trend
-history, writes nothing, and needs no privileges; running it as an ordinary user
+history and alert history, writes nothing, and needs no privileges; running it as an ordinary user
 is enough.
 
 ```bash
@@ -182,10 +182,12 @@ mm-tui
 
 | Key | Action |
 |---|---|
-| `q`, `Esc`, `Ctrl+C` | Quit |
+| `q`, `Ctrl+C` | Quit |
+| `a` | Open or close alert details |
+| `Esc` | Close alert details, or quit from Overview/Trends |
 | `Tab`, `Shift+Tab` | Switch between Overview and Trends |
 | `1`, `2` | Open Overview or Trends directly |
-| `↑` `↓`, `k` `j` | Scroll a line |
+| `↑` `↓`, `k` `j` | Scroll the current view a line |
 | `PgUp` `PgDn`, `Space` | Scroll a screen |
 | `Home` `End`, `g` `G` | Jump to the top or the bottom |
 
@@ -193,8 +195,13 @@ Overview responds to the terminal width. It uses one column in a narrow window,
 two columns once each panel can remain readable, and up to three columns in a
 wide terminal. Scrolling remains available when the resulting rows do not fit
 the terminal height. The panels retain their hardware-first reading order.
+Tables that cannot fit switch to labelled rows, keeping measurements such as
+RSS, idle time and throttle reasons visible rather than clipping their columns.
+Long descriptive values wrap within their panel.
 
-The footer reports which lines you are looking at, as in `lines 1-28 of 42`, so
+The header, tabs, one-line alert summary and footer stay fixed while content
+scrolls. Alerts never join the hardware grid or move its panels. The footer
+reports which content lines you are looking at, as in `lines 1-28 of 42`, so
 a short terminal hides content rather than dropping it. The header reports how
 long ago the last successful read was; when the endpoint stops answering, the
 readings stay on screen and the age keeps climbing rather than the panel
@@ -342,10 +349,31 @@ leaves the new packaged version alongside as `.dpkg-dist`.
 ### Dashboard thresholds and warnings
 
 The dashboard colors monitored readings as OK, careful, warning or critical.
-An alert appears only after the threshold is exceeded in three consecutive
-samples. It clears after three consecutive samples below the threshold exit,
+By default, only warning and critical events appear in the alert summary and
+details; careful remains a color on the measurement. Set `alerts.showCareful`
+to `true` to include careful events too.
+
+An event appears only after three consecutive samples support its threshold.
+It clears after three consecutive samples below the threshold exit,
 with a 5% hysteresis by default so a value close to a boundary does not make the
-alert repeatedly appear and disappear.
+alert repeatedly appear and disappear. Missing measurements and failed polls
+break consecutive-sample runs; they do not count as recovery.
+
+Press `a` on either tab to open a separate, scrollable alert view. Each entry
+identifies the metric and device (including the GPU engine), its severity,
+value and threshold with units, start time and duration through the latest
+successful snapshot, and diagnostic guidance. Press `a` or `Esc` to return to
+the same tab and scroll position. Tab shortcuts also leave alert details.
+
+The details view retains up to `alerts.maxHistory=50` ended events, newest
+first, in memory for the current TUI session only. Set this to `0` to disable
+history or choose a limit up to `1000`. Recovery below the displayed severity
+ends an event; warning/critical transitions within one episode keep its start
+time. History values and severity describe the last active reading, not the
+recovery sample. After three missing samples, an event ends as `no data`, not
+`recovered`; before then it is marked as waiting for data. A failed poll keeps
+last-known events but marks the summary and details as disconnected/stale.
+History is not written to disk and is not a record of events before TUI startup.
 
 The defaults and the maximum number of displayed processes are configured in
 `/etc/metrics-manager/tui-dashboard.json`. The installed file documents the
@@ -355,13 +383,16 @@ do not need to be restarted.
 The default thresholds are diagnostic starting points, not hardware safety
 limits. Temperature behavior depends on the processor, accelerator, cooling
 solution and sensor location, so tune the values for the deployed platform.
+High utilization during inference may be expected, not a hardware fault.
 An existing configuration with invalid JSON, unknown fields, unsupported metric
 names or unordered thresholds prevents the dashboard from starting and reports
 the exact validation error instead of silently using different values.
 
 By default, `PROCESS_LIMIT=10` in `metrics-manager.env` controls how many CPU and
 memory candidates the collector publishes, while `processes.maxDisplayed=10`
-controls how many combined rows `mm-tui` renders. Raising the collector limit
+controls how many combined CPU-process rows and how many rows per GPU `mm-tui`
+renders. The GPU collector also has its own limit in the Telegraf configuration.
+Raising the collector limit
 increases Prometheus series churn; raise only the display limit when the desired
 processes are already present at the metrics endpoint.
 

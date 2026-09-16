@@ -33,14 +33,21 @@ func (s Severity) String() string {
 }
 
 type Alert struct {
-	Key       string
-	Metric    string
-	Device    string
-	Severity  Severity
-	Value     float64
-	Threshold float64
-	Since     time.Time
-	Message   string
+	Key         string
+	Metric      string
+	Device      string
+	Severity    Severity
+	Value       float64
+	Threshold   float64
+	Since       time.Time
+	Message     string
+	Unavailable bool
+}
+
+type AlertEvent struct {
+	Alert
+	EndedAt time.Time
+	Outcome string
 }
 
 type observation struct {
@@ -60,6 +67,7 @@ type AlertTracker struct {
 	config       AlertConfig
 	processLimit int
 	states       map[string]*alertState
+	events       []AlertEvent
 }
 
 func NewAlertTracker(config AlertConfig, processLimit int) AlertTracker {
@@ -85,6 +93,7 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 			t.states[observation.key] = state
 		}
 		state.missingCount = 0
+		state.alert.Unavailable = false
 
 		target := classifyWithHysteresis(observation.value, threshold, state.active,
 			t.config.HysteresisPercent)
@@ -117,11 +126,16 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 			required = t.config.SamplesToClear
 		}
 		if state.pending != state.active && state.pendingCount >= required {
+			previous := state.active
 			state.active = state.pending
 			state.pendingCount = 0
+			if previous >= t.minimumSeverity() && state.active < t.minimumSeverity() {
+				t.archive(state.alert, at, "recovered")
+			}
 			if state.active == SeverityOK {
 				state.alert = Alert{}
-			} else {
+			} else if previous == SeverityOK ||
+				(previous < t.minimumSeverity() && state.active >= t.minimumSeverity()) {
 				state.alert.Since = at
 			}
 		}
@@ -136,14 +150,62 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 		}
 	}
 
-	for key, state := range t.states {
+	keys := make([]string, 0, len(t.states))
+	for key := range t.states {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		state := t.states[key]
 		if seen[key] {
 			continue
 		}
 		state.missingCount++
+		state.pending = state.active
+		state.pendingCount = 0
+		state.alert.Unavailable = true
 		if state.missingCount >= t.config.SamplesToClear {
+			if state.active >= t.minimumSeverity() {
+				t.archive(state.alert, at, "no data")
+			}
 			delete(t.states, key)
 		}
+	}
+}
+
+// Interrupt breaks consecutive-sample runs without declaring recovery.
+func (t *AlertTracker) Interrupt() {
+	for _, state := range t.states {
+		state.pending = state.active
+		state.pendingCount = 0
+		state.missingCount = 0
+	}
+}
+
+func (t AlertTracker) minimumSeverity() Severity {
+	if t.config.ShowCareful {
+		return SeverityCareful
+	}
+	return SeverityWarning
+}
+
+func (t AlertTracker) Visible() []Alert {
+	var alerts []Alert
+	for _, alert := range t.Active() {
+		if alert.Severity >= t.minimumSeverity() {
+			alerts = append(alerts, alert)
+		}
+	}
+	return alerts
+}
+
+func (t *AlertTracker) archive(alert Alert, at time.Time, outcome string) {
+	if t.config.MaxHistory == 0 {
+		return
+	}
+	t.events = append([]AlertEvent{{Alert: alert, EndedAt: at, Outcome: outcome}}, t.events...)
+	if len(t.events) > t.config.MaxHistory {
+		t.events = t.events[:t.config.MaxHistory]
 	}
 }
 
@@ -225,7 +287,7 @@ func dashboardObservations(d Dashboard, processLimit int) []observation {
 	for _, gpu := range d.GPUs {
 		for _, engine := range gpu.Engines {
 			add(fmt.Sprintf("gpu.%s.engine.%s", gpu.ID, engine.Name), "gpu.utilizationPercent",
-				"GPU "+gpu.ID, "GPU engine utilization is sustained.", engine.Usage)
+				"GPU "+gpu.ID+" / "+engine.Name, "High utilization can be expected during inference; check workload demand.", engine.Usage)
 		}
 		add("gpu."+gpu.ID+".temperature", "gpu.temperatureC", "GPU "+gpu.ID,
 			"Check GPU load and cooling.", gpu.TempC)

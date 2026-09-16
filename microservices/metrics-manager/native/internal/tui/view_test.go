@@ -338,9 +338,16 @@ mem_available_percent{host="h"} 5
 	}
 
 	view := m.View()
-	wantContains(t, view, "Warnings (1)")
+	wantContains(t, view, "Alerts: 1 critical | 0 warning")
+	if strings.Contains(view, "Inspect memory-intensive processes") {
+		t.Fatal("alert details displaced the hardware panels")
+	}
+	m, _ = update(t, m, key("a"))
+	view = m.View()
+	wantContains(t, view, "Active (1)")
 	wantContains(t, view, "CRITICAL")
 	wantContains(t, view, "Inspect memory-intensive processes")
+	wantContains(t, view, "95.0%")
 }
 
 func TestViewShowsMemoryTotals(t *testing.T) {

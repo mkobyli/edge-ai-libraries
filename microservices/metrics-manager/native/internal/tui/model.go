@@ -49,6 +49,8 @@ type Model struct {
 	history      History
 	activeTab    Tab
 	tabOffsets   [2]int
+	showAlerts   bool
+	alertOffset  int
 
 	width  int
 	height int
@@ -96,8 +98,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "esc", "ctrl+c":
+		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "esc":
+			if m.showAlerts {
+				m.toggleAlerts()
+			} else {
+				return m, tea.Quit
+			}
+		case "a":
+			m.toggleAlerts()
 		case "tab":
 			m.switchTab((m.activeTab + 1) % 2)
 		case "shift+tab":
@@ -134,7 +144,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updatedAt = msg.At
 			m.alerts.Update(m.dash, m.config.Thresholds, msg.At)
 			m.history.Update(m.dash, msg.At)
+		} else {
+			m.alerts.Interrupt()
 		}
+		m.setOffset(m.offset)
 		// Re-arm immediately: the poller paces itself, so the update
 		// loop should never be the thing that throttles refreshes.
 		return m, waitForSnapshot(m.snapshots)
@@ -149,6 +162,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) switchTab(tab Tab) {
+	if m.showAlerts {
+		m.toggleAlerts()
+	}
 	if tab == m.activeTab {
 		return
 	}
@@ -159,7 +175,23 @@ func (m *Model) switchTab(tab Tab) {
 
 func (m *Model) setOffset(offset int) {
 	m.offset = m.scrollTo(offset)
-	m.tabOffsets[m.activeTab] = m.offset
+	if m.showAlerts {
+		m.alertOffset = m.offset
+	} else {
+		m.tabOffsets[m.activeTab] = m.offset
+	}
+}
+
+func (m *Model) toggleAlerts() {
+	if m.showAlerts {
+		m.alertOffset = m.offset
+		m.showAlerts = false
+		m.offset = m.scrollTo(m.tabOffsets[m.activeTab])
+	} else {
+		m.tabOffsets[m.activeTab] = m.offset
+		m.showAlerts = true
+		m.offset = m.scrollTo(m.alertOffset)
+	}
 }
 
 // streamClosedMsg reports that the snapshot channel was closed.
