@@ -7,7 +7,9 @@
   "alerts": {
     "samplesToRaise": 3,
     "samplesToClear": 3,
-    "hysteresisPercent": 5
+    "hysteresisPercent": 5,
+    "showCareful": false,
+    "maxHistory": 50
   },
   "thresholds": {
     "cpu.totalPercent": {

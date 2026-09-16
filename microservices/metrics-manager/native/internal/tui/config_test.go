@@ -15,7 +15,8 @@ func TestLoadDashboardConfigDefaultsWhenAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Processes.MaxDisplayed != 10 || config.Alerts.SamplesToRaise != 3 {
+	if config.Processes.MaxDisplayed != 10 || config.Alerts.SamplesToRaise != 3 ||
+		config.Alerts.MaxHistory != 50 || config.Alerts.ShowCareful {
 		t.Errorf("unexpected defaults: %+v", config)
 	}
 }
@@ -39,6 +40,19 @@ func TestLoadDashboardConfigOverridesDefaults(t *testing.T) {
 	if config.Thresholds["memory.usedPercent"].Critical != 90 {
 		t.Error("an omitted threshold did not keep its default")
 	}
+	if config.Alerts.MaxHistory != 50 {
+		t.Error("an old configuration did not retain the new history default")
+	}
+}
+
+func TestLoadDashboardConfigAlertPreferences(t *testing.T) {
+	config, err := LoadDashboardConfig(writeConfig(t, `{"alerts":{"showCareful":true,"maxHistory":0}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.Alerts.ShowCareful || config.Alerts.MaxHistory != 0 {
+		t.Errorf("alert preferences = %+v", config.Alerts)
+	}
 }
 
 func TestLoadDashboardConfigRejectsInvalidInput(t *testing.T) {
@@ -47,6 +61,8 @@ func TestLoadDashboardConfigRejectsInvalidInput(t *testing.T) {
 	}{
 		{"unknown field", `{"unknown": true}`, "unknown field"},
 		{"multiple values", `{}` + "\n" + `{}`, "more than one"},
+		{"negative history", `{"alerts":{"maxHistory":-1}}`, "between 0 and 1000"},
+		{"unbounded history", `{"alerts":{"maxHistory":1001}}`, "between 0 and 1000"},
 		{
 			"unordered threshold",
 			`{"thresholds":{"cpu.totalPercent":{"careful":80,"warning":70,"critical":90}}}`,
@@ -71,6 +87,17 @@ func TestLoadDashboardConfigRejectsInvalidInput(t *testing.T) {
 				t.Errorf("error = %v, want it to contain %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestPackagedDashboardConfigMatchesDefaults(t *testing.T) {
+	config, err := LoadDashboardConfig("../../packaging/etc/tui-dashboard.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := DefaultDashboardConfig()
+	if config.Alerts != want.Alerts || config.Processes != want.Processes {
+		t.Errorf("packaged defaults differ: %+v", config)
 	}
 }
 

@@ -176,7 +176,112 @@ func TestAlertTrackerOnlyChecksDisplayedProcesses(t *testing.T) {
 	for range 3 {
 		tracker.Update(dashboard, config.Thresholds, fixedNow)
 	}
+
 	if alerts := tracker.Active(); len(alerts) != 0 {
 		t.Fatalf("hidden process raised an alert: %+v", alerts)
+	}
+}
+
+func TestAlertTrackerCarefulVisibility(t *testing.T) {
+	for _, show := range []bool{false, true} {
+		config := DefaultDashboardConfig()
+		config.Alerts.ShowCareful = show
+		tracker := NewAlertTracker(config.Alerts, 10)
+		for range 3 {
+			tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(55)}}, config.Thresholds, fixedNow)
+		}
+		if got := len(tracker.Visible()) > 0; got != show {
+			t.Errorf("visible careful = %v, want %v", got, show)
+		}
+		for range 3 {
+			tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(10)}}, config.Thresholds, fixedNow)
+		}
+		if got := len(tracker.events) > 0; got != show {
+			t.Errorf("careful history = %v, want %v", got, show)
+		}
+	}
+}
+
+func TestAlertTrackerArchivesEpisodesAndPreservesStart(t *testing.T) {
+	config := DefaultDashboardConfig()
+	config.Alerts.SamplesToRaise = 1
+	config.Alerts.SamplesToClear = 1
+	tracker := NewAlertTracker(config.Alerts, 10)
+	for i, value := range []float64{75, 95, 75, 55} {
+		tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(value)}},
+			config.Thresholds, fixedNow.Add(time.Duration(i)*time.Second))
+	}
+	if len(tracker.Visible()) != 0 || len(tracker.events) != 1 {
+		t.Fatalf("visible=%+v history=%+v", tracker.Visible(), tracker.events)
+	}
+	event := tracker.events[0]
+	if event.Outcome != "recovered" || event.Since != fixedNow ||
+		event.EndedAt != fixedNow.Add(3*time.Second) {
+		t.Errorf("unexpected recovered event: %+v", event)
+	}
+}
+
+func TestAlertTrackerHistoryIsBoundedAndNewestFirst(t *testing.T) {
+	for _, limit := range []int{0, 2} {
+		config := DefaultDashboardConfig()
+		config.Alerts.MaxHistory = limit
+		config.Alerts.SamplesToRaise = 1
+		config.Alerts.SamplesToClear = 1
+		tracker := NewAlertTracker(config.Alerts, 10)
+		for i := range 10 {
+			at := fixedNow.Add(time.Duration(i) * time.Second)
+			tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(95)}}, config.Thresholds, at)
+			tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(10)}}, config.Thresholds, at)
+		}
+		if len(tracker.events) != limit {
+			t.Fatalf("history length = %d, want %d", len(tracker.events), limit)
+		}
+		if limit > 0 && tracker.events[0].EndedAt != fixedNow.Add(9*time.Second) {
+			t.Errorf("history not newest first: %+v", tracker.events)
+		}
+	}
+}
+
+func TestAlertTrackerMissingIsNotRecovery(t *testing.T) {
+	config := DefaultDashboardConfig()
+	tracker := NewAlertTracker(config.Alerts, 10)
+	for range 3 {
+		tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(95)}}, config.Thresholds, fixedNow)
+	}
+	tracker.Update(Dashboard{}, config.Thresholds, fixedNow.Add(time.Second))
+	if alerts := tracker.Visible(); len(alerts) != 1 || !alerts[0].Unavailable {
+		t.Fatalf("missing reading not marked: %+v", alerts)
+	}
+	for range 2 {
+		tracker.Update(Dashboard{}, config.Thresholds, fixedNow.Add(3*time.Second))
+	}
+	if len(tracker.events) != 1 || tracker.events[0].Outcome != "no data" {
+		t.Fatalf("missing reading recorded as recovery: %+v", tracker.events)
+	}
+}
+
+func TestAlertTrackerBreaksStreakOnMissingOrFailedSample(t *testing.T) {
+	for _, transportFailure := range []bool{false, true} {
+		config := DefaultDashboardConfig()
+		tracker := NewAlertTracker(config.Alerts, 10)
+		high := Dashboard{Memory: Memory{UsedPercent: reading(95)}}
+		for range 2 {
+			tracker.Update(high, config.Thresholds, fixedNow)
+		}
+		if transportFailure {
+			tracker.Interrupt()
+		} else {
+			tracker.Update(Dashboard{}, config.Thresholds, fixedNow)
+		}
+		tracker.Update(high, config.Thresholds, fixedNow)
+		if len(tracker.Visible()) != 0 {
+			t.Fatal("non-consecutive samples raised an alert")
+		}
+		for range 2 {
+			tracker.Update(high, config.Thresholds, fixedNow)
+		}
+		if len(tracker.Visible()) != 1 {
+			t.Fatal("new consecutive run did not raise an alert")
+		}
 	}
 }
