@@ -21,6 +21,7 @@ type HistorySeries struct {
 	Key       string
 	Metric    string
 	Label     string
+	Device    string
 	Points    []HistoryPoint
 	Available bool
 }
@@ -34,6 +35,7 @@ type History struct {
 
 type chartObservation struct {
 	key, metric, label string
+	device             string
 	value              Reading
 }
 
@@ -67,6 +69,7 @@ func (h *History) Update(dashboard Dashboard, at time.Time) {
 			}
 			series = &HistorySeries{
 				Key: observation.key, Metric: observation.metric, Label: observation.label,
+				Device: observation.device,
 			}
 			h.series[observation.key] = series
 		}
@@ -138,11 +141,11 @@ func chartObservations(d Dashboard) []chartObservation {
 	for _, gpu := range d.GPUs {
 		observations = append(observations,
 			chartObservation{
-				key: "gpu." + gpu.ID + ".utilization", metric: "gpu.utilizationPercent",
+				key: "gpu." + gpu.ID + ".utilization", metric: "gpu.utilizationPercent", device: gpu.ID,
 				label: "GPU " + gpu.ID, value: maxEngineUsage(gpu.Engines),
 			},
 			chartObservation{
-				key: "gpu." + gpu.ID + ".temperature", metric: "gpu.temperatureC",
+				key: "gpu." + gpu.ID + ".temperature", metric: "gpu.temperatureC", device: gpu.ID,
 				label: "GPU " + gpu.ID, value: gpu.TempC,
 			},
 		)
@@ -173,19 +176,19 @@ func chartObservations(d Dashboard) []chartObservation {
 	}
 	for _, gpu := range d.GPUs {
 		observations = append(observations,
-			chartObservation{key: "gpu." + gpu.ID + ".power", metric: "gpu.powerW", label: "GPU " + gpu.ID, value: gpu.PowerW},
-			chartObservation{key: "gpu." + gpu.ID + ".vram", metric: "gpu.vramPercent", label: "GPU " + gpu.ID,
+			chartObservation{key: "gpu." + gpu.ID + ".power", metric: "gpu.powerW", label: "GPU " + gpu.ID, device: gpu.ID, value: gpu.PowerW},
+			chartObservation{key: "gpu." + gpu.ID + ".vram", metric: "gpu.vramPercent", label: "GPU " + gpu.ID, device: gpu.ID,
 				value: usedPercent(gpu.VRAMUsedBytes, gpu.VRAMTotalBytes)},
 		)
 		for _, engine := range gpu.Engines {
 			observations = append(observations, chartObservation{
-				key: "gpu." + gpu.ID + ".engine." + engine.Name, metric: "gpu.enginePercent",
+				key: "gpu." + gpu.ID + ".engine." + engine.Name, metric: "gpu.enginePercent", device: gpu.ID,
 				label: "GPU " + gpu.ID + " / " + engine.Name, value: engine.Usage,
 			})
 		}
 		for _, tile := range gpu.Tiles {
 			observations = append(observations, chartObservation{
-				key: "gpu." + gpu.ID + ".tile." + tile.Name, metric: "gpu.frequencyMHz",
+				key: "gpu." + gpu.ID + ".tile." + tile.Name, metric: "gpu.frequencyMHz", device: gpu.ID,
 				label: "GPU " + gpu.ID + " / " + tile.Name, value: tile.ActualMHz,
 			})
 		}

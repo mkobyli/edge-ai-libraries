@@ -6,6 +6,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,7 +14,7 @@ import (
 )
 
 type detailChoice struct {
-	key, metric, label string
+	key, metric, label, device string
 }
 
 type detailItem struct {
@@ -25,10 +26,54 @@ type detailItem struct {
 
 type detailsFrame struct {
 	items                 []detailItem
+	rows                  []detailRow
+	itemRows              []int
 	chart                 []string
 	selected              int
 	columns, cellWidth    int
 	firstRow, visibleRows int
+}
+
+type detailRow struct {
+	group string
+	items []int
+}
+
+func detailGroup(item detailItem) (rank int, device, title string) {
+	switch {
+	case strings.HasPrefix(item.spec.Metric, "cpu."):
+		return 0, "", "CPU"
+	case strings.HasPrefix(item.spec.Metric, "memory."):
+		return 1, "", "Memory"
+	case strings.HasPrefix(item.spec.Metric, "gpu."):
+		if item.choice.device != "" {
+			return 2, item.choice.device, "GPU " + item.choice.device
+		}
+		return 2, "", "GPU"
+	case strings.HasPrefix(item.spec.Metric, "npu."):
+		return 3, "", "NPU"
+	default:
+		return 4, "", "Other"
+	}
+}
+
+func groupDetailItems(items []detailItem) {
+	sort.SliceStable(items, func(i, j int) bool {
+		a, aDevice, _ := detailGroup(items[i])
+		b, bDevice, _ := detailGroup(items[j])
+		if a != b {
+			return a < b
+		}
+		aID, aErr := strconv.ParseUint(aDevice, 10, 64)
+		bID, bErr := strconv.ParseUint(bDevice, 10, 64)
+		if aErr == nil && bErr == nil && aID != bID {
+			return aID < bID
+		}
+		if (aErr == nil) != (bErr == nil) {
+			return aErr == nil
+		}
+		return aDevice < bDevice
+	})
 }
 
 func detailTitle(item detailItem) string {
@@ -45,7 +90,7 @@ func (m Model) detailItems() []detailItem {
 		instances := make(map[string]detailItem)
 		for _, series := range m.history.Series(spec.Metric) {
 			instances[series.Key] = detailItem{
-				choice: detailChoice{series.Key, series.Metric, series.Label},
+				choice: detailChoice{key: series.Key, metric: series.Metric, label: series.Label, device: series.Device},
 				spec:   spec, series: series,
 			}
 		}
@@ -54,14 +99,14 @@ func (m Model) detailItems() []detailItem {
 				continue
 			}
 			item := instances[observation.key]
-			item.choice = detailChoice{observation.key, spec.Metric, observation.label}
+			item.choice = detailChoice{key: observation.key, metric: spec.Metric, label: observation.label, device: observation.device}
 			item.spec = spec
 			item.value = observation.value
 			if m.err != nil {
 				item.value = Reading{}
 			}
 			if item.series.Key == "" {
-				item.series = HistorySeries{Key: observation.key, Metric: spec.Metric, Label: observation.label}
+				item.series = HistorySeries{Key: observation.key, Metric: spec.Metric, Label: observation.label, Device: observation.device}
 			}
 			instances[observation.key] = item
 		}
@@ -71,7 +116,7 @@ func (m Model) detailItems() []detailItem {
 			if _, exists := instances[m.detailSelection.key]; !exists {
 				instances[m.detailSelection.key] = detailItem{
 					choice: m.detailSelection, spec: spec,
-					series: HistorySeries{Key: m.detailSelection.key, Metric: spec.Metric, Label: m.detailSelection.label},
+					series: HistorySeries{Key: m.detailSelection.key, Metric: spec.Metric, Label: m.detailSelection.label, Device: m.detailSelection.device},
 				}
 			}
 		}
@@ -100,7 +145,47 @@ func (m Model) detailItems() []detailItem {
 			})
 		}
 	}
+	groupDetailItems(items)
 	return items
+}
+
+func (frame *detailsFrame) buildRows() {
+	frame.itemRows = make([]int, len(frame.items))
+	previousRank, previousDevice := -1, ""
+	for i, item := range frame.items {
+		rank, device, title := detailGroup(item)
+		if rank != previousRank || device != previousDevice {
+			frame.rows = append(frame.rows, detailRow{group: title})
+			previousRank, previousDevice = rank, device
+		}
+		if len(frame.rows[len(frame.rows)-1].items) == 0 ||
+			len(frame.rows[len(frame.rows)-1].items) == frame.columns {
+			frame.rows = append(frame.rows, detailRow{items: []int{i}})
+		} else {
+			row := &frame.rows[len(frame.rows)-1]
+			row.items = append(row.items, i)
+		}
+		frame.itemRows[i] = len(frame.rows) - 1
+	}
+}
+
+func (frame detailsFrame) itemPosition(index int) (row, column int) {
+	row = frame.itemRows[index]
+	return row, index - frame.rows[row].items[0]
+}
+
+func (frame detailsFrame) moveRows(delta int) int {
+	row, column := frame.itemPosition(frame.selected)
+	target := max(0, min(len(frame.rows)-1, row+delta))
+	if len(frame.rows[target].items) == 0 {
+		if delta > 0 || target == 0 {
+			target++
+		} else {
+			target--
+		}
+	}
+	items := frame.rows[target].items
+	return items[min(column, len(items)-1)]
 }
 
 func (m Model) detailIndex(items []detailItem) int {
@@ -121,6 +206,7 @@ func (m Model) detailsLayout(width int) detailsFrame {
 	frame.selected = m.detailIndex(frame.items)
 	frame.columns = max(1, min(3, (width+panelGap)/(36+panelGap)))
 	frame.cellWidth = (width - panelGap*(frame.columns-1)) / frame.columns
+	frame.buildRows()
 	item := frame.items[frame.selected]
 	plotSpec, plotSeries := item.spec, item.series
 	plotSpec.Title = detailTitle(item)
@@ -145,17 +231,21 @@ func (m Model) detailsLayout(width int) detailsFrame {
 			frame.chart = frame.chart[:min(len(frame.chart), max(0, available-2))]
 		}
 	}
-	totalRows := (len(frame.items) + frame.columns - 1) / frame.columns
+	totalRows := len(frame.rows)
 	frame.visibleRows = totalRows
 	if m.height > 0 {
 		frame.visibleRows = min(totalRows, max(0, available-len(frame.chart)-1))
 	}
 	frame.firstRow = min(m.detailTop, max(0, totalRows-frame.visibleRows))
-	selectedRow := frame.selected / frame.columns
+	selectedRow := frame.itemRows[frame.selected]
 	if selectedRow < frame.firstRow {
 		frame.firstRow = selectedRow
 	} else if frame.visibleRows > 0 && selectedRow >= frame.firstRow+frame.visibleRows {
 		frame.firstRow = selectedRow - frame.visibleRows + 1
+	}
+	if frame.visibleRows >= 2 && selectedRow > 0 &&
+		len(frame.rows[selectedRow-1].items) == 0 && frame.firstRow == selectedRow {
+		frame.firstRow--
 	}
 	return frame
 }
@@ -163,18 +253,19 @@ func (m Model) detailsLayout(width int) detailsFrame {
 func (m Model) detailsBody(width int) string {
 	frame := m.detailsLayout(width)
 	lines := append([]string(nil), frame.chart...)
-	status := fmt.Sprintf("Select metric (%d/%d)", frame.selected+1, len(frame.items))
+	_, _, group := detailGroup(frame.items[frame.selected])
+	status := fmt.Sprintf("%s | Select metric (%d/%d)", sanitize(group, 80), frame.selected+1, len(frame.items))
 	if m.history.limited {
 		status += " | history series limit reached"
 	}
 	lines = append(lines, headingStyle.Render(status))
 	for row := frame.firstRow; row < frame.firstRow+frame.visibleRows; row++ {
+		if len(frame.rows[row].items) == 0 {
+			lines = append(lines, headingStyle.Render("-- "+sanitize(frame.rows[row].group, 80)+" --"))
+			continue
+		}
 		var cells []string
-		for col := 0; col < frame.columns; col++ {
-			i := row*frame.columns + col
-			if i >= len(frame.items) {
-				break
-			}
+		for _, i := range frame.rows[row].items {
 			item := frame.items[i]
 			value := m.thresholdValue(item.spec.Metric, item.value, func(value Reading) string {
 				if text, missing := placeholder(value); missing {
@@ -217,17 +308,17 @@ func (m *Model) detailKey(key string) bool {
 	index := frame.selected
 	switch key {
 	case "up", "k":
-		index -= frame.columns
+		index = frame.moveRows(-1)
 	case "down", "j":
-		index += frame.columns
+		index = frame.moveRows(1)
 	case "left", "h":
 		index--
 	case "right", "l":
 		index++
 	case "pgup":
-		index -= max(1, frame.visibleRows) * frame.columns
+		index = frame.moveRows(-max(1, frame.visibleRows))
 	case "pgdown", " ":
-		index += max(1, frame.visibleRows) * frame.columns
+		index = frame.moveRows(max(1, frame.visibleRows))
 	case "home", "g":
 		index = 0
 	case "end", "G":
@@ -264,9 +355,9 @@ func (m *Model) detailMouse(msg tea.MouseMsg) {
 		if col >= frame.columns || msg.X%(frame.cellWidth+panelGap) >= frame.cellWidth {
 			return
 		}
-		index := (frame.firstRow+row)*frame.columns + col
-		if index < len(frame.items) {
-			m.selectDetail(index)
+		items := frame.rows[frame.firstRow+row].items
+		if col < len(items) {
+			m.selectDetail(items[col])
 		}
 	}
 }

@@ -166,7 +166,7 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 		state.alert.Unavailable = true
 		if state.missingCount >= t.config.SamplesToClear {
 			if state.active >= t.minimumSeverity() {
-				t.archive(state.alert, at, "no data")
+				t.archive(state.alert, at, "no longer observed")
 			}
 			delete(t.states, key)
 		}

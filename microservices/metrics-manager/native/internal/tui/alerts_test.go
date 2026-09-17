@@ -255,7 +255,7 @@ func TestAlertTrackerMissingIsNotRecovery(t *testing.T) {
 	for range 2 {
 		tracker.Update(Dashboard{}, config.Thresholds, fixedNow.Add(3*time.Second))
 	}
-	if len(tracker.events) != 1 || tracker.events[0].Outcome != "no data" {
+	if len(tracker.events) != 1 || tracker.events[0].Outcome != "no longer observed" {
 		t.Fatalf("missing reading recorded as recovery: %+v", tracker.events)
 	}
 }
