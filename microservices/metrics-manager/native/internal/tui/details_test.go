@@ -96,7 +96,7 @@ func TestDetailsSelectionScrollsButChartStaysAtTop(t *testing.T) {
 	if frame.selected != len(frame.items)-1 || frame.firstRow == 0 {
 		t.Fatal("End did not reveal the final metric")
 	}
-	selectedRow := frame.selected / frame.columns
+	selectedRow := frame.itemRows[frame.selected]
 	if selectedRow < frame.firstRow || selectedRow >= frame.firstRow+frame.visibleRows {
 		t.Fatal("selected metric is not visible")
 	}
@@ -118,10 +118,10 @@ func TestDetailsMouseSelectsRenderedCell(t *testing.T) {
 		m := detailsModel(t, width, 35)
 		frame := m.detailsLayout(width)
 		want := min(frame.columns, len(frame.items)-1)
-		row, col := want/frame.columns, want%frame.columns
+		row, col := frame.itemPosition(want)
 		msg := tea.MouseMsg{
 			X:      col * (frame.cellWidth + panelGap),
-			Y:      len(m.chromeLines(width)) + len(frame.chart) + 1 + row,
+			Y:      len(m.chromeLines(width)) + len(frame.chart) + 1 + row - frame.firstRow,
 			Button: tea.MouseButtonLeft, Action: tea.MouseActionPress,
 		}
 		m, _ = update(t, m, msg)
@@ -149,9 +149,13 @@ func TestDetailsMouseUsesScrolledListCoordinates(t *testing.T) {
 	if frame.firstRow == 0 {
 		t.Fatal("fixture did not scroll")
 	}
-	want := frame.items[frame.firstRow*frame.columns].choice
+	row := frame.firstRow
+	for len(frame.rows[row].items) == 0 {
+		row++
+	}
+	want := frame.items[frame.rows[row].items[0]].choice
 	m, _ = update(t, m, tea.MouseMsg{
-		X: 0, Y: len(m.chromeLines(120)) + len(frame.chart) + 1,
+		X: 0, Y: len(m.chromeLines(120)) + len(frame.chart) + 1 + row - frame.firstRow,
 		Button: tea.MouseButtonLeft, Action: tea.MouseActionPress,
 	})
 	if m.detailSelection != want {
@@ -251,7 +255,7 @@ func TestDetailsUsesConfiguredOrderDefaultAndMouse(t *testing.T) {
 	m.now = func() time.Time { return fixedNow }
 	m, _ = update(t, m, key("3"))
 	frame := m.detailsLayout(80)
-	if frame.selected != 0 || len(frame.items) != 2 {
+	if frame.items[frame.selected].spec.Metric != "memory.usedPercent" || len(frame.items) != 2 {
 		t.Fatalf("configured selector ignored: %+v", frame)
 	}
 	wantContains(t, m.View(), "RAM")

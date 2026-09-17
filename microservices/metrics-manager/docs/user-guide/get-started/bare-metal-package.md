@@ -265,8 +265,17 @@ the selection does not restart collection or discard earlier samples.
   details. Set `details.mouse=false` to disable capture entirely.
 - `a` still opens alert details. Returning preserves the selected metric.
 
-The metric list uses up to three columns. Only the list scrolls; the chart stays
-at the top and reduces its height when necessary. Very short terminals show a
+The metric list uses up to three columns within labelled sections, always in
+the order **CPU, Memory, each GPU separately, NPU**. GPU IDs sort numerically
+where numeric IDs are available. Different sections never share a row.
+Core-class readings stay in CPU, and each GPU's temperature, engines, frequency,
+power and VRAM stay together. Keyboard navigation skips section headings;
+clicking a heading or an empty cell does not change the selected metric.
+The current section is also named above the list, including when its heading
+has scrolled out of view.
+
+Only the list scrolls; the chart stays at the top and reduces its height when
+necessary. Very short terminals show a
 request for more height instead of hiding the selector beneath a large plot.
 Missing readings are shown as unavailable, not zero. A selected GPU/engine
 remains selected if it disappears, even after its retained history expires.
@@ -423,9 +432,12 @@ first, in memory for the current TUI session only. Set this to `0` to disable
 history or choose a limit up to `1000`. Recovery below the displayed severity
 ends an event; warning/critical transitions within one episode keep its start
 time. History values and severity describe the last active reading, not the
-recovery sample. After three missing samples, an event ends as `no data`, not
-`recovered`; before then it is marked as waiting for data. A failed poll keeps
-last-known events but marks the summary and details as disconnected/stale.
+recovery sample. After three missing samples, an event ends as
+`no longer observed`, not `recovered`. Earlier measurements still explain why
+the event was raised; the label means subsequent observations stopped. For a
+process, this can mean it exited or left the monitored top-N list, not
+necessarily a collector failure. Before then it is marked as waiting for data.
+A failed poll keeps last-known events but marks the summary and details as disconnected/stale.
 History is not written to disk and is not a record of events before TUI startup.
 
 The defaults and the maximum number of displayed processes are configured in
@@ -488,6 +500,8 @@ Each entry in `details.metrics` uses the same `metric`, `title`, `unit`, `min`
 and `max` fields as `charts`; a device-specific metric expands into individual
 devices, engines or tiles. Both lists accept 1–32 unique metric types. Old
 configuration files without a `details` object use the built-in defaults.
+The configured metric order is preserved within each hardware section; the
+section order remains fixed even if the configuration interleaves device types.
 The top-level `historyDuration` and `maxPoints` apply to both tabs; no additional
 configuration file is needed. Selecting an unsupported or currently absent
 hardware measurement cannot make its collector expose data.

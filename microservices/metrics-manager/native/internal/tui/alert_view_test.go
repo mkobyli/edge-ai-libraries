@@ -171,7 +171,7 @@ func TestAlertHistoryDetails(t *testing.T) {
 	}
 	m.showAlerts = true
 	view := m.View()
-	for _, want := range []string{"Active (0)", "Recent history (1/50)", "[no data]", "GPU 0 / render", "last observed 99.0%"} {
+	for _, want := range []string{"Active (0)", "Recent history (1/50)", "[no longer observed]", "GPU 0 / render", "last observed 99.0%"} {
 		wantContains(t, view, want)
 	}
 }
