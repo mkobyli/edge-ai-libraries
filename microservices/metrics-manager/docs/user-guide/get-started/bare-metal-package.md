@@ -184,9 +184,9 @@ mm-tui
 |---|---|
 | `q`, `Ctrl+C` | Quit |
 | `a` | Open or close alert details |
-| `Esc` | Close alert details, or quit from Overview/Trends |
-| `Tab`, `Shift+Tab` | Switch between Overview and Trends |
-| `1`, `2` | Open Overview or Trends directly |
+| `Esc` | Close alert details, or quit from a dashboard tab |
+| `Tab`, `Shift+Tab` | Cycle forward/backward through Overview, Trends and Details |
+| `1`, `2`, `3` | Open Overview, Trends or Details directly |
 | `↑` `↓`, `k` `j` | Scroll the current view a line |
 | `PgUp` `PgDn`, `Space` | Scroll a screen |
 | `Home` `End`, `g` `G` | Jump to the top or the bottom |
@@ -249,6 +249,38 @@ values cannot be distinguished from a fresh hardware measurement here.
 GPU utilisation is the busiest engine on that device for each sample. When
 there are more samples than terminal columns, each horizontal bucket keeps its
 peak so a short spike does not disappear during downsampling.
+
+### Details: inspect one metric
+
+Press `3` for a full-width chart above a selectable list of metrics. CPU
+utilisation is selected initially, using the same five-minute window as Trends.
+History for supported metrics is collected while any tab is open, so changing
+the selection does not restart collection or discard earlier samples.
+
+- Arrow keys select a neighbouring metric; `h`/`j`/`k`/`l` work too. Selection
+  updates the chart immediately; `Enter` also selects the focused entry.
+- `PgUp`/`PgDn` page through the list; `Home`/`End` select its first/last entry.
+- Click a metric to select it, or use the mouse wheel to move up/down the list.
+  Mouse capture is enabled only in Details, not Overview, Trends or alert
+  details. Set `details.mouse=false` to disable capture entirely.
+- `a` still opens alert details. Returning preserves the selected metric.
+
+The metric list uses up to three columns. Only the list scrolls; the chart stays
+at the top and reduces its height when necessary. Very short terminals show a
+request for more height instead of hiding the selector beneath a large plot.
+Missing readings are shown as unavailable, not zero. A selected GPU/engine
+remains selected if it disappears, even after its retained history expires.
+No metric is substituted silently.
+
+The default selection includes CPU total and per-class P/E/LP-E usage,
+temperature, frequency and package power; RAM use and system DRAM bandwidth;
+per-GPU aggregate/engine utilisation, temperature, per-tile actual frequency,
+graphics power and dedicated VRAM percentage; NPU utilisation, temperature,
+frequency, power and memory. Frequency charts use MHz. NPU memory uses MiB
+(matching the collector's binary conversion). VRAM percentage is unavailable
+when dedicated memory total is zero, as on an iGPU. These are existing
+device-level measurements, not new per-process NPU telemetry or GPU VRAM
+bandwidth counters.
 
 One figure is easy to misread. **Memory bandwidth is whole-system DRAM
 throughput, not GPU bandwidth.** Neither Intel GPU driver publishes a
@@ -380,7 +412,7 @@ with a 5% hysteresis by default so a value close to a boundary does not make the
 alert repeatedly appear and disappear. Missing measurements and failed polls
 break consecutive-sample runs; they do not count as recovery.
 
-Press `a` on either tab to open a separate, scrollable alert view. Each entry
+Press `a` on any tab to open a separate, scrollable alert view. Each entry
 identifies the metric and device (including the GPU engine), its severity,
 value and threshold with units, start time and duration through the latest
 successful snapshot, and diagnostic guidance. Press `a` or `Esc` to return to
@@ -432,6 +464,33 @@ six-row charts. Supported metrics are:
 - `gpu.temperatureC`
 - `npu.utilizationPercent`
 - `npu.temperatureC`
+- `cpu.classPercent` (one series per reported core class)
+- `cpu.frequencyMHz`
+- `cpu.powerW` (CPU package power)
+- `gpu.enginePercent` (one series per GPU engine)
+- `gpu.frequencyMHz` (actual frequency per GPU tile)
+- `gpu.powerW` (graphics-domain power)
+- `gpu.vramPercent`
+- `npu.frequencyMHz`
+- `npu.powerW`
+- `npu.memoryMiB`
+
+The same file also configures Details through its `details` object:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `defaultMetric` | `cpu.totalPercent` | Initial metric; must occur in `metrics` |
+| `chartHeight` | `10` | Preferred plot height, 3–20 rows; adapts to terminal height |
+| `mouse` | `true` | Enable click/wheel selection while Details is open |
+| `metrics` | Packaged metric list | Ordered list of chart specifications for the selector |
+
+Each entry in `details.metrics` uses the same `metric`, `title`, `unit`, `min`
+and `max` fields as `charts`; a device-specific metric expands into individual
+devices, engines or tiles. Both lists accept 1–32 unique metric types. Old
+configuration files without a `details` object use the built-in defaults.
+The top-level `historyDuration` and `maxPoints` apply to both tabs; no additional
+configuration file is needed. Selecting an unsupported or currently absent
+hardware measurement cannot make its collector expose data.
 
 Omit `min` or `max` to derive that side of the scale from the retained data.
 The history duration accepts Go duration syntax such as `30s`, `5m` or `1h`.
