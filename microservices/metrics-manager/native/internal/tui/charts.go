@@ -31,98 +31,121 @@ func (m Model) trendsGrid(width int) string {
 		}
 	}
 	if len(panels) == 0 {
-		return labelStyle.Render("Collecting trend data…")
+		return labelStyle.Render("No samples in the current window. Waiting for trend data.")
 	}
 
-	return packPanels(panels, width, chartMinWidth, 2)
+	grid := packPanels(panels, width, chartMinWidth, 2)
+	if m.history.limited {
+		return labelStyle.Render(fmt.Sprintf("History series limit (%d) reached; additional series omitted.",
+			maxHistorySeries)) + "\n" + grid
+	}
+	return grid
 }
 
 func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) string {
-	const axisWidth = 9
-	plotWidth := width - axisWidth
-	if plotWidth < 4 {
-		plotWidth = 4
+	end := m.now()
+	window := m.chartsConfig.historyWindow()
+	start := end.Add(-window)
+	points := windowPoints(series.Points, start, end)
+	minValue, maxValue := chartBounds(spec, points)
+
+	var b strings.Builder
+	b.WriteString(headingStyle.Render(sanitize(seriesTitle(spec, series), width)) + "\n")
+	if len(points) > 0 {
+		last, minimum, average, maximum := pointStats(points)
+		unit := sanitize(spec.Unit, 16)
+		latest := points[len(points)-1]
+		b.WriteString(fmt.Sprintf("last %.1f%s | %s\n", last, unit, formatAge(end.Sub(latest.At))))
+		b.WriteString(fmt.Sprintf("min %.1f | sample avg %.1f | max %.1f\n", minimum, average, maximum))
+		if !series.Available || m.err != nil {
+			b.WriteString("No current measurement; showing retained samples.\n")
+		}
+	} else {
+		b.WriteString("No samples in this time window.\n")
 	}
 
-	points := downsample(series.Points, plotWidth)
-	minValue, maxValue := chartBounds(spec, points)
+	labelWidth := max(6, len(fmt.Sprintf("%.1f", minValue)), len(fmt.Sprintf("%.1f", maxValue)))
+	axisWidth := labelWidth + 2
+	plotWidth := width - axisWidth
+	if plotWidth < 4 {
+		b.WriteString("Widen terminal for plot.\n")
+		return lipgloss.NewStyle().Width(max(1, width)).Render(b.String())
+	}
+	buckets := timeBuckets(points, plotWidth, start, end)
 	height := m.chartsConfig.ChartHeight
 	grid := make([][]rune, height)
 	for row := range grid {
 		grid[row] = []rune(strings.Repeat(" ", plotWidth))
 	}
-	for column, point := range points {
+	for column, point := range buckets {
+		if !point.OK {
+			continue
+		}
 		position := int(math.Round((point.Value - minValue) / (maxValue - minValue) * float64(height-1)))
 		position = max(0, min(height-1, position))
 		grid[height-1-position][column] = '●'
 	}
 
-	var b strings.Builder
-	title := sanitize(seriesTitle(spec, series), max(1, width-24))
-	b.WriteString(headingStyle.Render(title))
-	if len(points) > 0 {
-		last, minimum, average, maximum := pointStats(series.Points)
-		unit := sanitize(spec.Unit, 16)
-		summary := fmt.Sprintf("  now %.1f%s  min %.1f  avg %.1f  max %.1f",
-			last, unit, minimum, average, maximum)
-		b.WriteString(labelStyle.Render(fitWidth(summary, max(1, width-lipgloss.Width(title)))))
-	}
-	b.WriteString("\n")
-
 	for row := range grid {
-		label := "       "
+		label := strings.Repeat(" ", labelWidth)
 		if row == 0 {
-			label = fmt.Sprintf("%6.1f ", maxValue)
+			label = fmt.Sprintf("%*.1f", labelWidth, maxValue)
 		} else if row == height-1 {
-			label = fmt.Sprintf("%6.1f ", minValue)
+			label = fmt.Sprintf("%*.1f", labelWidth, minValue)
 		}
-		b.WriteString(labelStyle.Render(label + "│"))
+		b.WriteString(labelStyle.Render(label + " │"))
 		b.WriteString(string(grid[row]))
 		b.WriteString("\n")
 	}
 	b.WriteString(labelStyle.Render(strings.Repeat(" ", axisWidth) + strings.Repeat("─", plotWidth)))
 	b.WriteString("\n")
-	window := m.chartsConfig.historyWindow()
-	timeline := strings.Repeat(" ", axisWidth) + "-" + formatWindow(window)
-	gap := width - lipgloss.Width(timeline) - len("now")
-	if gap < 1 {
-		gap = 1
+	left := "-" + formatWindow(window)
+	timeline := "now"
+	if plotWidth >= len(left)+4 {
+		timeline = left + strings.Repeat(" ", plotWidth-len(left)-3) + "now"
 	}
-	b.WriteString(labelStyle.Render(fitWidth(timeline+strings.Repeat(" ", gap)+"now", width)))
+	b.WriteString(labelStyle.Render(strings.Repeat(" ", axisWidth) + timeline))
 
-	return b.String()
+	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
-func downsample(points []HistoryPoint, width int) []HistoryPoint {
-	if width <= 0 || len(points) == 0 {
+func windowPoints(points []HistoryPoint, start, end time.Time) []HistoryPoint {
+	var visible []HistoryPoint
+	for _, point := range points {
+		if !point.At.Before(start) && !point.At.After(end) &&
+			!math.IsNaN(point.Value) && !math.IsInf(point.Value, 0) {
+			visible = append(visible, point)
+		}
+	}
+	return visible
+}
+
+// Each column represents an equal time interval, not an equal sample count.
+// Empty columns stay empty: neither missing data nor startup becomes zero.
+func timeBuckets(points []HistoryPoint, width int, start, end time.Time) []Reading {
+	if width <= 0 || !end.After(start) {
 		return nil
 	}
-	if len(points) <= width {
-		return append([]HistoryPoint(nil), points...)
-	}
-
-	out := make([]HistoryPoint, 0, width)
-	for bucket := 0; bucket < width; bucket++ {
-		start := bucket * len(points) / width
-		end := (bucket + 1) * len(points) / width
-		peak := points[start]
-		for _, point := range points[start+1 : end] {
-			if point.Value > peak.Value {
-				peak = point
-			}
+	buckets := make([]Reading, width)
+	for _, point := range points {
+		if point.At.Before(start) || point.At.After(end) ||
+			math.IsNaN(point.Value) || math.IsInf(point.Value, 0) {
+			continue
 		}
-		out = append(out, peak)
+		column := min(width-1, int(float64(point.At.Sub(start))/float64(end.Sub(start))*float64(width)))
+		if !buckets[column].OK || point.Value > buckets[column].Value {
+			buckets[column] = reading(point.Value)
+		}
 	}
-
-	return out
+	return buckets
 }
 
 func chartBounds(spec ChartSpec, points []HistoryPoint) (float64, float64) {
-	if len(points) == 0 {
-		return 0, 1
+	minValue, maxValue := 0.0, 1.0
+	if len(points) > 0 {
+		minValue, maxValue = points[0].Value, points[0].Value
 	}
-	minValue, maxValue := points[0].Value, points[0].Value
-	for _, point := range points[1:] {
+	for _, point := range points {
 		minValue = math.Min(minValue, point.Value)
 		maxValue = math.Max(maxValue, point.Value)
 	}

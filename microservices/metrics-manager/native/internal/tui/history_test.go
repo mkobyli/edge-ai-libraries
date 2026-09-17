@@ -62,11 +62,14 @@ func TestHistorySeparatesMultipleGPUs(t *testing.T) {
 
 func TestDownsamplePreservesPeaks(t *testing.T) {
 	points := []HistoryPoint{
-		{Value: 1}, {Value: 9}, {Value: 2}, {Value: 8},
+		{At: fixedNow, Value: 1},
+		{At: fixedNow.Add(time.Second), Value: 9},
+		{At: fixedNow.Add(2 * time.Second), Value: 2},
+		{At: fixedNow.Add(3 * time.Second), Value: 8},
 	}
-	got := downsample(points, 2)
+	got := timeBuckets(points, 2, fixedNow, fixedNow.Add(4*time.Second))
 	if len(got) != 2 || got[0].Value != 9 || got[1].Value != 8 {
-		t.Errorf("downsample = %+v, want bucket peaks 9 and 8", got)
+		t.Errorf("time buckets = %+v, want bucket peaks 9 and 8", got)
 	}
 }
 
