@@ -71,6 +71,8 @@ func (m Model) View() string {
 	hint := footerHint(len(lines), rows, offset)
 	if m.showAlerts {
 		hint = strings.Replace(hint, "a alerts", "a/esc back", 1)
+	} else if m.activeTab == DetailsTab {
+		hint = "a alerts · q quit · arrows select · PgUp/PgDn · 1/2/3 tabs"
 	}
 	out = append(out, fitWidth(footerStyle.Render(hint), width))
 	return strings.Join(out, "\n")
@@ -116,6 +118,8 @@ func (m Model) bodyLines(width int) []string {
 		content = m.alertDetails(width)
 	} else if m.activeTab == TrendsTab {
 		content = m.trendsGrid(width)
+	} else if m.activeTab == DetailsTab {
+		content = m.detailsBody(width)
 	} else {
 		content = m.panelGrid(width)
 	}
@@ -252,7 +256,7 @@ func clip(lines []string, rows, offset int) ([]string, int) {
 
 func footerHint(total, rows, offset int) string {
 	if rows <= 0 || total <= rows {
-		return "a alerts · q quit · 1/2 tab switch"
+		return "a alerts · q quit · 1/2/3 tab switch"
 	}
 
 	return fmt.Sprintf("a alerts · q quit · lines %d-%d of %d · ↑↓ PgUp/PgDn g/G scroll",
@@ -260,17 +264,18 @@ func footerHint(total, rows, offset int) string {
 }
 
 func (m Model) tabLine() string {
-	overview := "1 Overview"
-	trends := "2 Trends"
-	if m.activeTab == OverviewTab {
-		overview = titleStyle.Render("[" + overview + "]")
-		trends = labelStyle.Render(trends)
-	} else {
-		overview = labelStyle.Render(overview)
-		trends = titleStyle.Render("[" + trends + "]")
+	tabs := []string{"1 Overview", "2 Trends", "3 Details"}
+	if m.renderWidth() < 35 {
+		tabs = []string{"1 O", "2 T", "3 D"}
 	}
-
-	return overview + "   " + trends
+	for i, tab := range tabs {
+		if Tab(i) == m.activeTab {
+			tabs[i] = titleStyle.Render("[" + tab + "]")
+		} else {
+			tabs[i] = labelStyle.Render(tab)
+		}
+	}
+	return strings.Join(tabs, "   ")
 }
 
 // platformLine names the machine under the title, and is omitted entirely on a

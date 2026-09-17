@@ -158,7 +158,55 @@ func chartObservations(d Dashboard) []chartObservation {
 		},
 	)
 
+	observations = append(observations,
+		chartObservation{key: "cpu.frequency", metric: "cpu.frequencyMHz", label: "CPU", value: scaleReading(d.CPU.FrequencyKHz, 1000)},
+		chartObservation{key: "cpu.power", metric: "cpu.powerW", label: "CPU", value: d.CPU.PackagePowerW},
+		chartObservation{key: "npu.frequency", metric: "npu.frequencyMHz", label: "NPU", value: scaleReading(d.NPU.FrequencyHz, 1e6)},
+		chartObservation{key: "npu.power", metric: "npu.powerW", label: "NPU", value: d.NPU.PowerW},
+		chartObservation{key: "npu.memory", metric: "npu.memoryMiB", label: "NPU", value: d.NPU.MemoryMB},
+	)
+	for _, class := range d.CPU.Classes {
+		observations = append(observations, chartObservation{
+			key: "cpu.class." + class.Name, metric: "cpu.classPercent", label: class.Name,
+			value: totalCPUUsage(CPU{UsageIdle: class.UsageIdle}),
+		})
+	}
+	for _, gpu := range d.GPUs {
+		observations = append(observations,
+			chartObservation{key: "gpu." + gpu.ID + ".power", metric: "gpu.powerW", label: "GPU " + gpu.ID, value: gpu.PowerW},
+			chartObservation{key: "gpu." + gpu.ID + ".vram", metric: "gpu.vramPercent", label: "GPU " + gpu.ID,
+				value: usedPercent(gpu.VRAMUsedBytes, gpu.VRAMTotalBytes)},
+		)
+		for _, engine := range gpu.Engines {
+			observations = append(observations, chartObservation{
+				key: "gpu." + gpu.ID + ".engine." + engine.Name, metric: "gpu.enginePercent",
+				label: "GPU " + gpu.ID + " / " + engine.Name, value: engine.Usage,
+			})
+		}
+		for _, tile := range gpu.Tiles {
+			observations = append(observations, chartObservation{
+				key: "gpu." + gpu.ID + ".tile." + tile.Name, metric: "gpu.frequencyMHz",
+				label: "GPU " + gpu.ID + " / " + tile.Name, value: tile.ActualMHz,
+			})
+		}
+	}
 	return observations
+}
+
+func scaleReading(value Reading, divisor float64) Reading {
+	if !value.OK {
+		return value
+	}
+	return reading(value.Value / divisor)
+}
+
+func usedPercent(used, total Reading) Reading {
+	if !used.OK || !total.OK || total.Value <= 0 || used.Value < 0 ||
+		math.IsNaN(used.Value) || math.IsInf(used.Value, 0) ||
+		math.IsNaN(total.Value) || math.IsInf(total.Value, 0) {
+		return Reading{}
+	}
+	return reading(100 * used.Value / total.Value)
 }
 
 func maxEngineUsage(engines []GPUEngine) Reading {

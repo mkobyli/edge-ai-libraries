@@ -50,7 +50,7 @@ func main() {
 	configPath := flag.String("config", tui.DefaultConfigPath,
 		"dashboard configuration file; built-in defaults are used when absent")
 	chartsConfigPath := flag.String("charts-config", tui.DefaultChartsConfigPath,
-		"trend chart configuration file; built-in defaults are used when absent")
+		"Trends and Details configuration file; built-in defaults are used when absent")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 

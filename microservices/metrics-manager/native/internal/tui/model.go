@@ -32,6 +32,8 @@ type Tab int
 const (
 	OverviewTab Tab = iota
 	TrendsTab
+	DetailsTab
+	tabCount
 )
 
 // Model is the dashboard state.
@@ -49,14 +51,16 @@ type Model struct {
 	// err is the reason the most recent poll failed, or nil.
 	err error
 
-	config       DashboardConfig
-	chartsConfig ChartsConfig
-	alerts       AlertTracker
-	history      History
-	activeTab    Tab
-	tabOffsets   [2]int
-	showAlerts   bool
-	alertOffset  int
+	config          DashboardConfig
+	chartsConfig    ChartsConfig
+	alerts          AlertTracker
+	history         History
+	activeTab       Tab
+	tabOffsets      [tabCount]int
+	detailSelection detailChoice
+	detailTop       int
+	showAlerts      bool
+	alertOffset     int
 
 	width  int
 	height int
@@ -85,12 +89,13 @@ func NewModelWithConfigs(
 	chartsConfig ChartsConfig,
 ) Model {
 	return Model{
-		snapshots:    ch,
-		config:       config,
-		chartsConfig: chartsConfig,
-		alerts:       NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed),
-		history:      NewHistory(chartsConfig),
-		now:          time.Now,
+		snapshots:       ch,
+		config:          config,
+		chartsConfig:    chartsConfig,
+		alerts:          NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed),
+		history:         NewHistory(chartsConfig),
+		detailSelection: detailChoice{metric: chartsConfig.Details.DefaultMetric},
+		now:             time.Now,
 	}
 }
 
@@ -101,6 +106,7 @@ func (m Model) Init() tea.Cmd {
 
 // Update folds one message into the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	mouseEnabled := m.detailsMouseEnabled()
 	switch msg := msg.(type) {
 	case clockMsg:
 		m.history.Prune(m.now())
@@ -108,6 +114,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, clockTick()
 
 	case tea.KeyMsg:
+		if m.activeTab == DetailsTab && !m.showAlerts && m.detailKey(msg.String()) {
+			return m, nil
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -120,13 +129,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "a":
 			m.toggleAlerts()
 		case "tab":
-			m.switchTab((m.activeTab + 1) % 2)
+			m.switchTab((m.activeTab + 1) % tabCount)
 		case "shift+tab":
-			m.switchTab((m.activeTab + 1) % 2)
+			m.switchTab((m.activeTab + tabCount - 1) % tabCount)
 		case "1":
 			m.switchTab(OverviewTab)
 		case "2":
 			m.switchTab(TrendsTab)
+		case "3":
+			m.switchTab(DetailsTab)
 		case "up", "k":
 			m.setOffset(m.offset - 1)
 		case "down", "j":
@@ -140,6 +151,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "end", "G":
 			m.setOffset(m.maxOffset())
 		}
+
+	case tea.MouseMsg:
+		m.detailMouse(msg)
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -170,6 +184,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	if m.detailsMouseEnabled() != mouseEnabled {
+		if m.detailsMouseEnabled() {
+			return m, tea.EnableMouseCellMotion
+		}
+		return m, tea.DisableMouse
+	}
 	return m, nil
 }
 
@@ -224,6 +244,9 @@ func (m Model) scrollTo(offset int) int {
 // maxOffset is the furthest the body can scroll, which is zero whenever it
 // already fits on screen.
 func (m Model) maxOffset() int {
+	if m.activeTab == DetailsTab && !m.showAlerts {
+		return 0
+	}
 	rows := m.visibleRows()
 	if rows <= 0 {
 		return 0

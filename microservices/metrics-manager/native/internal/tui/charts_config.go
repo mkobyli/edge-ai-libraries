@@ -12,12 +12,20 @@ import (
 const DefaultChartsConfigPath = "/etc/metrics-manager/tui-charts.json"
 
 type ChartsConfig struct {
-	SPDXFileCopyrightText string      `json:"SPDX-FileCopyrightText,omitempty"`
-	SPDXLicenseIdentifier string      `json:"SPDX-License-Identifier,omitempty"`
-	HistoryDuration       string      `json:"historyDuration"`
-	MaxPoints             int         `json:"maxPoints"`
-	ChartHeight           int         `json:"chartHeight"`
-	Charts                []ChartSpec `json:"charts"`
+	SPDXFileCopyrightText string        `json:"SPDX-FileCopyrightText,omitempty"`
+	SPDXLicenseIdentifier string        `json:"SPDX-License-Identifier,omitempty"`
+	HistoryDuration       string        `json:"historyDuration"`
+	MaxPoints             int           `json:"maxPoints"`
+	ChartHeight           int           `json:"chartHeight"`
+	Charts                []ChartSpec   `json:"charts"`
+	Details               DetailsConfig `json:"details"`
+}
+
+type DetailsConfig struct {
+	DefaultMetric string      `json:"defaultMetric"`
+	ChartHeight   int         `json:"chartHeight"`
+	Mouse         bool        `json:"mouse"`
+	Metrics       []ChartSpec `json:"metrics"`
 }
 
 type ChartSpec struct {
@@ -37,6 +45,16 @@ var supportedCharts = map[string]bool{
 	"gpu.temperatureC":       true,
 	"npu.utilizationPercent": true,
 	"npu.temperatureC":       true,
+	"cpu.classPercent":       true,
+	"cpu.frequencyMHz":       true,
+	"cpu.powerW":             true,
+	"gpu.enginePercent":      true,
+	"gpu.frequencyMHz":       true,
+	"gpu.powerW":             true,
+	"gpu.vramPercent":        true,
+	"npu.frequencyMHz":       true,
+	"npu.powerW":             true,
+	"npu.memoryMiB":          true,
 }
 
 func DefaultChartsConfig() ChartsConfig {
@@ -44,6 +62,31 @@ func DefaultChartsConfig() ChartsConfig {
 		HistoryDuration: "5m",
 		MaxPoints:       600,
 		ChartHeight:     6,
+		Details: DetailsConfig{
+			DefaultMetric: "cpu.totalPercent",
+			ChartHeight:   10,
+			Mouse:         true,
+			Metrics: []ChartSpec{
+				fixedChart("cpu.totalPercent", "CPU utilization", "%", 0, 100),
+				fixedChart("cpu.classPercent", "Core class utilization", "%", 0, 100),
+				fixedChart("cpu.temperatureC", "CPU temperature", "°C", 0, 110),
+				{Metric: "cpu.frequencyMHz", Title: "CPU frequency", Unit: "MHz"},
+				{Metric: "cpu.powerW", Title: "CPU package power", Unit: "W"},
+				fixedChart("memory.usedPercent", "Memory used", "%", 0, 100),
+				{Metric: "memory.bandwidthMiBps", Title: "Memory bandwidth", Unit: "MiB/s"},
+				fixedChart("gpu.utilizationPercent", "GPU utilization", "%", 0, 100),
+				fixedChart("gpu.enginePercent", "GPU engine utilization", "%", 0, 100),
+				fixedChart("gpu.temperatureC", "GPU temperature", "°C", 0, 110),
+				{Metric: "gpu.frequencyMHz", Title: "GPU tile frequency", Unit: "MHz"},
+				{Metric: "gpu.powerW", Title: "GPU graphics power", Unit: "W"},
+				fixedChart("gpu.vramPercent", "GPU VRAM used", "%", 0, 100),
+				fixedChart("npu.utilizationPercent", "NPU utilization", "%", 0, 100),
+				fixedChart("npu.temperatureC", "NPU temperature", "°C", 0, 110),
+				{Metric: "npu.frequencyMHz", Title: "NPU frequency", Unit: "MHz"},
+				{Metric: "npu.powerW", Title: "NPU power", Unit: "W"},
+				{Metric: "npu.memoryMiB", Title: "NPU memory", Unit: "MiB"},
+			},
+		},
 		Charts: []ChartSpec{
 			fixedChart("cpu.totalPercent", "CPU utilization", "%", 0, 100),
 			fixedChart("memory.usedPercent", "Memory used", "%", 0, 100),
@@ -91,33 +134,50 @@ func (c ChartsConfig) Validate() error {
 	if c.ChartHeight < 3 || c.ChartHeight > 20 {
 		return fmt.Errorf("chartHeight must be between 3 and 20")
 	}
-	if len(c.Charts) == 0 || len(c.Charts) > 32 {
-		return fmt.Errorf("charts must contain between 1 and 32 entries")
+	if err := validateChartSpecs("charts", c.Charts); err != nil {
+		return err
 	}
+	if c.Details.ChartHeight < 3 || c.Details.ChartHeight > 20 {
+		return fmt.Errorf("details.chartHeight must be between 3 and 20")
+	}
+	if err := validateChartSpecs("details.metrics", c.Details.Metrics); err != nil {
+		return err
+	}
+	for _, spec := range c.Details.Metrics {
+		if spec.Metric == c.Details.DefaultMetric {
+			return nil
+		}
+	}
+	return fmt.Errorf("details.defaultMetric must be included in details.metrics")
+}
 
-	seen := make(map[string]bool, len(c.Charts))
-	for i, chart := range c.Charts {
+func validateChartSpecs(name string, specs []ChartSpec) error {
+	if len(specs) == 0 || len(specs) > 32 {
+		return fmt.Errorf("%s must contain between 1 and 32 entries", name)
+	}
+	seen := make(map[string]bool, len(specs))
+	for i, chart := range specs {
 		if !supportedCharts[chart.Metric] {
-			return fmt.Errorf("charts[%d].metric %q is not supported", i, chart.Metric)
+			return fmt.Errorf("%s[%d].metric %q is not supported", name, i, chart.Metric)
 		}
 		if seen[chart.Metric] {
-			return fmt.Errorf("charts[%d].metric %q is duplicated", i, chart.Metric)
+			return fmt.Errorf("%s[%d].metric %q is duplicated", name, i, chart.Metric)
 		}
 		seen[chart.Metric] = true
 		if chart.Title == "" || len([]rune(chart.Title)) > 80 {
-			return fmt.Errorf("charts[%d].title must contain 1 to 80 characters", i)
+			return fmt.Errorf("%s[%d].title must contain 1 to 80 characters", name, i)
 		}
 		if len([]rune(chart.Unit)) > 16 {
-			return fmt.Errorf("charts[%d].unit cannot exceed 16 characters", i)
+			return fmt.Errorf("%s[%d].unit cannot exceed 16 characters", name, i)
 		}
 		if chart.Min != nil && (math.IsNaN(*chart.Min) || math.IsInf(*chart.Min, 0)) {
-			return fmt.Errorf("charts[%d].min must be finite", i)
+			return fmt.Errorf("%s[%d].min must be finite", name, i)
 		}
 		if chart.Max != nil && (math.IsNaN(*chart.Max) || math.IsInf(*chart.Max, 0)) {
-			return fmt.Errorf("charts[%d].max must be finite", i)
+			return fmt.Errorf("%s[%d].max must be finite", name, i)
 		}
 		if chart.Min != nil && chart.Max != nil && *chart.Min >= *chart.Max {
-			return fmt.Errorf("charts[%d] must satisfy min < max", i)
+			return fmt.Errorf("%s[%d] must satisfy min < max", name, i)
 		}
 	}
 
