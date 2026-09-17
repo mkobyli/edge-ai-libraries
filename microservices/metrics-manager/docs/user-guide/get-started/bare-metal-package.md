@@ -183,13 +183,38 @@ mm-tui
 | Key | Action |
 |---|---|
 | `q`, `Ctrl+C` | Quit |
+| `h` | Open or close help: keyboard shortcuts, startup options and examples |
 | `a` | Open or close alert details |
-| `Esc` | Close alert details, or quit from a dashboard tab |
+| `Esc` | Close help first, then alert details; quit from a dashboard tab |
 | `Tab`, `Shift+Tab` | Cycle forward/backward through Overview, Trends and Details |
 | `1`, `2`, `3` | Open Overview, Trends or Details directly |
 | `↑` `↓`, `k` `j` | Scroll the current view a line |
 | `PgUp` `PgDn`, `Space` | Scroll a screen |
 | `Home` `End`, `g` `G` | Jump to the top or the bottom |
+
+### Built-in help
+
+Show startup options, their defaults and examples without starting the TUI
+or requiring running collectors:
+
+```bash
+mm-tui -h
+mm-tui --help
+```
+
+Both forms are supported (`-help` also works). Option names accept one or two
+leading dashes, for example `-interval 1s` or `--interval 1s`.
+
+While the TUI is running, press `h` to open a scrollable help screen. It includes
+navigation shortcuts, alert status explanations and the same startup reference
+as `--help`. The listed defaults are not the current session's settings.
+Use arrows, `PgUp`/`PgDn`, `Home`/`End` to scroll. Press `h` or `Esc` to return to
+the previous tab or alert view, preserving its scroll position and selected
+metric. Help remembers its own scroll position. Collection and history continue
+while help is open. Tab shortcuts leave help; `a` goes directly to alerts.
+`q` and `Ctrl+C` still quit the application.
+
+### Dashboard layout and history
 
 Overview responds to the terminal width. It uses one column in a narrow window,
 two columns once each panel can remain readable, and up to three columns in a
@@ -257,13 +282,14 @@ utilisation is selected initially, using the same five-minute window as Trends.
 History for supported metrics is collected while any tab is open, so changing
 the selection does not restart collection or discard earlier samples.
 
-- Arrow keys select a neighbouring metric; `h`/`j`/`k`/`l` work too. Selection
+- Arrow keys select a neighbouring metric; `j`/`k`/`l` also move down/up/right.
+  Use the left arrow to move left: `h` now opens help in every view. Selection
   updates the chart immediately; `Enter` also selects the focused entry.
 - `PgUp`/`PgDn` page through the list; `Home`/`End` select its first/last entry.
 - Click a metric to select it, or use the mouse wheel to move up/down the list.
-  Mouse capture is enabled only in Details, not Overview, Trends or alert
+  Mouse capture is enabled only in Details, not Overview, Trends, help or alert
   details. Set `details.mouse=false` to disable capture entirely.
-- `a` still opens alert details. Returning preserves the selected metric.
+- `a` opens alert details and `h` opens help. Returning preserves the selected metric.
 
 The metric list uses up to three columns within labelled sections, always in
 the order **CPU, Memory, each GPU separately, NPU**. GPU IDs sort numerically
