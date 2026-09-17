@@ -32,53 +32,35 @@ import (
 // version is overridden at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-// defaultEndpoint is Telegraf's outputs.prometheus_client listener as
-// configured by this component. Loopback is the default because the dashboard
-// is a local diagnostic tool; pointing it at another host is possible but has
-// to be asked for explicitly.
-const defaultEndpoint = "http://127.0.0.1:9273/metrics"
-
 func main() {
-	endpoint := flag.String("endpoint", defaultEndpoint,
-		"Prometheus exposition endpoint to read")
-	interval := flag.Duration("interval", source.DefaultInterval,
-		"how often to refresh; must be greater than zero")
-	once := flag.Bool("once", false,
-		"render a single frame to stdout and exit, for debugging and parity checks")
-	width := flag.Int("width", 100,
-		"column width to render at with -once")
-	configPath := flag.String("config", tui.DefaultConfigPath,
-		"dashboard configuration file; built-in defaults are used when absent")
-	chartsConfigPath := flag.String("charts-config", tui.DefaultChartsConfigPath,
-		"Trends and Details configuration file; built-in defaults are used when absent")
-	showVersion := flag.Bool("version", false, "print the version and exit")
+	options := tui.RegisterStartupFlags(flag.CommandLine)
 	flag.Parse()
 
-	if *showVersion {
+	if options.Version {
 		fmt.Println("mm-tui", version)
 		return
 	}
 
-	config, err := tui.LoadDashboardConfig(*configPath)
+	config, err := tui.LoadDashboardConfig(options.ConfigPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mm-tui:", err)
 		os.Exit(1)
 	}
-	chartsConfig, err := tui.LoadChartsConfig(*chartsConfigPath)
+	chartsConfig, err := tui.LoadChartsConfig(options.ChartsConfigPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mm-tui:", err)
 		os.Exit(1)
 	}
 
-	if *once {
-		if err := renderOnce(*endpoint, *width, config, chartsConfig); err != nil {
+	if options.Once {
+		if err := renderOnce(options.Endpoint, options.Width, config, chartsConfig); err != nil {
 			fmt.Fprintln(os.Stderr, "mm-tui:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	if err := run(*endpoint, *interval, config, chartsConfig); err != nil {
+	if err := run(options.Endpoint, options.Interval, config, chartsConfig); err != nil {
 		fmt.Fprintln(os.Stderr, "mm-tui:", err)
 		os.Exit(1)
 	}

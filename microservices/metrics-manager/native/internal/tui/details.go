@@ -311,7 +311,7 @@ func (m *Model) detailKey(key string) bool {
 		index = frame.moveRows(-1)
 	case "down", "j":
 		index = frame.moveRows(1)
-	case "left", "h":
+	case "left":
 		index--
 	case "right", "l":
 		index++
@@ -332,7 +332,7 @@ func (m *Model) detailKey(key string) bool {
 }
 
 func (m Model) detailsMouseEnabled() bool {
-	return m.activeTab == DetailsTab && !m.showAlerts && m.chartsConfig.Details.Mouse
+	return m.activeTab == DetailsTab && !m.showAlerts && !m.showHelp && m.chartsConfig.Details.Mouse
 }
 
 func (m *Model) detailMouse(msg tea.MouseMsg) {

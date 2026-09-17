@@ -69,10 +69,12 @@ func (m Model) View() string {
 	}
 	out = append(out, ruleStyle.Render(strings.Repeat("─", width)))
 	hint := footerHint(len(lines), rows, offset)
-	if m.showAlerts {
+	if m.showHelp {
+		hint = strings.Replace(hint, "h help · a alerts", "h/esc back · a alerts", 1)
+	} else if m.showAlerts {
 		hint = strings.Replace(hint, "a alerts", "a/esc back", 1)
 	} else if m.activeTab == DetailsTab {
-		hint = "a alerts · q quit · arrows select · PgUp/PgDn · 1/2/3 tabs"
+		hint = "h help · a alerts · q quit · arrows select · PgUp/PgDn · 1/2/3 tabs"
 	}
 	out = append(out, fitWidth(footerStyle.Render(hint), width))
 	return strings.Join(out, "\n")
@@ -114,7 +116,9 @@ func (m Model) chromeLines(width int) []string {
 // bodyLines contains only scrollable content; status and navigation stay fixed.
 func (m Model) bodyLines(width int) []string {
 	var content string
-	if m.showAlerts {
+	if m.showHelp {
+		content = m.helpBody(width)
+	} else if m.showAlerts {
 		content = m.alertDetails(width)
 	} else if m.activeTab == TrendsTab {
 		content = m.trendsGrid(width)
@@ -256,10 +260,10 @@ func clip(lines []string, rows, offset int) ([]string, int) {
 
 func footerHint(total, rows, offset int) string {
 	if rows <= 0 || total <= rows {
-		return "a alerts · q quit · 1/2/3 tab switch"
+		return "h help · a alerts · q quit · 1/2/3 tab switch"
 	}
 
-	return fmt.Sprintf("a alerts · q quit · lines %d-%d of %d · ↑↓ PgUp/PgDn g/G scroll",
+	return fmt.Sprintf("h help · a alerts · q quit · lines %d-%d of %d · ↑↓ PgUp/PgDn g/G scroll",
 		offset+1, offset+rows, total)
 }
 

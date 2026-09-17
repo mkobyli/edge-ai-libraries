@@ -61,6 +61,8 @@ type Model struct {
 	detailTop       int
 	showAlerts      bool
 	alertOffset     int
+	showHelp        bool
+	helpOffset      int
 
 	width  int
 	height int
@@ -114,20 +116,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, clockTick()
 
 	case tea.KeyMsg:
-		if m.activeTab == DetailsTab && !m.showAlerts && m.detailKey(msg.String()) {
+		if m.activeTab == DetailsTab && !m.showAlerts && !m.showHelp && m.detailKey(msg.String()) {
 			return m, nil
 		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "esc":
-			if m.showAlerts {
+			if m.showHelp {
+				m.toggleHelp()
+			} else if m.showAlerts {
 				m.toggleAlerts()
 			} else {
 				return m, tea.Quit
 			}
 		case "a":
 			m.toggleAlerts()
+		case "h":
+			m.toggleHelp()
 		case "tab":
 			m.switchTab((m.activeTab + 1) % tabCount)
 		case "shift+tab":
@@ -194,6 +200,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) switchTab(tab Tab) {
+	if m.showHelp {
+		m.toggleHelp()
+	}
 	if m.showAlerts {
 		m.toggleAlerts()
 	}
@@ -207,7 +216,9 @@ func (m *Model) switchTab(tab Tab) {
 
 func (m *Model) setOffset(offset int) {
 	m.offset = m.scrollTo(offset)
-	if m.showAlerts {
+	if m.showHelp {
+		m.helpOffset = m.offset
+	} else if m.showAlerts {
 		m.alertOffset = m.offset
 	} else {
 		m.tabOffsets[m.activeTab] = m.offset
@@ -215,6 +226,12 @@ func (m *Model) setOffset(offset int) {
 }
 
 func (m *Model) toggleAlerts() {
+	if m.showHelp {
+		m.toggleHelp()
+		if m.showAlerts {
+			return
+		}
+	}
 	if m.showAlerts {
 		m.alertOffset = m.offset
 		m.showAlerts = false
@@ -244,7 +261,7 @@ func (m Model) scrollTo(offset int) int {
 // maxOffset is the furthest the body can scroll, which is zero whenever it
 // already fits on screen.
 func (m Model) maxOffset() int {
-	if m.activeTab == DetailsTab && !m.showAlerts {
+	if m.activeTab == DetailsTab && !m.showAlerts && !m.showHelp {
 		return 0
 	}
 	rows := m.visibleRows()
