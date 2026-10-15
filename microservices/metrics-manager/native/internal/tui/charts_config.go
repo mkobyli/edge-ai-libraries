@@ -37,28 +37,38 @@ type ChartSpec struct {
 }
 
 var supportedCharts = map[string]bool{
-	"cpu.totalPercent":       true,
-	"cpu.temperatureC":       true,
-	"memory.usedPercent":     true,
-	"memory.bandwidthMiBps":  true,
-	"gpu.utilizationPercent": true,
-	"gpu.temperatureC":       true,
-	"npu.utilizationPercent": true,
-	"npu.temperatureC":       true,
-	"cpu.classPercent":       true,
-	"cpu.frequencyMHz":       true,
-	"cpu.powerW":             true,
-	"gpu.enginePercent":      true,
-	"gpu.frequencyMHz":       true,
-	"gpu.powerW":             true,
-	"gpu.vramPercent":        true,
-	"npu.frequencyMHz":       true,
-	"npu.powerW":             true,
-	"npu.memoryMiB":          true,
+	"cpu.totalPercent":           true,
+	"cpu.temperatureC":           true,
+	"memory.usedPercent":         true,
+	"memory.bandwidthMiBps":      true,
+	"gpu.utilizationPercent":     true,
+	"gpu.temperatureC":           true,
+	"npu.utilizationPercent":     true,
+	"npu.temperatureC":           true,
+	"cpu.classPercent":           true,
+	"cpu.frequencyMHz":           true,
+	"cpu.powerW":                 true,
+	"gpu.enginePercent":          true,
+	"gpu.frequencyMHz":           true,
+	"gpu.powerW":                 true,
+	"gpu.vramPercent":            true,
+	"npu.frequencyMHz":           true,
+	"npu.powerW":                 true,
+	"npu.memoryMiB":              true,
+	"network.rxMiBps":            true,
+	"network.txMiBps":            true,
+	"network.rxPercent":          true,
+	"network.txPercent":          true,
+	"network.rxPacketsPerSecond": true,
+	"network.txPacketsPerSecond": true,
+	"network.rxErrorsPerSecond":  true,
+	"network.txErrorsPerSecond":  true,
+	"network.rxDropsPerSecond":   true,
+	"network.txDropsPerSecond":   true,
 }
 
 func DefaultChartsConfig() ChartsConfig {
-	return ChartsConfig{
+	config := ChartsConfig{
 		HistoryDuration: "5m",
 		MaxPoints:       600,
 		ChartHeight:     6,
@@ -96,6 +106,9 @@ func DefaultChartsConfig() ChartsConfig {
 			fixedChart("npu.utilizationPercent", "NPU utilization", "%", 0, 100),
 		},
 	}
+	config.Details.Metrics = append(config.Details.Metrics, networkChartSpecs()...)
+	config.Charts = append(config.Charts, networkChartSpecs()[:2]...)
+	return config
 }
 
 func fixedChart(metric, title, unit string, minValue, maxValue float64) ChartSpec {

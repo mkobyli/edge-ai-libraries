@@ -264,7 +264,7 @@ func TestNewThresholdObservationsDebounceAndIgnoreUnavailableVRAM(t *testing.T) 
 	}
 }
 
-func TestFeedbackPreferencesOverrideAndInheritDefaults(t *testing.T) {
+func TestDashboardPreferencesOverrideAndInheritDefaults(t *testing.T) {
 	old, err := LoadDashboardConfig(writeConfig(t, `{"processes":{"maxDisplayed":20}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -297,7 +297,7 @@ func TestCoreClassTableFitsInsideTwoColumnFrame(t *testing.T) {
 	}
 }
 
-func TestFeedbackFrameAndAlertBounds(t *testing.T) {
+func TestDashboardViewsFitTerminalBounds(t *testing.T) {
 	for _, width := range []int{1, 2, 12, 20, 40, 80, 139, 210} {
 		for _, height := range []int{1, 5, 8, 12, 24, 40} {
 			m := acceleratorModel(t, height)

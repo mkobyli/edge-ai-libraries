@@ -346,12 +346,14 @@ type Process struct {
 
 // Dashboard is everything the view needs for one refresh.
 type Dashboard struct {
-	Host     string
-	Platform Platform
-	CPU      CPU
-	Memory   Memory
-	GPUs     []GPU
-	NPU      NPU
+	Host           string
+	Platform       Platform
+	CPU            CPU
+	Memory         Memory
+	GPUs           []GPU
+	NPU            NPU
+	Network        []NetworkInterface
+	NetworkLimited bool
 
 	// Processes are the busiest on the machine, by CPU and by resident
 	// memory. The collector caps how many it publishes.

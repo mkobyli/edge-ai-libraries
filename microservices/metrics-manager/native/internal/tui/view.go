@@ -172,6 +172,12 @@ func (m Model) panelGrid(width int) string {
 	if m.dash.NPU.Present {
 		panels = append(panels, m.npuSection())
 	}
+	for _, network := range m.dash.Network {
+		panels = append(panels, m.networkSection(network))
+	}
+	if m.dash.NetworkLimited {
+		panels = append(panels, "Network\nInterface limit reached; adjust network.interfaces or network.maxInterfaces.")
+	}
 
 	// Processes go last because the hardware panels are what the dashboard
 	// is for, but on a wide terminal they can use otherwise idle space.
@@ -812,9 +818,7 @@ func (m Model) thresholdTemperature(metric string, value Reading) string {
 
 func (m Model) thresholdValue(metric string, value Reading, format func(Reading) string) string {
 	text := format(value)
-	if metric == "gpu.enginePercent" {
-		metric = "gpu.utilizationPercent"
-	}
+	metric = thresholdMetric(metric)
 	threshold, enabled := m.config.Thresholds[metric]
 	if !enabled || !value.OK || math.IsNaN(value.Value) || math.IsInf(value.Value, 0) {
 		return text

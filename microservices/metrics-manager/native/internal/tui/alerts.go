@@ -53,9 +53,11 @@ type AlertEvent struct {
 type observation struct {
 	key, metric, device, message string
 	value                        float64
+	at                           time.Time
 }
 
 type alertState struct {
+	observedAt   time.Time
 	active       Severity
 	pending      Severity
 	pendingCount int
@@ -94,6 +96,12 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 		}
 		state.missingCount = 0
 		state.alert.Unavailable = false
+		if !observation.at.IsZero() {
+			if !observation.at.After(state.observedAt) {
+				continue
+			}
+			state.observedAt = observation.at
+		}
 
 		target := classifyWithHysteresis(observation.value, threshold, state.active,
 			t.config.HysteresisPercent)
@@ -307,6 +315,23 @@ func dashboardObservations(d Dashboard, processLimit int) []observation {
 	add("npu.temperature", "npu.temperatureC", "NPU",
 		"Check NPU load and cooling.", d.NPU.TempC)
 
+	for _, network := range d.Network {
+		for _, spec := range networkChartSpecs() {
+			metric := thresholdMetric(spec.Metric)
+			if !supportedThresholds[metric] {
+				continue
+			}
+			value := network.Metrics[spec.Metric]
+			if value.OK {
+				observations = append(observations, observation{
+					key: "network." + network.Key + "." + spec.Metric, metric: metric,
+					device:  network.label() + " / " + spec.Title,
+					message: "Inspect interface traffic, link capacity and packet errors; thresholds are diagnostic.",
+					value:   value.Value, at: value.At,
+				})
+			}
+		}
+	}
 	processes := d.Processes
 	if len(processes) > processLimit {
 		processes = processes[:processLimit]

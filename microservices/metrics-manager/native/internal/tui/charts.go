@@ -83,7 +83,9 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 		}
 		// Eighth-cell blocks show an area, including a visible baseline for
 		// measured zero. Missing time buckets remain entirely blank.
-		level := int(math.Round((point.Value - minValue) / (maxValue - minValue) * float64(height*8)))
+		fraction := (point.Value - minValue) / (maxValue - minValue)
+		fraction = math.Max(0, math.Min(1, fraction))
+		level := int(math.Round(fraction * float64(height*8)))
 		level = max(1, min(height*8, level))
 		blocks := []rune(" ▁▂▃▄▅▆▇█")
 		for row := height - 1; row >= 0 && level > 0; row-- {

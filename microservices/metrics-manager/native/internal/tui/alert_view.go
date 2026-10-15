@@ -87,10 +87,7 @@ func (m Model) bottomAlertLines(width int) []string {
 	alerts := m.alerts.Visible()
 	if len(alerts) > 0 {
 		alert := alerts[0]
-		unit := "%"
-		if !isPercentThreshold(alert.Metric) {
-			unit = " C"
-		}
+		unit := thresholdUnit(alert.Metric)
 		status := ""
 		if alert.Unavailable || m.err != nil || m.now().Sub(m.updatedAt) > m.staleAfter() {
 			status = " [last observed]"
@@ -106,10 +103,7 @@ func renderAlert(alert Alert, end time.Time, outcome string) string {
 	if alert.Device != "" {
 		label = alert.Device + " / " + label
 	}
-	unit := "%"
-	if !isPercentThreshold(alert.Metric) {
-		unit = " C"
-	}
+	unit := thresholdUnit(alert.Metric)
 	valueLabel := "last observed"
 	if outcome == "active" {
 		valueLabel = "current"

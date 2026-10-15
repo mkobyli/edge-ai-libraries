@@ -26,7 +26,17 @@
       {"metric": "npu.temperatureC", "title": "NPU temperature", "unit": "°C", "min": 0, "max": 110},
       {"metric": "npu.frequencyMHz", "title": "NPU frequency", "unit": "MHz"},
       {"metric": "npu.powerW", "title": "NPU power", "unit": "W"},
-      {"metric": "npu.memoryMiB", "title": "NPU memory", "unit": "MiB"}
+      {"metric": "npu.memoryMiB", "title": "NPU memory", "unit": "MiB"},
+      {"metric": "network.rxMiBps", "title": "RX transfer", "unit": "MiB/s", "min": 0},
+      {"metric": "network.txMiBps", "title": "TX transfer", "unit": "MiB/s", "min": 0},
+      {"metric": "network.rxPercent", "title": "RX link utilization", "unit": "%", "min": 0, "max": 100},
+      {"metric": "network.txPercent", "title": "TX link utilization", "unit": "%", "min": 0, "max": 100},
+      {"metric": "network.rxPacketsPerSecond", "title": "RX packets", "unit": "/s", "min": 0},
+      {"metric": "network.txPacketsPerSecond", "title": "TX packets", "unit": "/s", "min": 0},
+      {"metric": "network.rxErrorsPerSecond", "title": "RX errors", "unit": "/s", "min": 0},
+      {"metric": "network.txErrorsPerSecond", "title": "TX errors", "unit": "/s", "min": 0},
+      {"metric": "network.rxDropsPerSecond", "title": "RX drops", "unit": "/s", "min": 0},
+      {"metric": "network.txDropsPerSecond", "title": "TX drops", "unit": "/s", "min": 0}
     ]
   },
   "charts": [
@@ -71,6 +81,8 @@
       "unit": "%",
       "min": 0,
       "max": 100
-    }
+    },
+    {"metric": "network.rxMiBps", "title": "RX transfer", "unit": "MiB/s", "min": 0},
+    {"metric": "network.txMiBps", "title": "TX transfer", "unit": "MiB/s", "min": 0}
   ]
 }

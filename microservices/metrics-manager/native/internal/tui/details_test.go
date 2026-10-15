@@ -360,6 +360,9 @@ func TestDetailsConfigValidationAndPackagedDefaults(t *testing.T) {
 	if !reflect.DeepEqual(packaged.Details, DefaultChartsConfig().Details) {
 		t.Fatal("packaged Details defaults differ from built-in defaults")
 	}
+	if !reflect.DeepEqual(packaged.Charts, DefaultChartsConfig().Charts) {
+		t.Fatal("packaged Trends defaults differ from built-in defaults")
+	}
 }
 
 func TestDetailsNavigationWhileHistoryUpdates(t *testing.T) {

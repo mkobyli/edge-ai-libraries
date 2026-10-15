@@ -32,7 +32,7 @@ func (m Model) helpBody(width int) string {
 		"  Mouse capture enables tab clicks and scrolling; help releases it.\n" +
 		"  Set mouse=false in the dashboard config to disable all capture.\n" +
 		"  details.mouse=false disables only metric click/wheel selection.\n" +
-		"  CPU, Memory, individual GPUs and NPU have separate sections.\n\n" +
+		"  CPU, Memory, individual GPUs, NPU and network interfaces have separate sections.\n\n" +
 		"Reading the display\n" +
 		"  Overview: current readings. Trends: multiple history charts.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
@@ -46,6 +46,14 @@ func (m Model) helpBody(width int) string {
 		"  recovered: readings confirm the alert ended.\n" +
 		"  no longer observed: observations stopped, not confirmed recovery.\n" +
 		"  Collection and history continue while help is open.\n\n" +
+		"Network - optional Telegraf net input\n" +
+		"  RX/TX rates need two distinct, timestamped counter measurements.\n" +
+		"  Cached samples do not advance Network charts or alert streaks.\n" +
+		"  Unknown link speed means no utilization percentage or utilization alert.\n" +
+		"  network.interfaces filters exact names; network.speedMbps supplies known limits.\n" +
+		"  Errors/drops use events/s, not lifetime totals; rate colors share alert thresholds.\n" +
+		"  -once shows totals but cannot calculate a rate from one snapshot.\n" +
+		"  See the native package guide to enable the optional input.\n\n" +
 		"Startup reference - defaults, not the current session settings\n\n" +
 		CommandLineHelp()
 	return lipgloss.NewStyle().Width(width).Render(content)

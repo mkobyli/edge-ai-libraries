@@ -525,6 +525,8 @@ Color coverage is shared between Overview and Details:
 | GPU process utilization | `gpu.processPercent` |
 | NPU utilization, CPU process utilization | `npu.utilizationPercent`, `process.cpuPercent` |
 | CPU/GPU/NPU temperature | Corresponding `*.temperatureC` threshold |
+| Network RX/TX link utilization | `network.rxPercent`, `network.txPercent`; neutral/unavailable without a known capacity |
+| Network RX/TX errors and drops | Shared `network.errorsPerSecond`, `network.dropsPerSecond` thresholds, evaluated separately per direction |
 | Frequency, watts, bandwidth, absolute memory, CPU user/system/idle and C-state shares | Neutral: a high number alone does not establish an unhealthy condition |
 
 Core-class, VRAM and GPU-process thresholds also produce debounced alert events.
@@ -532,34 +534,162 @@ New VRAM defaults are 70/85/95 percent; core-class and GPU-process defaults matc
 the corresponding utilization thresholds. No universal wattage/frequency limits
 are inferred from clock ceilings or CPU TDP.
 
-### Proposed follow-up: network and storage I/O
+### Optional Network monitoring
 
-Network and storage I/O panels are not implemented in this TUI version.
-Telegraf 1.39.3 provides the required inputs:
+Network collection is **opt-in**. The package installs an example outside the
+active Telegraf configuration directory; upgrading does not enable it.
+The TUI automatically displays interfaces when `net_*` metrics are available:
 
-- [`net`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/net):
-  per-interface RX/TX bytes and packets, errors and drops.
-- [`diskio`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/diskio):
-  per-device read/write counters, operation timing, active time and in-flight I/O.
-- [`disk`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/disk):
-  filesystem capacity, free space and inode usage; this is not I/O throughput.
+- Overview: a frame per interface with independent RX/TX transfer in MiB/s,
+  packets/s, errors/s, drops/s, link utilization and cumulative byte totals.
+- Trends: five-minute RX/TX charts per interface with the new default chart list.
+- Details: one group per interface, with ten selectable rate/utilization charts.
+- Alerts: timestamp-aware Network events and the existing bottom alert preview.
 
-The container configuration contains commented network/disk examples; enabling
-an input alone does not add its metrics to the TUI. A proposed separate change
-would add opt-in native Telegraf configuration, Network and Storage panels,
-per-device Details groups and five-minute RX/TX and read/write charts.
-Rates must be calculated from counter differences and elapsed measurement time,
-handling startup, resets, missing data and device disappearance without false
-spikes. Repeated scrapes of unchanged collector samples must not masquerade as
-new rate measurements.
+Enable the native
+[`net` input](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/net)
+by copying the example. If the destination already exists, edit it instead of
+overwriting your settings:
 
-The implementation should filter interfaces/devices/mounts to avoid double
-counting bridges, virtual devices and partitions. Filesystem/inode thresholds
-can be configurable; raw MB/s and NVMe active time alone should not be labelled
-as bottlenecks. Native systemd sandbox visibility and read permissions must be
-verified first, without blanket root/privileged changes. Container host I/O
-visibility needs separate validation. This proposal does not change collectors
-or enable I/O collection in the package.
+```bash
+sudo install -o root -g root -m 0644 \
+  /usr/share/doc/metrics-manager/examples/telegraf-network.conf \
+  /etc/metrics-manager/telegraf.d/network.conf
+sudoedit /etc/metrics-manager/telegraf.d/network.conf
+```
+
+Set `interfaces = ["enp1s0"]` to your actual interface names (`ip -brief link`).
+An empty list collects UP, non-loopback interfaces, including virtual devices.
+Explicitly select the relevant physical interfaces to avoid interpreting traffic
+on a bridge and its member/veth devices as separate physical traffic. The TUI
+does not sum interfaces.
+
+```bash
+sudo systemctl restart metrics-manager-telegraf.service
+curl --fail --silent http://127.0.0.1:9273/metrics |
+  grep -E '^net_(bytes|packets|err|drop|speed)'
+mm-tui
+```
+
+Keep `metric_version = 1` and `export_timestamp = true` in the existing
+`outputs.prometheus_client` configuration. Expected names include `net_bytes_recv`,
+`net_bytes_sent`, `net_packets_recv`, `net_err_in`, `net_drop_in` and `net_speed`,
+with `interface` and normally `host` labels and a final timestamp in milliseconds.
+The pinned Telegraf 1.39.3 exporter uses these names without an added `_total`.
+No root service, capabilities or sandbox relaxation are required by this input.
+If samples are absent, inspect `journalctl -u metrics-manager-telegraf.service`
+and interface selection before changing service permissions.
+
+To disable collection without deleting the local configuration:
+
+```bash
+sudo mv -i /etc/metrics-manager/telegraf.d/network.conf \
+  /etc/metrics-manager/telegraf.d/network.conf.disabled
+sudo systemctl restart metrics-manager-telegraf.service
+```
+
+The `.conf.disabled` file is not loaded. Telegraf configuration changes require
+a service restart; dashboard-only changes require restarting `mm-tui`.
+Container host-network visibility is a separate deployment concern: the native
+setup does not imply that an isolated container sees the host's interfaces.
+
+#### Counter rates and missing data
+
+Rates use `(new counter - previous counter) / elapsed measurement seconds`,
+not elapsed time between TUI polls. Polling faster than Telegraf never creates
+alternating zero/spike rates: repeated source timestamps retain the last rate
+and do not append history points or advance Network alert activation/recovery.
+Three distinct qualifying rate measurements are required with default alerts.
+Each history point is dated at the end of its measured interval; the value is
+an average over that interval, not an instantaneous peak.
+
+The first measurement establishes a baseline. `-once` therefore shows totals
+but cannot calculate rates. Resets, missing/invalid counters, failed polls and
+interface disappearance break the baseline; new rate data needs another
+measurement. Out-of-order samples do not rewind the baseline. Missing timestamps
+leave totals readable but rates unavailable. Samples from the future or older
+than `network.maxSampleAge` are rejected. Overview explains these conditions;
+unavailable measurements are never shown as a green zero. Missing measurements
+can end an active event as `no longer observed`, never as confirmed recovery.
+
+Network configuration in `tui-dashboard.json`:
+
+```json
+"network": {
+  "interfaces": [],
+  "maxInterfaces": 8,
+  "maxSampleAge": "10s",
+  "speedMbps": {}
+}
+```
+
+- `interfaces`: an exact-name allowlist for display and evaluation, at most 32
+  names; empty accepts all exported interfaces. It does not reconfigure Telegraf.
+- `maxInterfaces`: 1-32, default 8. Admission is deterministic by host/interface.
+  Overview reports omissions. Only admitted interfaces consume rate state;
+  all history remains subject to the existing 128-series limit.
+- `maxSampleAge`: 1s-5m, default 10s. Set above the collector interval plus
+  expected flush latency. It applies to the source timestamp, not TUI refresh.
+- `speedMbps`: optional known-capacity overrides keyed by exact interface name,
+  for example `{"enp1s0": 1000}`. Values must be positive, finite and at most
+  10000000 Mbit/s. Overrides apply to that name on every exported host; use a
+  single-host endpoint when interfaces with the same name have different limits.
+
+Without an override, utilization uses Telegraf's reported link speed in Mbit/s.
+Unknown/negative speed (common for virtual or wireless interfaces) means no
+percentage or utilization alert; byte and packet rates still work. Speed and
+byte-counter timestamps must match. RX and TX are compared separately, not
+summed: this is a full-duplex capacity diagnostic, not measured application
+goodput. Wireless, shared and half-duplex links may need operator-provided
+capacity estimates. A reported speed can also change; utilization then reflects
+the capacity reported at the interval end. Incorrect limits can produce values
+above 100%; values are not clamped, although default percentage plots end at 100%.
+
+#### Network threshold defaults
+
+| Threshold key | Careful | Warning | Critical | Unit |
+|---|---:|---:|---:|---|
+| `network.rxPercent` | 70 | 80 | 90 | % of link capacity |
+| `network.txPercent` | 70 | 80 | 90 | % of link capacity |
+| `network.errorsPerSecond` | 0.1 | 1 | 10 | events/s, separately RX and TX |
+| `network.dropsPerSecond` | 0.1 | 1 | 10 | events/s, separately RX and TX |
+
+The 70/80/90 capacity bands follow the established
+[Glances v4.5.2 Network defaults](https://github.com/nicolargo/glances/blob/v4.5.2/conf/glances.conf).
+They are practical monitoring defaults, **not a universal industry standard**.
+The error/drop bands are configurable **project diagnostic heuristics**, not
+Glances defaults or hardware limits. They use interval increments rather than
+lifetime counters or a percentage that could become misleading at very low
+traffic. Consider traffic volume and driver behavior when interpreting them;
+a high-speed production link may need a very different error budget.
+
+Colors in Overview and Details use exactly the same thresholds as alerts.
+The default three-sample debounce, 5% hysteresis and warning/critical-only event
+visibility also apply to Network. Raw transfer, packet rates and byte totals
+remain neutral because a large number alone does not identify a fault.
+All four thresholds can be tuned in `thresholds` without changing the collector.
+
+#### Upgrading an existing TUI configuration
+
+Existing dashboard files inherit the new Network settings and threshold keys
+when omitted. Explicit `charts` and `details.metrics` arrays, however, replace
+the defaults; they are not merged. Preserve local customizations and add the
+Network entries from the new packaged `tui-charts.json` (or its `.dpkg-dist`
+upgrade copy). A fresh configuration contains RX/TX Trends and all ten Network
+Details metrics. No empty Network groups appear before an interface is observed.
+
+### Planned follow-up: Storage I/O
+
+Storage remains a separate follow-up, not an implemented panel.
+Telegraf 1.39.3 provides
+[`diskio`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/diskio)
+for device read/write counters and timings, and
+[`disk`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/disk)
+for filesystem capacity and inode usage.
+The proposed scope is opt-in collection, per-device groups, read/write history
+and configurable filesystem/inode thresholds. Raw MB/s and NVMe active time alone
+must not be labelled as bottlenecks. Native sandbox filesystem visibility needs
+separate verification without blanket root/privileged changes.
 
 ### Trend chart configuration
 
@@ -586,6 +716,11 @@ six-row charts. Supported metrics are:
 - `npu.frequencyMHz`
 - `npu.powerW`
 - `npu.memoryMiB`
+- `network.rxMiBps`, `network.txMiBps`
+- `network.rxPercent`, `network.txPercent`
+- `network.rxPacketsPerSecond`, `network.txPacketsPerSecond`
+- `network.rxErrorsPerSecond`, `network.txErrorsPerSecond`
+- `network.rxDropsPerSecond`, `network.txDropsPerSecond`
 
 The same file also configures Details through its `details` object:
 

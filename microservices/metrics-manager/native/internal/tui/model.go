@@ -56,6 +56,7 @@ type Model struct {
 	chartsConfig    ChartsConfig
 	alerts          AlertTracker
 	history         History
+	network         networkTracker
 	activeTab       Tab
 	tabOffsets      [tabCount]int
 	detailSelection detailChoice
@@ -188,10 +189,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.Err
 		if msg.Err == nil {
 			m.dash = BuildDashboard(msg.Samples)
+			m.dash.Network, m.dash.NetworkLimited = m.network.update(msg.Samples, msg.At, m.config.Network)
 			m.updatedAt = msg.At
 			m.alerts.Update(m.dash, m.config.Thresholds, msg.At)
 			m.history.Update(m.dash, msg.At)
 		} else {
+			m.network = networkTracker{}
 			m.alerts.Interrupt()
 			m.history.Update(Dashboard{}, msg.At)
 		}

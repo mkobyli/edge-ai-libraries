@@ -2,6 +2,12 @@
   "SPDX-FileCopyrightText": "(C) 2026 Intel Corporation",
   "SPDX-License-Identifier": "Apache-2.0",
   "mouse": true,
+  "network": {
+    "interfaces": [],
+    "maxInterfaces": 8,
+    "maxSampleAge": "10s",
+    "speedMbps": {}
+  },
   "processes": {
     "maxDisplayed": 10,
     "sortBy": "usage",
@@ -16,6 +22,10 @@
     "bottomBar": true
   },
   "thresholds": {
+    "network.rxPercent": {"careful": 70, "warning": 80, "critical": 90},
+    "network.txPercent": {"careful": 70, "warning": 80, "critical": 90},
+    "network.errorsPerSecond": {"careful": 0.1, "warning": 1, "critical": 10},
+    "network.dropsPerSecond": {"careful": 0.1, "warning": 1, "critical": 10},
     "cpu.classPercent": {
       "careful": 65,
       "warning": 75,
