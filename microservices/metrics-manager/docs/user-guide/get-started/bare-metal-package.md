@@ -184,10 +184,12 @@ mm-tui
 |---|---|
 | `q`, `Ctrl+C` | Quit |
 | `h` | Open or close help: keyboard shortcuts, startup options and examples |
-| `a` | Open or close alert details |
+| `a` | Open Alerts, or return from Alerts to the previous tab |
 | `Esc` | Close help first, then alert details; quit from a dashboard tab |
-| `Tab`, `Shift+Tab` | Cycle forward/backward through Overview, Trends and Details |
-| `1`, `2`, `3` | Open Overview, Trends or Details directly |
+| `Tab`, `Shift+Tab` | Cycle through Overview, Trends, Details and Alerts |
+| `1`, `2`, `3`, `4` | Open Overview, Trends, Details or Alerts directly |
+| `s`, `r` | In Overview, cycle process sorting / reverse sort direction |
+| Click tab | Switch to that tab, including Alerts |
 | `↑` `↓`, `k` `j` | Scroll the current view a line |
 | `PgUp` `PgDn`, `Space` | Scroll a screen |
 | `Home` `End`, `g` `G` | Jump to the top or the bottom |
@@ -224,8 +226,19 @@ Tables that cannot fit switch to labelled rows, keeping measurements such as
 RSS, idle time and throttle reasons visible rather than clipping their columns.
 Long descriptive values wrap within their panel.
 
-The header, tabs, one-line alert summary and footer stay fixed while content
-scrolls. Alerts never join the hardware grid or move its panels. The footer
+Device and metric-group panels have borders, including Trends plots and
+Details sections. Borders are included in the responsive width calculation.
+The header displays the age of the last successful poll; the `poll` line shows
+the configured TUI polling interval. Use `mm-tui -interval 1s` to change it.
+This does not change the Telegraf collection interval (normally 1 second).
+Request time and failure backoff can make actual polls less frequent.
+
+The header, tabs, two-line bottom alert preview and footer stay fixed while content
+scrolls. The preview always reserves two rows, with the alert counts and highest
+severity event, so a new alert does not shift the device panels. It shows a
+no-events message when empty. Set `alerts.bottomBar=false` to recover those rows;
+counts then appear above the body. On very short terminals the preview is omitted.
+The footer
 reports which content lines you are looking at, as in `lines 1-28 of 42`, so
 a short terminal hides content rather than dropping it. The header reports how
 long ago the last successful read was; when the endpoint stops answering, the
@@ -255,6 +268,8 @@ The time axis always spans the configured window ending at the current time.
 New samples appear near the right edge during startup; a short history is never
 stretched to look like five minutes of data. Each plot column represents an
 equal time interval and displays the highest observed value in that interval.
+Plots use filled eighth-cell blocks instead of isolated dots. Measured zero
+has a visible baseline mark, and a full-scale value fills the column.
 Columns with no samples stay blank, including interruptions and the part of
 the window before TUI startup. There is no interpolation or zero-filling.
 Gaps shorter than a column's time interval may share a column with valid data.
@@ -287,8 +302,11 @@ the selection does not restart collection or discard earlier samples.
   updates the chart immediately; `Enter` also selects the focused entry.
 - `PgUp`/`PgDn` page through the list; `Home`/`End` select its first/last entry.
 - Click a metric to select it, or use the mouse wheel to move up/down the list.
-  Mouse capture is enabled only in Details, not Overview, Trends, help or alert
-  details. Set `details.mouse=false` to disable capture entirely.
+  Mouse capture also supports tab clicks and scrolling in the other tabs.
+  Help releases capture. Set `mouse=false` in the dashboard configuration to
+  disable all mouse capture (for ordinary terminal text selection).
+  `details.mouse=false` in the charts configuration disables metric selection
+  only; tab clicks remain available when the global mouse option is enabled.
 - `a` opens alert details and `h` opens help. Returning preserves the selected metric.
 
 The metric list uses up to three columns within labelled sections, always in
@@ -447,7 +465,7 @@ with a 5% hysteresis by default so a value close to a boundary does not make the
 alert repeatedly appear and disappear. Missing measurements and failed polls
 break consecutive-sample runs; they do not count as recovery.
 
-Press `a` on any tab to open a separate, scrollable alert view. Each entry
+Press `4`, click Alerts, or press `a` to open the fourth, scrollable tab. Each entry
 identifies the metric and device (including the GPU engine), its severity,
 value and threshold with units, start time and duration through the latest
 successful snapshot, and diagnostic guidance. Press `a` or `Esc` to return to
@@ -486,6 +504,62 @@ renders. The GPU collector also has its own limit in the Telegraf configuration.
 Raising the collector limit
 increases Prometheus series churn; raise only the display limit when the desired
 processes are already present at the metrics endpoint.
+
+In Overview, `s` cycles process sorting through `usage`, `memory` and `pid`;
+`r` reverses the direction. Usage means CPU utilization for host processes and
+GPU utilization for GPU processes. Memory means RSS for host processes and
+reported GPU memory for GPU processes. Sorting is applied before the display
+limit, with numeric PID tie-breaking and unavailable readings last. It does not
+change which processes are evaluated for alerts or request more processes from
+the collector. Defaults are `processes.sortBy="usage"` and
+`processes.descending=true`. Interactive changes last for the session only.
+
+Color coverage is shared between Overview and Details:
+
+| Measurement | Threshold / behavior |
+|---|---|
+| CPU total, CPU core-class total | `cpu.totalPercent`, `cpu.classPercent` |
+| RAM usage | `memory.usedPercent` |
+| GPU aggregate and individual engines | Both use `gpu.utilizationPercent` |
+| Dedicated VRAM occupancy | `gpu.vramPercent`; unavailable if total is zero |
+| GPU process utilization | `gpu.processPercent` |
+| NPU utilization, CPU process utilization | `npu.utilizationPercent`, `process.cpuPercent` |
+| CPU/GPU/NPU temperature | Corresponding `*.temperatureC` threshold |
+| Frequency, watts, bandwidth, absolute memory, CPU user/system/idle and C-state shares | Neutral: a high number alone does not establish an unhealthy condition |
+
+Core-class, VRAM and GPU-process thresholds also produce debounced alert events.
+New VRAM defaults are 70/85/95 percent; core-class and GPU-process defaults match
+the corresponding utilization thresholds. No universal wattage/frequency limits
+are inferred from clock ceilings or CPU TDP.
+
+### Proposed follow-up: network and storage I/O
+
+Network and storage I/O panels are not implemented in this TUI version.
+Telegraf 1.39.3 provides the required inputs:
+
+- [`net`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/net):
+  per-interface RX/TX bytes and packets, errors and drops.
+- [`diskio`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/diskio):
+  per-device read/write counters, operation timing, active time and in-flight I/O.
+- [`disk`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/disk):
+  filesystem capacity, free space and inode usage; this is not I/O throughput.
+
+The container configuration contains commented network/disk examples; enabling
+an input alone does not add its metrics to the TUI. A proposed separate change
+would add opt-in native Telegraf configuration, Network and Storage panels,
+per-device Details groups and five-minute RX/TX and read/write charts.
+Rates must be calculated from counter differences and elapsed measurement time,
+handling startup, resets, missing data and device disappearance without false
+spikes. Repeated scrapes of unchanged collector samples must not masquerade as
+new rate measurements.
+
+The implementation should filter interfaces/devices/mounts to avoid double
+counting bridges, virtual devices and partitions. Filesystem/inode thresholds
+can be configurable; raw MB/s and NVMe active time alone should not be labelled
+as bottlenecks. Native systemd sandbox visibility and read permissions must be
+verified first, without blanket root/privileged changes. Container host I/O
+visibility needs separate validation. This proposal does not change collectors
+or enable I/O collection in the package.
 
 ### Trend chart configuration
 

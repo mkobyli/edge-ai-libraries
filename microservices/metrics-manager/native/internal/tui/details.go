@@ -35,8 +35,9 @@ type detailsFrame struct {
 }
 
 type detailRow struct {
-	group string
-	items []int
+	group  string
+	items  []int
+	bottom bool
 }
 
 func detailGroup(item detailItem) (rank int, device, title string) {
@@ -155,6 +156,9 @@ func (frame *detailsFrame) buildRows() {
 	for i, item := range frame.items {
 		rank, device, title := detailGroup(item)
 		if rank != previousRank || device != previousDevice {
+			if len(frame.rows) > 0 {
+				frame.rows = append(frame.rows, detailRow{bottom: true})
+			}
 			frame.rows = append(frame.rows, detailRow{group: title})
 			previousRank, previousDevice = rank, device
 		}
@@ -167,6 +171,7 @@ func (frame *detailsFrame) buildRows() {
 		}
 		frame.itemRows[i] = len(frame.rows) - 1
 	}
+	frame.rows = append(frame.rows, detailRow{bottom: true})
 }
 
 func (frame detailsFrame) itemPosition(index int) (row, column int) {
@@ -177,12 +182,18 @@ func (frame detailsFrame) itemPosition(index int) (row, column int) {
 func (frame detailsFrame) moveRows(delta int) int {
 	row, column := frame.itemPosition(frame.selected)
 	target := max(0, min(len(frame.rows)-1, row+delta))
-	if len(frame.rows[target].items) == 0 {
-		if delta > 0 || target == 0 {
-			target++
-		} else {
-			target--
-		}
+	step := 1
+	if delta < 0 {
+		step = -1
+	}
+	for target >= 0 && target < len(frame.rows) && len(frame.rows[target].items) == 0 {
+		target += step
+	}
+	if target < 0 {
+		return 0
+	}
+	if target >= len(frame.rows) {
+		return len(frame.items) - 1
 	}
 	items := frame.rows[target].items
 	return items[min(column, len(items)-1)]
@@ -204,8 +215,9 @@ func (m Model) detailIndex(items []detailItem) int {
 func (m Model) detailsLayout(width int) detailsFrame {
 	frame := detailsFrame{items: m.detailItems()}
 	frame.selected = m.detailIndex(frame.items)
-	frame.columns = max(1, min(3, (width+panelGap)/(36+panelGap)))
-	frame.cellWidth = (width - panelGap*(frame.columns-1)) / frame.columns
+	innerWidth := max(1, width-2)
+	frame.columns = max(1, min(3, (innerWidth+panelGap)/(36+panelGap)))
+	frame.cellWidth = (innerWidth - panelGap*(frame.columns-1)) / frame.columns
 	frame.buildRows()
 	item := frame.items[frame.selected]
 	plotSpec, plotSeries := item.spec, item.series
@@ -214,7 +226,7 @@ func (m Model) detailsLayout(width int) detailsFrame {
 	chartModel := m
 	chartModel.chartsConfig.ChartHeight = m.chartsConfig.Details.ChartHeight
 	render := func() []string {
-		return strings.Split(strings.TrimRight(chartModel.renderChart(plotSpec, plotSeries, width), "\n"), "\n")
+		return strings.Split(framePanel(chartModel.renderChart(plotSpec, plotSeries, innerWidth), width), "\n")
 	}
 	frame.chart = render()
 	available := m.visibleRows()
@@ -261,7 +273,7 @@ func (m Model) detailsBody(width int) string {
 	lines = append(lines, headingStyle.Render(status))
 	for row := frame.firstRow; row < frame.firstRow+frame.visibleRows; row++ {
 		if len(frame.rows[row].items) == 0 {
-			lines = append(lines, headingStyle.Render("-- "+sanitize(frame.rows[row].group, 80)+" --"))
+			lines = append(lines, panelEdge(sanitize(frame.rows[row].group, 80), width, frame.rows[row].bottom))
 			continue
 		}
 		var cells []string
@@ -291,7 +303,7 @@ func (m Model) detailsBody(width int) string {
 			}
 			cells = append(cells, cell)
 		}
-		lines = append(lines, strings.Join(cells, strings.Repeat(" ", panelGap)))
+		lines = append(lines, panelRow(strings.Join(cells, strings.Repeat(" ", panelGap)), width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -332,7 +344,7 @@ func (m *Model) detailKey(key string) bool {
 }
 
 func (m Model) detailsMouseEnabled() bool {
-	return m.activeTab == DetailsTab && !m.showAlerts && !m.showHelp && m.chartsConfig.Details.Mouse
+	return m.activeTab == DetailsTab && m.mouseEnabled() && m.chartsConfig.Details.Mouse
 }
 
 func (m *Model) detailMouse(msg tea.MouseMsg) {
@@ -348,11 +360,12 @@ func (m *Model) detailMouse(msg tea.MouseMsg) {
 		width := m.renderWidth()
 		frame := m.detailsLayout(width)
 		row := msg.Y - len(m.chromeLines(width)) - len(frame.chart) - 1
-		if row < 0 || row >= frame.visibleRows || msg.X < 0 || msg.X >= width {
+		if row < 0 || row >= frame.visibleRows || msg.X < 1 || msg.X >= width-1 {
 			return
 		}
-		col := msg.X / (frame.cellWidth + panelGap)
-		if col >= frame.columns || msg.X%(frame.cellWidth+panelGap) >= frame.cellWidth {
+		x := msg.X - 1
+		col := x / (frame.cellWidth + panelGap)
+		if col >= frame.columns || x%(frame.cellWidth+panelGap) >= frame.cellWidth {
 			return
 		}
 		items := frame.rows[frame.firstRow+row].items
