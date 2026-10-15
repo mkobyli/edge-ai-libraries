@@ -62,20 +62,20 @@ func TestHelpReturnsToAlertsAndAllowsDirectNavigation(t *testing.T) {
 		m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
 		var cmd tea.Cmd
 		m, cmd = update(t, m, key(closeKey))
-		if isQuit(cmd) || m.showHelp || !m.showAlerts || m.offset != offset {
+		if isQuit(cmd) || m.showHelp || m.activeTab != AlertsTab || m.offset != offset {
 			t.Fatalf("%s did not return from help to alerts", closeKey)
 		}
 	}
 	for _, tabKey := range []string{"1", "2", "3", "tab", "shift+tab"} {
 		m, _ = update(t, m, key("h"))
 		m, _ = update(t, m, key(tabKey))
-		if m.showHelp || m.showAlerts {
+		if m.showHelp {
 			t.Fatalf("%s did not dismiss overlays", tabKey)
 		}
 	}
 	m, _ = update(t, m, key("h"))
 	m, _ = update(t, m, key("a"))
-	if m.showHelp || !m.showAlerts {
+	if m.showHelp || m.activeTab != AlertsTab {
 		t.Fatal("a from help did not open alerts")
 	}
 }

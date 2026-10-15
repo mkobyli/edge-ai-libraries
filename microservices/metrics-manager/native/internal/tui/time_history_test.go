@@ -261,7 +261,7 @@ func TestRenderedChartUsesTimeColumns(t *testing.T) {
 					t.Fatalf("plot width = %d, want 50", lipgloss.Width(plot))
 				}
 				for column, cell := range []rune(plot) {
-					if cell == '●' {
+					if strings.ContainsRune("▁▂▃▄▅▆▇█", cell) {
 						occupied[column] = true
 					}
 				}

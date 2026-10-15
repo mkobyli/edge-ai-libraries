@@ -60,6 +60,8 @@ func TestLoadDashboardConfigRejectsInvalidInput(t *testing.T) {
 		name, content, want string
 	}{
 		{"unknown field", `{"unknown": true}`, "unknown field"},
+		{"unknown sort", `{"processes":{"sortBy":"command"}}`, "sortBy"},
+		{"empty sort", `{"processes":{"sortBy":""}}`, "sortBy"},
 		{"multiple values", `{}` + "\n" + `{}`, "more than one"},
 		{"negative history", `{"alerts":{"maxHistory":-1}}`, "between 0 and 1000"},
 		{"unbounded history", `{"alerts":{"maxHistory":1001}}`, "between 0 and 1000"},
@@ -96,7 +98,7 @@ func TestPackagedDashboardConfigMatchesDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := DefaultDashboardConfig()
-	if config.Alerts != want.Alerts || config.Processes != want.Processes {
+	if config.Alerts != want.Alerts || config.Processes != want.Processes || config.Mouse != want.Mouse {
 		t.Errorf("packaged defaults differ: %+v", config)
 	}
 }

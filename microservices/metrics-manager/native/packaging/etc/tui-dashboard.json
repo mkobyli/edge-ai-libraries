@@ -1,17 +1,36 @@
 {
   "SPDX-FileCopyrightText": "(C) 2026 Intel Corporation",
   "SPDX-License-Identifier": "Apache-2.0",
+  "mouse": true,
   "processes": {
-    "maxDisplayed": 10
+    "maxDisplayed": 10,
+    "sortBy": "usage",
+    "descending": true
   },
   "alerts": {
     "samplesToRaise": 3,
     "samplesToClear": 3,
     "hysteresisPercent": 5,
     "showCareful": false,
-    "maxHistory": 50
+    "maxHistory": 50,
+    "bottomBar": true
   },
   "thresholds": {
+    "cpu.classPercent": {
+      "careful": 65,
+      "warning": 75,
+      "critical": 85
+    },
+    "gpu.vramPercent": {
+      "careful": 70,
+      "warning": 85,
+      "critical": 95
+    },
+    "gpu.processPercent": {
+      "careful": 50,
+      "warning": 70,
+      "critical": 90
+    },
     "cpu.totalPercent": {
       "careful": 65,
       "warning": 75,

@@ -12,8 +12,12 @@ func (m Model) helpBody(width int) string {
 		"  Esc: close help; otherwise close alerts or quit from a tab.\n" +
 		"  q / Ctrl+C: quit, including from help or alerts.\n" +
 		"  a: open/close alerts; from help, go to alerts.\n" +
-		"  1 / 2 / 3: Overview / Trends / Details.\n" +
-		"  Tab / Shift+Tab: next / previous tab.\n\n" +
+		"  1 / 2 / 3 / 4: Overview / Trends / Details / Alerts.\n" +
+		"  Tab / Shift+Tab or click a tab: change tab.\n\n" +
+		"Processes - Overview (CPU and GPU lists)\n" +
+		"  s: cycle sort key: usage, memory, PID.\n" +
+		"  r: reverse sort direction. Current sorting is shown above each list.\n" +
+		"  Sorting only covers processes published by the collectors.\n\n" +
 		"Scrolling - Overview, Trends, alerts and help\n" +
 		"  Up / Down or k / j: scroll one line.\n" +
 		"  PgUp / PgDn: previous / next page. Space: next page.\n" +
@@ -25,14 +29,20 @@ func (m Model) helpBody(width int) string {
 		"  PgUp / PgDn: previous / next page of metrics. Space: next page.\n" +
 		"  Home / End or g / G: first / last metric.\n" +
 		"  Click: select a metric. Mouse wheel: move up / down.\n" +
-		"  Mouse capture applies only in Details when details.mouse=true;\n" +
-		"  it is disabled while help or alerts are open.\n" +
+		"  Mouse capture enables tab clicks and scrolling; help releases it.\n" +
+		"  Set mouse=false in the dashboard config to disable all capture.\n" +
+		"  details.mouse=false disables only metric click/wheel selection.\n" +
 		"  CPU, Memory, individual GPUs and NPU have separate sections.\n\n" +
 		"Reading the display\n" +
 		"  Overview: current readings. Trends: multiple history charts.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
+		"  Filled plots preserve blank gaps where measurements are missing.\n" +
+		"  poll shows the configured TUI interval, not the collector cadence.\n" +
+		"  Set -interval at startup to change it (for example -interval 1s).\n" +
+		"  The fixed bottom alert preview can be disabled with alerts.bottomBar=false.\n" +
 		"  Alert colors indicate configured diagnostic thresholds,\n" +
 		"  not universal hardware safety limits. Press a for events.\n" +
+		"  Frequency, power and bandwidth stay neutral without a configured limit.\n" +
 		"  recovered: readings confirm the alert ended.\n" +
 		"  no longer observed: observations stopped, not confirmed recovery.\n" +
 		"  Collection and history continue while help is open.\n\n" +
@@ -45,11 +55,7 @@ func (m *Model) toggleHelp() {
 	if m.showHelp {
 		m.helpOffset = m.offset
 		m.showHelp = false
-		if m.showAlerts {
-			m.offset = m.scrollTo(m.alertOffset)
-		} else {
-			m.offset = m.scrollTo(m.tabOffsets[m.activeTab])
-		}
+		m.offset = m.scrollTo(m.tabOffsets[m.activeTab])
 	} else {
 		m.setOffset(m.offset)
 		m.showHelp = true

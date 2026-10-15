@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -27,7 +28,21 @@ const (
 // indicator is highlighted. It is a multiple of the poll interval so a single
 // missed refresh does not raise a false alarm, while a service that quietly
 // stopped updating does not go unnoticed.
-const staleAfter = 5 * source.DefaultInterval
+func (m Model) staleAfter() time.Duration {
+	interval := max(m.refreshInterval(), source.DefaultInterval)
+	const longest = time.Duration(1<<63 - 1)
+	if interval > longest/5 {
+		return longest
+	}
+	return interval * 5
+}
+
+func (m Model) refreshInterval() time.Duration {
+	if m.pollInterval <= 0 {
+		return source.DefaultInterval
+	}
+	return m.pollInterval
+}
 
 // Styles are adaptive so the dashboard stays readable on both light and dark
 // terminals rather than assuming a dark background.
@@ -63,18 +78,21 @@ func (m Model) View() string {
 	visible, offset := clip(lines, rows, m.offset)
 	out := append(chrome, visible...)
 	if m.height > 0 {
-		for len(out) < m.height-2 {
+		for len(out) < m.height-2-m.bottomBarRows() {
 			out = append(out, "")
 		}
 	}
+	out = append(out, m.bottomAlertLines(width)...)
 	out = append(out, ruleStyle.Render(strings.Repeat("─", width)))
 	hint := footerHint(len(lines), rows, offset)
 	if m.showHelp {
 		hint = strings.Replace(hint, "h help · a alerts", "h/esc back · a alerts", 1)
-	} else if m.showAlerts {
+	} else if m.activeTab == AlertsTab {
 		hint = strings.Replace(hint, "a alerts", "a/esc back", 1)
 	} else if m.activeTab == DetailsTab {
-		hint = "h help · a alerts · q quit · arrows select · PgUp/PgDn · 1/2/3 tabs"
+		hint = "h help · a alerts · q quit · arrows select · 1/2/3/4 tabs"
+	} else if m.activeTab == OverviewTab {
+		hint += " · s sort · r reverse"
 	}
 	out = append(out, fitWidth(footerStyle.Render(hint), width))
 	return strings.Join(out, "\n")
@@ -97,7 +115,7 @@ func (m Model) visibleRows() int {
 	if m.height <= 0 {
 		return 0
 	}
-	return max(0, m.height-len(m.chromeLines(m.renderWidth()))-2)
+	return max(0, m.height-len(m.chromeLines(m.renderWidth()))-2-m.bottomBarRows())
 }
 
 func (m Model) chromeLines(width int) []string {
@@ -105,7 +123,11 @@ func (m Model) chromeLines(width int) []string {
 	if platform := m.platformLine(); platform != "" {
 		lines = append(lines, platform)
 	}
-	lines = append(lines, m.tabLine(), m.alertSummary(width),
+	status := fmt.Sprintf("poll %s", m.refreshInterval())
+	if !m.config.Alerts.BottomBar {
+		status += " | " + m.alertSummary(width)
+	}
+	lines = append(lines, m.tabLine(), status,
 		ruleStyle.Render(strings.Repeat("─", width)))
 	for i := range lines {
 		lines[i] = fitWidth(lines[i], width)
@@ -118,7 +140,7 @@ func (m Model) bodyLines(width int) []string {
 	var content string
 	if m.showHelp {
 		content = m.helpBody(width)
-	} else if m.showAlerts {
+	} else if m.activeTab == AlertsTab {
 		content = m.alertDetails(width)
 	} else if m.activeTab == TrendsTab {
 		content = m.trendsGrid(width)
@@ -161,7 +183,7 @@ func (m Model) panelGrid(width int) string {
 	// edge. Tables switch to labelled rows when they do not fit.
 	panelWidth := m.panelWidth()
 	for i := range panels {
-		panels[i] = lipgloss.NewStyle().Width(panelWidth).Render(panels[i])
+		panels[i] = framePanel(lipgloss.NewStyle().Width(panelWidth).Render(panels[i]), panelWidth+2)
 	}
 	return packPanels(panels, width, panelMinWidth, 3)
 }
@@ -169,7 +191,7 @@ func (m Model) panelGrid(width int) string {
 func (m Model) panelWidth() int {
 	width := m.renderWidth()
 	columns := max(1, min(3, (width+panelGap)/(panelMinWidth+panelGap)))
-	return (width - panelGap*(columns-1)) / columns
+	return max(1, (width-panelGap*(columns-1))/columns-2)
 }
 
 func packPanels(panels []string, width, minWidth, maxColumns int) string {
@@ -260,7 +282,7 @@ func clip(lines []string, rows, offset int) ([]string, int) {
 
 func footerHint(total, rows, offset int) string {
 	if rows <= 0 || total <= rows {
-		return "h help · a alerts · q quit · 1/2/3 tab switch"
+		return "h help · a alerts · q quit · 1/2/3/4 tab switch"
 	}
 
 	return fmt.Sprintf("h help · a alerts · q quit · lines %d-%d of %d · ↑↓ PgUp/PgDn g/G scroll",
@@ -268,10 +290,7 @@ func footerHint(total, rows, offset int) string {
 }
 
 func (m Model) tabLine() string {
-	tabs := []string{"1 Overview", "2 Trends", "3 Details"}
-	if m.renderWidth() < 35 {
-		tabs = []string{"1 O", "2 T", "3 D"}
-	}
+	tabs := m.tabLabels()
 	for i, tab := range tabs {
 		if Tab(i) == m.activeTab {
 			tabs[i] = titleStyle.Render("[" + tab + "]")
@@ -357,7 +376,7 @@ func (m Model) status(width int) string {
 
 	// Past a few refresh intervals the numbers are old enough that the
 	// operator should be told, even though nothing has failed outright.
-	if age > staleAfter {
+	if age > m.staleAfter() {
 		return staleStyle.Render(text)
 	}
 
@@ -388,7 +407,7 @@ func (m Model) cpuSection() string {
 
 	if len(cpu.Classes) > 0 {
 		b.WriteString("\n")
-		b.WriteString(coreClassTable(cpu.Classes, m.panelWidth()))
+		b.WriteString(m.coreClassTable(cpu.Classes, m.panelWidth()))
 	}
 
 	return b.String()
@@ -435,77 +454,26 @@ func cStateSummary(states []CState) string {
 	return strings.Join(parts, "   ")
 }
 
-// coreClassColumns fixes the layout of the per-class table. Padding is applied
-// to the plain text before any styling, because escape sequences would
-// otherwise be counted as columns.
-var coreClassColumns = []struct {
-	title string
-	width int
-}{
-	{"class", 5},
-	{"cores", 6},
-	{"frequency", 10},
-	{"user", 8},
-	{"system", 8},
-	{"idle", 8},
-	{"source", 10},
-}
-
-func coreClassTable(classes []CoreClass, width int) string {
-	if width < panelMinWidth {
-		columns := []column{{title: "class"}, {title: "cores"}, {title: "frequency"},
-			{title: "user"}, {title: "system"}, {title: "idle"}, {title: "source"}}
-		var rows [][]string
-		for _, c := range classes {
-			rows = append(rows, []string{sanitize(c.Name, 8), formatCount(c.Cores),
-				formatFrequencyKHz(c.FrequencyKHz), formatPercent(c.UsageUser),
-				formatPercent(c.UsageSystem), formatPercent(c.UsageIdle), sanitize(c.Source, 16)})
-		}
-		return compactTable(columns, rows)
+func (m Model) coreClassTable(classes []CoreClass, width int) string {
+	columns := []column{
+		{"class", 6, true}, {"cores", 5, false}, {"frequency", 10, false},
+		{"total", 7, false}, {"user", 7, false}, {"system", 7, false},
+		{"idle", 7, false}, {"source", 10, true},
 	}
-	var b strings.Builder
-
-	var header strings.Builder
-	header.WriteString("  ")
-	for i, c := range coreClassColumns {
-		if i == 0 {
-			header.WriteString(fmt.Sprintf("%-*s", c.width, c.title))
-			continue
-		}
-		header.WriteString(fmt.Sprintf("%*s", c.width, c.title))
-	}
-	b.WriteString(labelStyle.Render(header.String()))
-	b.WriteString("\n")
-
+	var rows [][]string
 	for _, class := range classes {
-		cells := []string{
+		rows = append(rows, []string{
+			sanitize(class.Name, 8),
 			formatCount(class.Cores),
 			formatFrequencyKHz(class.FrequencyKHz),
+			m.thresholdPercent("cpu.classPercent", totalCPUUsage(CPU{UsageIdle: class.UsageIdle})),
 			formatPercent(class.UsageUser),
 			formatPercent(class.UsageSystem),
 			formatPercent(class.UsageIdle),
-			class.Source,
-		}
-
-		var row strings.Builder
-		row.WriteString("  ")
-		row.WriteString(fmt.Sprintf("%-*s", coreClassColumns[0].width, class.Name))
-		for i, cell := range cells {
-			width := coreClassColumns[i+1].width
-			// The source column is a word, not a measurement, so it
-			// reads better left-aligned against the numbers.
-			if i == len(cells)-1 {
-				row.WriteString("  " + cell)
-				continue
-			}
-			row.WriteString(fmt.Sprintf("%*s", width, cell))
-		}
-
-		b.WriteString(row.String())
-		b.WriteString("\n")
+			sanitize(class.Source, 16),
+		})
 	}
-
-	return b.String()
+	return responsiveTable(columns, rows, width)
 }
 
 func (m Model) memorySection() string {
@@ -563,7 +531,10 @@ func (m Model) gpuSection(g GPU) string {
 	// An integrated GPU reports a zero VRAM total rather than omitting the
 	// field, and a "0 B of 0 B" row says nothing worth a line.
 	if g.VRAMTotalBytes.OK && g.VRAMTotalBytes.Value > 0 {
-		b.WriteString(field("vram", memoryPair(g.VRAMUsedBytes, g.VRAMTotalBytes)))
+		b.WriteString(field("vram", m.thresholdValue("gpu.vramPercent",
+			usedPercent(g.VRAMUsedBytes, g.VRAMTotalBytes), func(Reading) string {
+				return memoryPair(g.VRAMUsedBytes, g.VRAMTotalBytes)
+			})))
 	}
 
 	if len(g.Engines) > 0 {
@@ -576,11 +547,8 @@ func (m Model) gpuSection(g GPU) string {
 	}
 	if len(g.Processes) > 0 {
 		b.WriteString("\n")
-		processes := g.Processes
-		if len(processes) > m.config.Processes.MaxDisplayed {
-			processes = processes[:m.config.Processes.MaxDisplayed]
-		}
-		b.WriteString(gpuProcessTable(processes, m.panelWidth()))
+		b.WriteString(labelStyle.Render(m.processSortLabel()) + "\n")
+		b.WriteString(m.gpuProcessTable(m.sortedGPUProcesses(g.Processes), m.panelWidth()))
 	}
 
 	return b.String()
@@ -594,7 +562,7 @@ var gpuProcessColumns = []column{
 	{title: "memory", width: 12},
 }
 
-func gpuProcessTable(processes []GPUProcess, width int) string {
+func (m Model) gpuProcessTable(processes []GPUProcess, width int) string {
 	rows := make([][]string, 0, len(processes))
 	for _, p := range processes {
 		rows = append(rows, []string{
@@ -602,7 +570,7 @@ func gpuProcessTable(processes []GPUProcess, width int) string {
 			// bounded and escaped like every other external string.
 			sanitize(p.PID, 8),
 			sanitize(p.Command, 18),
-			formatPercent(p.UsagePct),
+			m.thresholdPercent("gpu.processPercent", p.UsagePct),
 			formatBytes(p.MemoryBytes),
 		})
 	}
@@ -636,11 +604,8 @@ func (m Model) processSection() string {
 	b.WriteString(headingStyle.Render("Processes"))
 	b.WriteString("\n")
 
-	limit := m.config.Processes.MaxDisplayed
-	processes := m.dash.Processes
-	if len(processes) > limit {
-		processes = processes[:limit]
-	}
+	b.WriteString(labelStyle.Render(m.processSortLabel()) + "\n")
+	processes := m.sortedProcesses()
 	rows := make([][]string, 0, len(processes))
 	for _, p := range processes {
 		rows = append(rows, []string{
@@ -847,6 +812,9 @@ func (m Model) thresholdTemperature(metric string, value Reading) string {
 
 func (m Model) thresholdValue(metric string, value Reading, format func(Reading) string) string {
 	text := format(value)
+	if metric == "gpu.enginePercent" {
+		metric = "gpu.utilizationPercent"
+	}
 	threshold, enabled := m.config.Thresholds[metric]
 	if !enabled || !value.OK || math.IsNaN(value.Value) || math.IsInf(value.Value, 0) {
 		return text

@@ -53,7 +53,7 @@ func TestAlertDetailsScrollAndRestoreTab(t *testing.T) {
 	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyEnd})
 	overviewOffset := m.offset
 	m, _ = update(t, m, key("a"))
-	if !m.showAlerts || m.offset != 0 {
+	if m.activeTab != AlertsTab || m.offset != 0 {
 		t.Fatal("details did not open at top")
 	}
 	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyEnd})
@@ -62,7 +62,7 @@ func TestAlertDetailsScrollAndRestoreTab(t *testing.T) {
 		t.Fatal("details did not scroll")
 	}
 	m, cmd := update(t, m, key("esc"))
-	if isQuit(cmd) || m.showAlerts || m.offset != overviewOffset {
+	if isQuit(cmd) || m.activeTab == AlertsTab || m.offset != overviewOffset {
 		t.Fatal("escape did not restore Overview without quitting")
 	}
 	m, _ = update(t, m, key("a"))
@@ -70,7 +70,7 @@ func TestAlertDetailsScrollAndRestoreTab(t *testing.T) {
 		t.Fatal("details lost independent scroll position")
 	}
 	m, _ = update(t, m, key("2"))
-	if m.showAlerts || m.activeTab != TrendsTab {
+	if m.activeTab != TrendsTab {
 		t.Fatal("tab shortcut did not close details and select Trends")
 	}
 }
@@ -99,7 +99,10 @@ func TestAlertDetailsFitTerminalSizes(t *testing.T) {
 			populateAlerts(&m, 20)
 			m, _ = update(t, m, tea.WindowSizeMsg{Width: width, Height: height})
 			for _, details := range []bool{false, true} {
-				m.showAlerts = details
+				m.switchTab(OverviewTab)
+				if details {
+					m.switchTab(AlertsTab)
+				}
 				view := m.View()
 				lines := strings.Split(view, "\n")
 				if len(lines) > height {
@@ -169,7 +172,7 @@ func TestAlertHistoryDetails(t *testing.T) {
 	for range m.config.Alerts.SamplesToClear {
 		m.alerts.Update(Dashboard{}, m.config.Thresholds, fixedNow.Add(time.Second))
 	}
-	m.showAlerts = true
+	m.switchTab(AlertsTab)
 	view := m.View()
 	for _, want := range []string{"Active (0)", "Recent history (1/50)", "[no longer observed]", "GPU 0 / render", "last observed 99.0%"} {
 		wantContains(t, view, want)

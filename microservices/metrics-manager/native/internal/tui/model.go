@@ -33,6 +33,7 @@ const (
 	OverviewTab Tab = iota
 	TrendsTab
 	DetailsTab
+	AlertsTab
 	tabCount
 )
 
@@ -59,8 +60,8 @@ type Model struct {
 	tabOffsets      [tabCount]int
 	detailSelection detailChoice
 	detailTop       int
-	showAlerts      bool
-	alertOffset     int
+	alertReturnTab  Tab
+	pollInterval    time.Duration
 	showHelp        bool
 	helpOffset      int
 
@@ -98,17 +99,22 @@ func NewModelWithConfigs(
 		history:         NewHistory(chartsConfig),
 		detailSelection: detailChoice{metric: chartsConfig.Details.DefaultMetric},
 		now:             time.Now,
+		pollInterval:    source.DefaultInterval,
 	}
 }
 
 // Init polls data and advances the time axis independently of network replies.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(waitForSnapshot(m.snapshots), clockTick())
+	commands := []tea.Cmd{waitForSnapshot(m.snapshots), clockTick()}
+	if m.mouseEnabled() {
+		commands = append(commands, tea.EnableMouseCellMotion)
+	}
+	return tea.Batch(commands...)
 }
 
 // Update folds one message into the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	mouseEnabled := m.detailsMouseEnabled()
+	mouseEnabled := m.mouseEnabled()
 	switch msg := msg.(type) {
 	case clockMsg:
 		m.history.Prune(m.now())
@@ -116,7 +122,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, clockTick()
 
 	case tea.KeyMsg:
-		if m.activeTab == DetailsTab && !m.showAlerts && !m.showHelp && m.detailKey(msg.String()) {
+		if m.activeTab == DetailsTab && !m.showHelp && m.detailKey(msg.String()) {
 			return m, nil
 		}
 		switch msg.String() {
@@ -125,7 +131,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if m.showHelp {
 				m.toggleHelp()
-			} else if m.showAlerts {
+			} else if m.activeTab == AlertsTab {
 				m.toggleAlerts()
 			} else {
 				return m, tea.Quit
@@ -144,6 +150,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.switchTab(TrendsTab)
 		case "3":
 			m.switchTab(DetailsTab)
+		case "4":
+			m.switchTab(AlertsTab)
+		case "s":
+			if m.activeTab == OverviewTab && !m.showHelp {
+				m.cycleProcessSort()
+			}
+		case "r":
+			if m.activeTab == OverviewTab && !m.showHelp {
+				m.config.Processes.Descending = !m.config.Processes.Descending
+			}
 		case "up", "k":
 			m.setOffset(m.offset - 1)
 		case "down", "j":
@@ -159,7 +175,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
-		m.detailMouse(msg)
+		m.handleMouse(msg)
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -190,8 +206,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	if m.detailsMouseEnabled() != mouseEnabled {
-		if m.detailsMouseEnabled() {
+	if m.mouseEnabled() != mouseEnabled {
+		if m.mouseEnabled() {
 			return m, tea.EnableMouseCellMotion
 		}
 		return m, tea.DisableMouse
@@ -203,13 +219,13 @@ func (m *Model) switchTab(tab Tab) {
 	if m.showHelp {
 		m.toggleHelp()
 	}
-	if m.showAlerts {
-		m.toggleAlerts()
-	}
 	if tab == m.activeTab {
 		return
 	}
 	m.tabOffsets[m.activeTab] = m.offset
+	if tab == AlertsTab {
+		m.alertReturnTab = m.activeTab
+	}
 	m.activeTab = tab
 	m.offset = m.scrollTo(m.tabOffsets[tab])
 }
@@ -218,8 +234,6 @@ func (m *Model) setOffset(offset int) {
 	m.offset = m.scrollTo(offset)
 	if m.showHelp {
 		m.helpOffset = m.offset
-	} else if m.showAlerts {
-		m.alertOffset = m.offset
 	} else {
 		m.tabOffsets[m.activeTab] = m.offset
 	}
@@ -228,18 +242,14 @@ func (m *Model) setOffset(offset int) {
 func (m *Model) toggleAlerts() {
 	if m.showHelp {
 		m.toggleHelp()
-		if m.showAlerts {
+		if m.activeTab == AlertsTab {
 			return
 		}
 	}
-	if m.showAlerts {
-		m.alertOffset = m.offset
-		m.showAlerts = false
-		m.offset = m.scrollTo(m.tabOffsets[m.activeTab])
+	if m.activeTab == AlertsTab {
+		m.switchTab(m.alertReturnTab)
 	} else {
-		m.tabOffsets[m.activeTab] = m.offset
-		m.showAlerts = true
-		m.offset = m.scrollTo(m.alertOffset)
+		m.switchTab(AlertsTab)
 	}
 }
 
@@ -261,7 +271,7 @@ func (m Model) scrollTo(offset int) int {
 // maxOffset is the furthest the body can scroll, which is zero whenever it
 // already fits on screen.
 func (m Model) maxOffset() int {
-	if m.activeTab == DetailsTab && !m.showAlerts && !m.showHelp {
+	if m.activeTab == DetailsTab && !m.showHelp {
 		return 0
 	}
 	rows := m.visibleRows()
@@ -322,8 +332,12 @@ func RunWithConfigs(
 		poller.Run(ctx, func(s source.Snapshot) { send(ch, s) })
 	}()
 
+	model := NewModelWithConfigs(ch, config, chartsConfig)
+	if poller.Interval > 0 {
+		model.pollInterval = poller.Interval
+	}
 	program := tea.NewProgram(
-		NewModelWithConfigs(ch, config, chartsConfig),
+		model,
 		tea.WithContext(ctx),
 		tea.WithAltScreen(),
 	)

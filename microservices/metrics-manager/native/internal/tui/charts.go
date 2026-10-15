@@ -27,7 +27,7 @@ func (m Model) trendsGrid(width int) string {
 	var panels []string
 	for _, spec := range m.chartsConfig.Charts {
 		for _, series := range m.history.Series(spec.Metric) {
-			panels = append(panels, m.renderChart(spec, series, columnWidth))
+			panels = append(panels, framePanel(m.renderChart(spec, series, max(1, columnWidth-2)), columnWidth))
 		}
 	}
 	if len(panels) == 0 {
@@ -81,9 +81,16 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 		if !point.OK {
 			continue
 		}
-		position := int(math.Round((point.Value - minValue) / (maxValue - minValue) * float64(height-1)))
-		position = max(0, min(height-1, position))
-		grid[height-1-position][column] = '●'
+		// Eighth-cell blocks show an area, including a visible baseline for
+		// measured zero. Missing time buckets remain entirely blank.
+		level := int(math.Round((point.Value - minValue) / (maxValue - minValue) * float64(height*8)))
+		level = max(1, min(height*8, level))
+		blocks := []rune(" ▁▂▃▄▅▆▇█")
+		for row := height - 1; row >= 0 && level > 0; row-- {
+			fill := min(8, level)
+			grid[row][column] = blocks[fill]
+			level -= fill
+		}
 	}
 
 	for row := range grid {

@@ -283,6 +283,10 @@ func dashboardObservations(d Dashboard, processLimit int) []observation {
 		d.CPU.PackageTempC)
 	add("memory.used", "memory.usedPercent", "", "Inspect memory-intensive processes.",
 		d.Memory.UsedPercent)
+	for _, class := range d.CPU.Classes {
+		add("cpu.class."+class.Name, "cpu.classPercent", "CPU "+class.Name,
+			"Core-class utilization is sustained.", totalCPUUsage(CPU{UsageIdle: class.UsageIdle}))
+	}
 
 	for _, gpu := range d.GPUs {
 		for _, engine := range gpu.Engines {
@@ -291,6 +295,12 @@ func dashboardObservations(d Dashboard, processLimit int) []observation {
 		}
 		add("gpu."+gpu.ID+".temperature", "gpu.temperatureC", "GPU "+gpu.ID,
 			"Check GPU load and cooling.", gpu.TempC)
+		add("gpu."+gpu.ID+".vram", "gpu.vramPercent", "GPU "+gpu.ID,
+			"Dedicated GPU memory usage is high.", usedPercent(gpu.VRAMUsedBytes, gpu.VRAMTotalBytes))
+		for _, process := range gpu.Processes[:min(len(gpu.Processes), processLimit)] {
+			add("gpu."+gpu.ID+".process."+process.PID, "gpu.processPercent",
+				"GPU "+gpu.ID+" / "+process.Command, "GPU process utilization is sustained.", process.UsagePct)
+		}
 	}
 	add("npu.utilization", "npu.utilizationPercent", "NPU",
 		"NPU utilization is sustained.", d.NPU.Utilization)
