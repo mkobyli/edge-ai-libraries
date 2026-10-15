@@ -26,6 +26,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -51,6 +52,8 @@ func main() {
 		"also emit per-process gpu_client points")
 	clientLimit := flag.Int("clients-limit", 10,
 		"how many processes -clients reports per GPU, the busiest first; 0 reports every process")
+	debugQmassa := flag.Bool("debug-qmassa", false,
+		"log incoming GPU engine and memory readings to stderr (may be verbose)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	destination := flag.String("out", "stdout", sink.Usage)
 	flag.Parse()
@@ -70,7 +73,7 @@ func main() {
 		opts = append(opts, gpu.WithClientStats(*clientLimit))
 	}
 
-	if err := run(*fifoPath, resolveHostname(*hostname), *destination, opts...); err != nil {
+	if err := run(*fifoPath, resolveHostname(*hostname), *destination, *debugQmassa, opts...); err != nil {
 		fmt.Fprintln(os.Stderr, "mm-plugin-gpu:", err)
 		os.Exit(1)
 	}
@@ -99,7 +102,7 @@ func resolveHostname(override string) string {
 	return "unknown"
 }
 
-func run(fifoPath, hostname, destination string, opts ...gpu.Option) error {
+func run(fifoPath, hostname, destination string, debugQmassa bool, opts ...gpu.Option) error {
 	destinationWriter, err := sink.Open(destination)
 	if err != nil {
 		return err
@@ -120,6 +123,22 @@ func run(fifoPath, hostname, destination string, opts ...gpu.Option) error {
 	buf := make([]byte, 0, 256)
 
 	gpu.Follow(ctx, fifoPath, func(line []byte) {
+		if debugQmassa {
+			var sample struct {
+				DevsState []struct {
+					DevNodes string `json:"dev_nodes"`
+					DevStats struct {
+						EngUsage json.RawMessage `json:"eng_usage"`
+						MemInfo  json.RawMessage `json:"mem_info"`
+					} `json:"dev_stats"`
+				} `json:"devs_state"`
+			}
+			if json.Unmarshal(line, &sample) == nil {
+				for _, dev := range sample.DevsState {
+					logf("qmassa device=%q eng_usage=%s mem_info=%s", dev.DevNodes, dev.DevStats.EngUsage, dev.DevStats.MemInfo)
+				}
+			}
+		}
 		points, err := parser.Parse(line)
 		if err != nil {
 			// A malformed line must not kill the plugin: qmassa may still be
