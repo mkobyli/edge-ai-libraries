@@ -29,13 +29,13 @@ func (m Model) alertSummary(width int) string {
 			summary += fmt.Sprintf(" | %d careful", counts[SeverityCareful])
 		}
 	}
-	summary += " | a details"
+	summary += " | 4/a details"
 	switch {
 	case m.err != nil:
 		summary = "Alerts: no contact | a details"
 	case m.updatedAt.IsZero():
 		summary = "Alerts: waiting for data"
-	case m.now().Sub(m.updatedAt) > staleAfter:
+	case m.now().Sub(m.updatedAt) > m.staleAfter():
 		summary = "Alerts: stale data | a details"
 	case counts[SeverityCritical] > 0:
 		return criticalStyle.Render(summary)
@@ -49,9 +49,10 @@ func (m Model) alertDetails(width int) string {
 	var b strings.Builder
 	b.WriteString(headingStyle.Render("Alerts") + "\n")
 	b.WriteString("High utilization may be expected during inference; thresholds are diagnostic, not safety limits.\n\n")
-	if m.err != nil || (!m.updatedAt.IsZero() && m.now().Sub(m.updatedAt) > staleAfter) {
+	if m.err != nil || (!m.updatedAt.IsZero() && m.now().Sub(m.updatedAt) > m.staleAfter()) {
 		b.WriteString("Data is stale: these are last known events, not confirmed current conditions.\n\n")
 	}
+
 	alerts := m.alerts.Visible()
 	b.WriteString(headingStyle.Render(fmt.Sprintf("Active (%d)", len(alerts))) + "\n")
 	if len(alerts) == 0 {
@@ -69,6 +70,35 @@ func (m Model) alertDetails(width int) string {
 		b.WriteString(renderAlert(event.Alert, event.EndedAt, event.Outcome))
 	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func (m Model) bottomBarRows() int {
+	if !m.config.Alerts.BottomBar || (m.height > 0 && m.height < len(m.chromeLines(m.renderWidth()))+5) {
+		return 0
+	}
+	return 2
+}
+
+func (m Model) bottomAlertLines(width int) []string {
+	if m.bottomBarRows() == 0 {
+		return nil
+	}
+	detail := "No active events recorded."
+	alerts := m.alerts.Visible()
+	if len(alerts) > 0 {
+		alert := alerts[0]
+		unit := "%"
+		if !isPercentThreshold(alert.Metric) {
+			unit = " C"
+		}
+		status := ""
+		if alert.Unavailable || m.err != nil || m.now().Sub(m.updatedAt) > m.staleAfter() {
+			status = " [last observed]"
+		}
+		detail = severityStyle(alert.Severity).Render(fmt.Sprintf("%s %s %s %.1f%s%s",
+			alert.Severity, sanitize(alert.Device, 60), sanitize(alert.Metric, 60), alert.Value, unit, status))
+	}
+	return []string{fitWidth(m.alertSummary(width), width), fitWidth(detail, width)}
 }
 
 func renderAlert(alert Alert, end time.Time, outcome string) string {

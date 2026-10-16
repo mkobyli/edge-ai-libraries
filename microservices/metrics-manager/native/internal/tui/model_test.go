@@ -213,7 +213,7 @@ func TestInitWaitsForSnapshot(t *testing.T) {
 		t.Fatal("Init returned no command")
 	}
 	batch, ok := cmd().(tea.BatchMsg)
-	if !ok || len(batch) != 2 {
+	if !ok || len(batch) != 3 {
 		t.Fatalf("Init did not schedule a snapshot and independent clock: %T", batch)
 	}
 	if _, ok := batch[0]().(snapshotMsg); !ok {

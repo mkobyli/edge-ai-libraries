@@ -25,15 +25,15 @@ func detailsModel(t *testing.T, width, height int) Model {
 	return m
 }
 
-func TestThreeTabsCycleInBothDirections(t *testing.T) {
+func TestFourTabsCycleInBothDirections(t *testing.T) {
 	m := testModel(nil)
-	for _, want := range []Tab{TrendsTab, DetailsTab, OverviewTab} {
+	for _, want := range []Tab{TrendsTab, DetailsTab, AlertsTab, OverviewTab} {
 		m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
 		if m.activeTab != want {
 			t.Fatalf("forward tab = %v, want %v", m.activeTab, want)
 		}
 	}
-	for _, want := range []Tab{DetailsTab, TrendsTab, OverviewTab} {
+	for _, want := range []Tab{AlertsTab, DetailsTab, TrendsTab, OverviewTab} {
 		m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
 		if m.activeTab != want {
 			t.Fatalf("backward tab = %v, want %v", m.activeTab, want)
@@ -56,7 +56,7 @@ func TestDetailsDefaultsToFullWidthCPUHistory(t *testing.T) {
 	}
 	rows := 0
 	for _, line := range frame.chart {
-		if strings.Contains(line, " │") {
+		if strings.Contains(strings.TrimSuffix(strings.TrimRight(line, " "), "│"), " │") {
 			rows++
 			if lipgloss.Width(line) != 140 {
 				t.Errorf("plot does not fill width: %d", lipgloss.Width(line))
@@ -84,7 +84,7 @@ func TestDetailsKeyboardSelectsAndKeepsHistory(t *testing.T) {
 	}
 	m, _ = update(t, m, key("a"))
 	m, cmd := update(t, m, key("esc"))
-	if isQuit(cmd) || m.showAlerts || m.detailSelection != selected || m.activeTab != DetailsTab {
+	if isQuit(cmd) || m.detailSelection != selected || m.activeTab != DetailsTab {
 		t.Fatal("closing alerts did not restore Details")
 	}
 }
@@ -120,7 +120,7 @@ func TestDetailsMouseSelectsRenderedCell(t *testing.T) {
 		want := min(frame.columns, len(frame.items)-1)
 		row, col := frame.itemPosition(want)
 		msg := tea.MouseMsg{
-			X:      col * (frame.cellWidth + panelGap),
+			X:      1 + col*(frame.cellWidth+panelGap),
 			Y:      len(m.chromeLines(width)) + len(frame.chart) + 1 + row - frame.firstRow,
 			Button: tea.MouseButtonLeft, Action: tea.MouseActionPress,
 		}
@@ -155,7 +155,7 @@ func TestDetailsMouseUsesScrolledListCoordinates(t *testing.T) {
 	}
 	want := frame.items[frame.rows[row].items[0]].choice
 	m, _ = update(t, m, tea.MouseMsg{
-		X: 0, Y: len(m.chromeLines(120)) + len(frame.chart) + 1 + row - frame.firstRow,
+		X: 1, Y: len(m.chromeLines(120)) + len(frame.chart) + 1 + row - frame.firstRow,
 		Button: tea.MouseButtonLeft, Action: tea.MouseActionPress,
 	})
 	if m.detailSelection != want {
@@ -180,20 +180,20 @@ func TestDetailsFailedPollKeepsHistoryButNotCurrentValue(t *testing.T) {
 	wantContains(t, m.View(), "No current measurement")
 }
 
-func TestDetailsMouseModeOnlyEnabledInDetails(t *testing.T) {
+func TestMouseCaptureAcrossTabsAndSelectionPreference(t *testing.T) {
 	m := testModel(nil)
 	m, cmd := update(t, m, key("3"))
-	if cmd == nil || reflect.TypeOf(cmd()) != reflect.TypeOf(tea.EnableMouseCellMotion()) {
-		t.Fatal("Details did not enable mouse events")
+	if cmd != nil || !m.mouseEnabled() || !m.detailsMouseEnabled() {
+		t.Fatal("Details should retain global mouse capture")
 	}
 	m, cmd = update(t, m, key("a"))
-	if cmd == nil || reflect.TypeOf(cmd()) != reflect.TypeOf(tea.DisableMouse()) {
-		t.Fatal("alerts did not release mouse capture")
+	if cmd != nil || !m.mouseEnabled() || m.detailsMouseEnabled() {
+		t.Fatal("alerts should retain tab clicks, not Details selection")
 	}
 	m, _ = update(t, m, key("esc"))
 	m, cmd = update(t, m, key("1"))
-	if cmd == nil || reflect.TypeOf(cmd()) != reflect.TypeOf(tea.DisableMouse()) {
-		t.Fatal("Overview did not release mouse capture")
+	if cmd != nil || !m.mouseEnabled() {
+		t.Fatal("Overview should retain tab clicks")
 	}
 	m.chartsConfig.Details.Mouse = false
 	m, cmd = update(t, m, key("3"))
@@ -304,7 +304,7 @@ func TestDetailsKeepsDeviceIdentityBeforeTruncatedTitles(t *testing.T) {
 	}
 	wantContains(t, m.detailsBody(80), "> GPU 0 / render")
 	frame := m.detailsLayout(80)
-	if !strings.HasPrefix(frame.chart[0], "GPU 0 / render") {
+	if !strings.HasPrefix(frame.chart[0], "╭ GPU 0 / render") {
 		t.Fatal("chart lost selected device/engine identity")
 	}
 }

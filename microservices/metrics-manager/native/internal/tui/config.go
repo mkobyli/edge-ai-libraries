@@ -20,12 +20,15 @@ type DashboardConfig struct {
 	SPDXFileCopyrightText string               `json:"SPDX-FileCopyrightText,omitempty"`
 	SPDXLicenseIdentifier string               `json:"SPDX-License-Identifier,omitempty"`
 	Processes             ProcessConfig        `json:"processes"`
+	Mouse                 bool                 `json:"mouse"`
 	Alerts                AlertConfig          `json:"alerts"`
 	Thresholds            map[string]Threshold `json:"thresholds"`
 }
 
 type ProcessConfig struct {
-	MaxDisplayed int `json:"maxDisplayed"`
+	MaxDisplayed int    `json:"maxDisplayed"`
+	SortBy       string `json:"sortBy"`
+	Descending   bool   `json:"descending"`
 }
 
 type AlertConfig struct {
@@ -34,6 +37,7 @@ type AlertConfig struct {
 	HysteresisPercent float64 `json:"hysteresisPercent"`
 	ShowCareful       bool    `json:"showCareful"`
 	MaxHistory        int     `json:"maxHistory"`
+	BottomBar         bool    `json:"bottomBar"`
 }
 
 type Threshold struct {
@@ -51,16 +55,21 @@ var supportedThresholds = map[string]bool{
 	"npu.utilizationPercent": true,
 	"npu.temperatureC":       true,
 	"process.cpuPercent":     true,
+	"cpu.classPercent":       true,
+	"gpu.vramPercent":        true,
+	"gpu.processPercent":     true,
 }
 
 func DefaultDashboardConfig() DashboardConfig {
 	return DashboardConfig{
-		Processes: ProcessConfig{MaxDisplayed: 10},
+		Processes: ProcessConfig{MaxDisplayed: 10, SortBy: "usage", Descending: true},
+		Mouse:     true,
 		Alerts: AlertConfig{
 			SamplesToRaise:    3,
 			SamplesToClear:    3,
 			HysteresisPercent: 5,
 			MaxHistory:        50,
+			BottomBar:         true,
 		},
 		Thresholds: map[string]Threshold{
 			"cpu.totalPercent":       {Careful: 65, Warning: 75, Critical: 85},
@@ -71,6 +80,9 @@ func DefaultDashboardConfig() DashboardConfig {
 			"npu.utilizationPercent": {Careful: 50, Warning: 70, Critical: 90},
 			"npu.temperatureC":       {Careful: 70, Warning: 85, Critical: 95},
 			"process.cpuPercent":     {Careful: 50, Warning: 70, Critical: 90},
+			"cpu.classPercent":       {Careful: 65, Warning: 75, Critical: 85},
+			"gpu.vramPercent":        {Careful: 70, Warning: 85, Critical: 95},
+			"gpu.processPercent":     {Careful: 50, Warning: 70, Critical: 90},
 		},
 	}
 }
@@ -134,6 +146,11 @@ func ensureJSONEnd(decoder *json.Decoder) error {
 }
 
 func (c DashboardConfig) Validate() error {
+	switch c.Processes.SortBy {
+	case "usage", "pid", "memory":
+	default:
+		return fmt.Errorf("processes.sortBy must be usage, pid or memory")
+	}
 	if c.Processes.MaxDisplayed <= 0 || c.Processes.MaxDisplayed > 1000 {
 		return fmt.Errorf("processes.maxDisplayed must be between 1 and 1000")
 	}

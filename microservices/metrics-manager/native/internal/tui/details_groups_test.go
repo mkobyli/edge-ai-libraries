@@ -41,7 +41,7 @@ func TestDetailsGroupOrderAndConfigOrderWithinGroups(t *testing.T) {
 	frame := m.detailsLayout(140)
 	var groups []string
 	for _, row := range frame.rows {
-		if len(row.items) == 0 {
+		if len(row.items) == 0 && !row.bottom {
 			groups = append(groups, row.group)
 		}
 	}
@@ -75,7 +75,9 @@ func TestDetailsRowsNeverMixHardwareGroups(t *testing.T) {
 		header := ""
 		for rowIndex, row := range frame.rows {
 			if len(row.items) == 0 {
-				header = row.group
+				if !row.bottom {
+					header = row.group
+				}
 				continue
 			}
 			if len(row.items) > frame.columns {
@@ -139,7 +141,7 @@ func TestDetailsIgnoresGroupHeadingAndEmptyCellClicks(t *testing.T) {
 	y := len(m.chromeLines(140)) + len(frame.chart) + 1
 	for _, msg := range []tea.MouseMsg{
 		{X: 0, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress},
-		{X: 2 * (frame.cellWidth + panelGap), Y: y + 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress},
+		{X: 1 + 2*(frame.cellWidth+panelGap), Y: y + 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress},
 	} {
 		m, _ = update(t, m, msg)
 		next := m.detailsLayout(140)
@@ -165,7 +167,7 @@ func TestDetailsClicksAfterGroupingPagingAndResize(t *testing.T) {
 				t.Fatal("fixture needs an unselected visible metric to test hit detection")
 			}
 			m, _ = update(t, m, tea.MouseMsg{
-				X: 0, Y: len(m.chromeLines(width)) + len(frame.chart) + 1 + row - frame.firstRow,
+				X: 1, Y: len(m.chromeLines(width)) + len(frame.chart) + 1 + row - frame.firstRow,
 				Button: tea.MouseButtonLeft, Action: tea.MouseActionPress,
 			})
 			if m.detailSelection != frame.items[index].choice {
