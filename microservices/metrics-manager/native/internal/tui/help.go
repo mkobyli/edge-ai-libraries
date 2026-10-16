@@ -37,7 +37,9 @@ func (m Model) helpBody(width int) string {
 		"  Overview: current readings. Trends: multiple history charts.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
 		"  Filled plots preserve blank gaps where measurements are missing.\n" +
-		"  poll shows the configured TUI interval, not the collector cadence.\n" +
+		"  Plot colors follow metric thresholds; unmonitored metrics use a fixed color.\n" +
+		"  Missing block glyphs in xterm? Set graphMode=\"ascii\" in the charts config.\n" +
+		"  interval shows the configured TUI interval, not the collector cadence.\n" +
 		"  Set -interval at startup to change it (for example -interval 1s).\n" +
 		"  The fixed bottom alert preview can be disabled with alerts.bottomBar=false.\n" +
 		"  Alert colors indicate configured diagnostic thresholds,\n" +

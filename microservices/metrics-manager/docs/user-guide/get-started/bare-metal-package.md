@@ -228,16 +228,21 @@ Long descriptive values wrap within their panel.
 
 Device and metric-group panels have borders, including Trends plots and
 Details sections. Borders are included in the responsive width calculation.
-The header displays the age of the last successful poll; the `poll` line shows
+All edges use the same fixed color, independent of metric thresholds. Titles
+cannot reset the color halfway through a border. Square corners use common
+box-drawing glyphs. The active tab is highlighted with reverse video as well as
+brackets; highlighting does not change the mouse hitboxes.
+The header displays the age of the last successful poll; the highlighted `interval:` line shows
 the configured TUI polling interval. Use `mm-tui -interval 1s` to change it.
 This does not change the Telegraf collection interval (normally 1 second).
 Request time and failure backoff can make actual polls less frequent.
 
 The header, tabs, two-line bottom alert preview and footer stay fixed while content
-scrolls. The preview always reserves two rows, with the alert counts and highest
+scrolls. The preview always reserves a separator and two content rows, with the alert counts and highest
 severity event, so a new alert does not shift the device panels. It shows a
 no-events message when empty. Set `alerts.bottomBar=false` to recover those rows;
-counts then appear above the body. On very short terminals the preview is omitted.
+counts then appear above the body. The separator prevents clipped panel content
+from running directly into alerts in any tab. On very short terminals the preview is omitted.
 The footer
 reports which content lines you are looking at, as in `lines 1-28 of 42`, so
 a short terminal hides content rather than dropping it. The header reports how
@@ -722,6 +727,39 @@ six-row charts. Supported metrics are:
 - `network.rxErrorsPerSecond`, `network.txErrorsPerSecond`
 - `network.rxDropsPerSecond`, `network.txDropsPerSecond`
 
+#### Plot appearance and xterm compatibility
+
+Both Trends and the selected Details chart use filled plots. Each time bucket
+is colored using the same configured metric thresholds as Overview, Details
+values and alerts (green OK, cyan careful, amber warning, red critical).
+The color represents the bucket's value, not its height on the screen; a
+critical sample has a red column from baseline to peak. Plot colors are not
+debounced: alert events still require the configured consecutive samples.
+Metrics without a meaningful health threshold, such as transfer, frequency or
+power, have a fixed cyan/blue plot color instead of a fabricated health rating.
+The `last` statistic also uses the metric threshold color; it remains a
+historical reading with a displayed age when current data is unavailable.
+
+The top-level `graphMode` setting in `tui-charts.json` applies to both tabs:
+
+- `"unicode"` (default): eighth-cell blocks for smooth filled plots.
+- `"ascii"`: `#` for full cells, `+` for partial cells and `_` for the lowest
+  partial cell/zero baseline, with ASCII plot axes. Colors and data are unchanged.
+
+If xterm displays empty squares or broken glyphs along the tops of columns,
+its selected font may lack the partial-block characters. Set:
+
+```json
+"graphMode": "ascii"
+```
+
+Add this property at the top level of your existing charts configuration and
+restart `mm-tui`. Alternatively use an xterm font with the required Unicode
+glyphs. Terminal name alone does not reliably identify font coverage, so the
+TUI does not guess a mode from `TERM`. This option changes the plot symbols,
+not all UI text or panel borders. Missing samples remain blank; measured zero
+keeps a visible baseline in both modes. Older configurations inherit `unicode`.
+
 The same file also configures Details through its `details` object:
 
 | Setting | Default | Meaning |
@@ -737,6 +775,10 @@ devices, engines or tiles. Both lists accept 1–32 unique metric types. Old
 configuration files without a `details` object use the built-in defaults.
 The configured metric order is preserved within each hardware section; the
 section order remains fixed even if the configuration interleaves device types.
+Network metric cells show short titles such as `RX transfer` or `TX errors`.
+The host and interface remain in the group and selected-chart headings, rather
+than consuming each cell's label space. Device identity, selection and history
+are unchanged.
 The top-level `historyDuration` and `maxPoints` apply to both tabs; no additional
 configuration file is needed. Selecting an unsupported or currently absent
 hardware measurement cannot make its collector expose data.

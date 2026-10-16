@@ -127,7 +127,7 @@ func TestAlertBottomBarHasFixedHeightAndHighestSeverity(t *testing.T) {
 		t.Fatal("new alerts displaced the layout")
 	}
 	lines := m.bottomAlertLines(100)
-	if len(lines) != 2 || !strings.Contains(lines[0], "20 critical") || !strings.Contains(lines[1], "CRITICAL") {
+	if len(lines) != 3 || !strings.Contains(lines[1], "20 critical") || !strings.Contains(lines[2], "CRITICAL") {
 		t.Fatalf("unexpected bottom alert bar: %v", lines)
 	}
 	for tab := OverviewTab; tab < tabCount; tab++ {
@@ -138,8 +138,8 @@ func TestAlertBottomBarHasFixedHeightAndHighestSeverity(t *testing.T) {
 		}
 	}
 	m.config.Alerts.BottomBar = false
-	if len(m.bottomAlertLines(100)) != 0 || m.visibleRows() != beforeRows+2 {
-		t.Fatal("disabling bottom bar did not restore exactly two rows")
+	if len(m.bottomAlertLines(100)) != 0 || m.visibleRows() != beforeRows+3 {
+		t.Fatal("disabling bottom bar did not restore its separator and two content rows")
 	}
 }
 
@@ -223,7 +223,7 @@ func TestRefreshIntervalIsVisibleAndControlsStaleness(t *testing.T) {
 	m.width = 40
 	m.pollInterval = 10 * time.Second
 	m.now = func() time.Time { return m.updatedAt.Add(30 * time.Second) }
-	wantContains(t, m.View(), "poll 10s")
+	wantContains(t, m.View(), "interval: 10s")
 	if strings.Contains(m.alertSummary(100), "stale") {
 		t.Fatal("slow configured polling was falsely reported as stale")
 	}

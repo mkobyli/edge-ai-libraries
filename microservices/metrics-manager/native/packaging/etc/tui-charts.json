@@ -4,6 +4,7 @@
   "historyDuration": "5m",
   "maxPoints": 600,
   "chartHeight": 6,
+  "graphMode": "unicode",
   "details": {
     "defaultMetric": "cpu.totalPercent",
     "chartHeight": 10,

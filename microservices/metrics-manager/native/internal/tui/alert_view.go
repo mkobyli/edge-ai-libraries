@@ -73,10 +73,10 @@ func (m Model) alertDetails(width int) string {
 }
 
 func (m Model) bottomBarRows() int {
-	if !m.config.Alerts.BottomBar || (m.height > 0 && m.height < len(m.chromeLines(m.renderWidth()))+5) {
+	if !m.config.Alerts.BottomBar || (m.height > 0 && m.height < len(m.chromeLines(m.renderWidth()))+6) {
 		return 0
 	}
-	return 2
+	return 3
 }
 
 func (m Model) bottomAlertLines(width int) []string {
@@ -95,7 +95,10 @@ func (m Model) bottomAlertLines(width int) []string {
 		detail = severityStyle(alert.Severity).Render(fmt.Sprintf("%s %s %s %.1f%s%s",
 			alert.Severity, sanitize(alert.Device, 60), sanitize(alert.Metric, 60), alert.Value, unit, status))
 	}
-	return []string{fitWidth(m.alertSummary(width), width), fitWidth(detail, width)}
+	return []string{
+		borderStyle.Render(strings.Repeat("─", width)),
+		fitWidth(m.alertSummary(width), width), fitWidth(detail, width),
+	}
 }
 
 func renderAlert(alert Alert, end time.Time, outcome string) string {

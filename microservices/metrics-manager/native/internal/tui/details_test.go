@@ -304,7 +304,7 @@ func TestDetailsKeepsDeviceIdentityBeforeTruncatedTitles(t *testing.T) {
 	}
 	wantContains(t, m.detailsBody(80), "> GPU 0 / render")
 	frame := m.detailsLayout(80)
-	if !strings.HasPrefix(frame.chart[0], "╭ GPU 0 / render") {
+	if !strings.HasPrefix(frame.chart[0], "┌ GPU 0 / render") {
 		t.Fatal("chart lost selected device/engine identity")
 	}
 }

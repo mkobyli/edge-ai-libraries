@@ -47,8 +47,12 @@ func (m Model) refreshInterval() time.Duration {
 // Styles are adaptive so the dashboard stays readable on both light and dark
 // terminals rather than assuming a dark background.
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true)
-	headingStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
+	titleStyle     = lipgloss.NewStyle().Bold(true)
+	headingStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
+	borderStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
+	chartStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "45"})
+	activeTabStyle = lipgloss.NewStyle().Bold(true).Reverse(true).
+			Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
 	labelStyle    = lipgloss.NewStyle().Faint(true)
 	ruleStyle     = lipgloss.NewStyle().Faint(true)
 	staleStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "130", Dark: "214"})
@@ -123,7 +127,7 @@ func (m Model) chromeLines(width int) []string {
 	if platform := m.platformLine(); platform != "" {
 		lines = append(lines, platform)
 	}
-	status := fmt.Sprintf("poll %s", m.refreshInterval())
+	status := headingStyle.Render(fmt.Sprintf("interval: %s", m.refreshInterval()))
 	if !m.config.Alerts.BottomBar {
 		status += " | " + m.alertSummary(width)
 	}
@@ -299,7 +303,7 @@ func (m Model) tabLine() string {
 	tabs := m.tabLabels()
 	for i, tab := range tabs {
 		if Tab(i) == m.activeTab {
-			tabs[i] = titleStyle.Render("[" + tab + "]")
+			tabs[i] = activeTabStyle.Render("[" + tab + "]")
 		} else {
 			tabs[i] = labelStyle.Render(tab)
 		}

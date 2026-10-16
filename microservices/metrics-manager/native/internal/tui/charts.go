@@ -55,7 +55,8 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 		last, minimum, average, maximum := pointStats(points)
 		unit := sanitize(spec.Unit, 16)
 		latest := points[len(points)-1]
-		b.WriteString(fmt.Sprintf("last %.1f%s | %s\n", last, unit, formatAge(end.Sub(latest.At))))
+		lastText := m.thresholdValue(spec.Metric, reading(last), func(Reading) string { return fmt.Sprintf("%.1f%s", last, unit) })
+		b.WriteString(fmt.Sprintf("last %s | %s\n", lastText, formatAge(end.Sub(latest.At))))
 		b.WriteString(fmt.Sprintf("min %.1f | sample avg %.1f | max %.1f\n", minimum, average, maximum))
 		if !series.Available || m.err != nil {
 			b.WriteString("No current measurement; showing retained samples.\n")
@@ -74,12 +75,17 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 	buckets := timeBuckets(points, plotWidth, start, end)
 	height := m.chartsConfig.ChartHeight
 	grid := make([][]rune, height)
+	severities := make([]Severity, plotWidth)
+	threshold, monitored := m.config.Thresholds[thresholdMetric(spec.Metric)]
 	for row := range grid {
 		grid[row] = []rune(strings.Repeat(" ", plotWidth))
 	}
 	for column, point := range buckets {
 		if !point.OK {
 			continue
+		}
+		if monitored {
+			severities[column] = classify(point.Value, threshold)
 		}
 		// Eighth-cell blocks show an area, including a visible baseline for
 		// measured zero. Missing time buckets remain entirely blank.
@@ -90,7 +96,16 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 		blocks := []rune(" ▁▂▃▄▅▆▇█")
 		for row := height - 1; row >= 0 && level > 0; row-- {
 			fill := min(8, level)
-			grid[row][column] = blocks[fill]
+			cell := blocks[fill]
+			if m.chartsConfig.GraphMode == "ascii" {
+				cell = '+'
+				if fill == 8 {
+					cell = '#'
+				} else if fill == 1 {
+					cell = '_'
+				}
+			}
+			grid[row][column] = cell
 			level -= fill
 		}
 	}
@@ -102,11 +117,37 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 		} else if row == height-1 {
 			label = fmt.Sprintf("%*.1f", labelWidth, minValue)
 		}
-		b.WriteString(labelStyle.Render(label + " │"))
-		b.WriteString(string(grid[row]))
+		axis := " │"
+		if m.chartsConfig.GraphMode == "ascii" {
+			axis = " |"
+		}
+		b.WriteString(labelStyle.Render(label + axis))
+		// Style contiguous runs rather than every cell to keep terminal output
+		// compact on wide plots while preserving each bucket's severity.
+		for start := 0; start < plotWidth; {
+			end := start + 1
+			empty := grid[row][start] == ' '
+			for end < plotWidth && (grid[row][end] == ' ') == empty && severities[end] == severities[start] {
+				end++
+			}
+			text := string(grid[row][start:end])
+			if !empty {
+				style := chartStyle
+				if monitored {
+					style = severityStyle(severities[start])
+				}
+				text = style.Render(text)
+			}
+			b.WriteString(text)
+			start = end
+		}
 		b.WriteString("\n")
 	}
-	b.WriteString(labelStyle.Render(strings.Repeat(" ", axisWidth) + strings.Repeat("─", plotWidth)))
+	horizontal := "─"
+	if m.chartsConfig.GraphMode == "ascii" {
+		horizontal = "-"
+	}
+	b.WriteString(labelStyle.Render(strings.Repeat(" ", axisWidth) + strings.Repeat(horizontal, plotWidth)))
 	b.WriteString("\n")
 	left := "-" + formatWindow(window)
 	timeline := "now"

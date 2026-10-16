@@ -86,6 +86,13 @@ func detailTitle(item detailItem) string {
 	return item.spec.Title
 }
 
+func detailCellTitle(item detailItem) string {
+	if strings.HasPrefix(item.spec.Metric, "network.") {
+		return item.spec.Title
+	}
+	return detailTitle(item)
+}
+
 func (m Model) detailItems() []detailItem {
 	observations := chartObservations(m.dash)
 	var items []detailItem
@@ -290,7 +297,7 @@ func (m Model) detailsBody(width int) string {
 				}
 				return fmt.Sprintf("%.1f%s", value.Value, sanitize(item.spec.Unit, 16))
 			})
-			label := sanitize(detailTitle(item), 180)
+			label := sanitize(detailCellTitle(item), 180)
 			marker := "  "
 			if i == frame.selected {
 				marker = "> "

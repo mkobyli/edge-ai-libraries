@@ -17,6 +17,7 @@ type ChartsConfig struct {
 	HistoryDuration       string        `json:"historyDuration"`
 	MaxPoints             int           `json:"maxPoints"`
 	ChartHeight           int           `json:"chartHeight"`
+	GraphMode             string        `json:"graphMode"`
 	Charts                []ChartSpec   `json:"charts"`
 	Details               DetailsConfig `json:"details"`
 }
@@ -72,6 +73,7 @@ func DefaultChartsConfig() ChartsConfig {
 		HistoryDuration: "5m",
 		MaxPoints:       600,
 		ChartHeight:     6,
+		GraphMode:       "unicode",
 		Details: DetailsConfig{
 			DefaultMetric: "cpu.totalPercent",
 			ChartHeight:   10,
@@ -134,6 +136,9 @@ func LoadChartsConfig(path string) (ChartsConfig, error) {
 }
 
 func (c ChartsConfig) Validate() error {
+	if c.GraphMode != "unicode" && c.GraphMode != "ascii" {
+		return fmt.Errorf("graphMode must be unicode or ascii")
+	}
 	duration, err := time.ParseDuration(c.HistoryDuration)
 	if err != nil {
 		return fmt.Errorf("historyDuration: %w", err)
