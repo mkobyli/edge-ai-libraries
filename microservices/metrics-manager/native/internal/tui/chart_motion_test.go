@@ -110,8 +110,11 @@ func TestBrailleCombinesDotColumnsAndKeepsZerosDistinctFromGaps(t *testing.T) {
 		{At: now.Add(-step), Value: 100}, {At: now, Value: 100},
 	}}
 	full := m.renderChart(spec, series, 18)
-	if strings.Count(full, chartStyle.Render("⣿")) != 3 {
-		t.Fatalf("two full-height dot columns were not combined in the neutral color: %q", full)
+	if strings.Count(ansi.Strip(full), "⣿") != 3 {
+		t.Fatalf("two full-height dot columns were not combined: %q", full)
+	}
+	for row := range 3 {
+		wantContains(t, full, chartRowStyle(row, 3).Render("⣿"))
 	}
 	series.Points = []HistoryPoint{{At: now, Value: 0}}
 	raster := plotRaster(m.renderChart(spec, series, 18), "braille")

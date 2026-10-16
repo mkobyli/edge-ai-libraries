@@ -50,7 +50,6 @@ var (
 	titleStyle     = lipgloss.NewStyle().Bold(true)
 	headingStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
 	borderStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
-	chartStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "45"})
 	activeTabStyle = lipgloss.NewStyle().Bold(true).Reverse(true).
 			Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
 	labelStyle    = lipgloss.NewStyle().Faint(true)

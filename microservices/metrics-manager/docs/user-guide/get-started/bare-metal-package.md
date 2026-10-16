@@ -801,10 +801,17 @@ six-row charts. Supported metrics are:
 
 #### Plot appearance and xterm compatibility
 
-Both Trends and the selected Details chart use filled plots in one fixed
-cyan/blue color, independent of metric thresholds. This avoids giving
-identically rounded column heights different health colors. There is no extra
-color-mode setting: `solid`, `unicode`, `ascii` and `braille` all use the same policy.
+Both Trends and the selected Details chart use a vertical blue gradient:
+dark blue at the baseline, progressively lighter blue toward the top of the
+axis. The shade depends only on the row's position within the plot, not on
+thresholds, trend direction or each column's individual peak. At the same
+scale and size, equal-height columns therefore have identical shading and a
+tall column contains the gradient from its base upward.
+There is no extra color-mode setting: `solid` uses background shades, while
+`unicode`, `ascii` and `braille` use foreground shades. Light terminal themes
+use a darker palette for legibility. True-color terminals display the full
+gradient, 256-color terminals approximate it, 16-color terminals use two blue
+shades, and monochrome output retains its visible glyph fallback.
 Numeric readings in Overview and Details and the `last` statistic still use
 the configured metric thresholds (green OK, cyan careful, amber warning, red
 critical); readings without a health threshold remain neutral. Alert events
@@ -842,7 +849,7 @@ The top-level `graphMode` setting in `tui-charts.json` applies to both tabs:
   partial cell/zero baseline, with ASCII plot axes. Colors and data are unchanged.
 - `"braille"`: optional dotted fill, with two horizontal time columns and four
   vertical dot positions per terminal cell. It uses the same stable time buckets
-  and single plot color, but requires a font with Unicode Braille support.
+  and vertical blue gradient, but requires a font with Unicode Braille support.
 
 To compare dotted plots, set `"graphMode": "braille"` at the top level of the
 charts configuration loaded by `-charts-config`, then restart `mm-tui`.

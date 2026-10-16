@@ -139,6 +139,11 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 			axis = " |"
 		}
 		b.WriteString(labelStyle.Render(label + axis))
+		style := chartRowStyle(row, height)
+		solidBackground := m.chartsConfig.GraphMode == "solid" && lipgloss.ColorProfile() != termenv.Ascii
+		if solidBackground {
+			style = lipgloss.NewStyle().Background(style.GetForeground())
+		}
 		// Style contiguous runs rather than every cell to keep terminal output
 		// compact on wide plots.
 		for start := 0; start < plotWidth; {
@@ -149,9 +154,7 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 			}
 			text := string(grid[row][start:end])
 			if !empty {
-				style := chartStyle
-				if m.chartsConfig.GraphMode == "solid" && lipgloss.ColorProfile() != termenv.Ascii {
-					style = lipgloss.NewStyle().Background(style.GetForeground())
+				if solidBackground {
 					text = strings.Repeat(" ", end-start)
 				} else if m.chartsConfig.GraphMode == "solid" {
 					text = strings.Repeat("#", end-start)
@@ -177,6 +180,23 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 	b.WriteString(labelStyle.Render(strings.Repeat(" ", axisWidth) + timeline))
 
 	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func chartRowStyle(row, height int) lipgloss.Style {
+	level, span := max(0, min(height-1, height-1-row)), max(1, height-1)
+	if lipgloss.ColorProfile() == termenv.ANSI {
+		// Keep limited palettes blue instead of quantizing pale shades to white.
+		color := lipgloss.Color("4")
+		if level*2 >= span {
+			color = lipgloss.Color("12")
+		}
+		return lipgloss.NewStyle().Foreground(color)
+	}
+	mix := func(low, high int) int { return low + (high-low)*level/span }
+	return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
+		Light: fmt.Sprintf("#%02x%02x%02x", mix(15, 45), mix(52, 110), mix(100, 180)),
+		Dark:  fmt.Sprintf("#%02x%02x%02x", mix(25, 155), mix(95, 215), mix(175, 255)),
+	})
 }
 
 func windowPoints(points []HistoryPoint, start, end time.Time) []HistoryPoint {

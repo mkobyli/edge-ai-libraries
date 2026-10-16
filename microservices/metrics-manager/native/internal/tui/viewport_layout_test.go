@@ -95,12 +95,12 @@ func TestSolidChartsUseOnlyBackgroundSpacesForPeaksAndZeros(t *testing.T) {
 		if strings.ContainsAny(text, "▁▂▃▄▅▆▇█#+_") {
 			t.Fatalf("solid mode emitted glyph-based bars: %q", text)
 		}
-		fill := lipgloss.NewStyle().Background(chartStyle.GetForeground()).Render(" ")
 		row := 0
 		for _, line := range strings.Split(text, "\n") {
 			if !strings.Contains(ansi.Strip(line), " │") {
 				continue
 			}
+			fill := lipgloss.NewStyle().Background(chartRowStyle(row, 3).GetForeground()).Render(" ")
 			wantRuns := 1
 			if row == 2 {
 				wantRuns = 2

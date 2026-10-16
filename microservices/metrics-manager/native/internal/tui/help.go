@@ -41,7 +41,8 @@ func (m Model) helpBody(width int) string {
 		"  Filled plots preserve blank gaps where measurements are missing.\n" +
 		"  Time buckets are anchored: closed columns move together, not regrouped per poll.\n" +
 		"  Auto scales expand in steps; halving the range needs 30s before shrinking.\n" +
-		"  Plots use one fixed color; numeric readings and last keep threshold colors.\n" +
+		"  Plots fade from dark blue at the baseline to light blue at the top of the axis.\n" +
+		"  Shades depend on height, not health or trend direction; values keep threshold colors.\n" +
 		"  Nonnegative metrics default to a zero baseline, including all-zero samples.\n" +
 		"  graphMode=\"solid\" (default) uses background spaces, not block glyphs.\n" +
 		"  Optional graphMode=\"braille\" uses 2x4 dots per cell; requires font support.\n" +

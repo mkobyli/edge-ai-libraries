@@ -46,7 +46,7 @@ func TestPanelBordersHaveOneStyleDespiteNestedTitleColors(t *testing.T) {
 	}
 }
 
-func TestChartFillIsNeutralWhileLatestValueRetainsThresholdColor(t *testing.T) {
+func TestChartGradientIgnoresThresholdsWhileLatestValueRetainsHealthColor(t *testing.T) {
 	profile := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
@@ -57,8 +57,8 @@ func TestChartFillIsNeutralWhileLatestValueRetainsThresholdColor(t *testing.T) {
 		if !monitored {
 			spec.Min, spec.Max = floatPointer(0), floatPointer(100)
 			text := m.renderChart(spec, HistorySeries{Available: true, Points: []HistoryPoint{{At: fixedNow, Value: 100}}}, 30)
-			if !strings.Contains(text, chartStyle.Render("█")) {
-				t.Errorf("%s has no fixed plot color", spec.Metric)
+			if !strings.Contains(text, chartRowStyle(0, m.chartsConfig.ChartHeight).Render("█")) {
+				t.Errorf("%s lacks the top gradient shade", spec.Metric)
 			}
 			continue
 		}
@@ -71,27 +71,20 @@ func TestChartFillIsNeutralWhileLatestValueRetainsThresholdColor(t *testing.T) {
 		} {
 			spec.Min, spec.Max = floatPointer(0), floatPointer(threshold.Critical)
 			text := m.renderChart(spec, HistorySeries{Available: true, Points: []HistoryPoint{{At: fixedNow, Value: tc.value}}}, 30)
-			found := false
-			for _, cell := range "▁▂▃▄▅▆▇█" {
-				if strings.Contains(text, chartStyle.Render(string(cell))) {
-					found = true
-				}
-			}
-			if !found {
-				t.Errorf("%s value %g lacks neutral plot color", spec.Metric, tc.value)
-			}
+			row, filled := 0, 0
 			for _, line := range strings.Split(text, "\n") {
-				if strings.Contains(ansi.Strip(line), " │") && tc.severity != SeverityCareful {
-					for _, cell := range "▁▂▃▄▅▆▇█" {
-						if strings.Contains(line, severityStyle(tc.severity).Render(string(cell))) {
-							t.Errorf("%s plotted a severity color", spec.Metric)
-						}
+				if _, plot, ok := strings.Cut(ansi.Strip(line), " │"); ok {
+					for _, cell := range strings.TrimSpace(plot) {
+						wantContains(t, line, chartRowStyle(row, m.chartsConfig.ChartHeight).Render(string(cell)))
+						filled++
 					}
+					row++
 				}
 			}
-			wantContains(t, text, m.thresholdValue(spec.Metric, reading(tc.value), func(Reading) string {
-				return fmt.Sprintf("%.1f%s", tc.value, spec.Unit)
-			}))
+			if filled == 0 {
+				t.Fatalf("%s value %g did not render a measured column", spec.Metric, tc.value)
+			}
+			wantContains(t, text, severityStyle(tc.severity).Render(fmt.Sprintf("%.1f%s", tc.value, spec.Unit)))
 		}
 	}
 }
@@ -145,8 +138,8 @@ func TestChartModesPreserveMeasuredZeroGapsPeaksAndWidths(t *testing.T) {
 					t.Fatalf("ASCII plot contains non-ASCII rune %q", r)
 				}
 			}
-			wantContains(t, rendered, chartStyle.Render(string(peak)))
-			wantContains(t, rendered, chartStyle.Render(string(zero)))
+			wantContains(t, rendered, chartRowStyle(0, m.chartsConfig.ChartHeight).Render(string(peak)))
+			wantContains(t, rendered, chartRowStyle(2, m.chartsConfig.ChartHeight).Render(string(zero)))
 		}
 		var grid [][]rune
 		for _, line := range strings.Split(text, "\n") {
