@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Opt-in: copy to /etc/metrics-manager/telegraf.d/network.conf and restart
+# metrics-manager-telegraf.service. It is NOT loaded from the examples directory.
+[[inputs.net]]
+  # Set explicit physical interfaces to avoid bridge/veth double counting.
+  # Empty collects UP, non-loopback interfaces, including virtual interfaces.
+  # interfaces = ["enp1s0"]
+  interfaces = []
+  # The TUI uses net_* fields with host/interface tags and measurement timestamps.
+  # Keep metric_version = 1 and export_timestamp = true in prometheus_client.

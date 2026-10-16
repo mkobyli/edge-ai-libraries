@@ -47,8 +47,11 @@ func (m Model) refreshInterval() time.Duration {
 // Styles are adaptive so the dashboard stays readable on both light and dark
 // terminals rather than assuming a dark background.
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true)
-	headingStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
+	titleStyle     = lipgloss.NewStyle().Bold(true)
+	headingStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
+	borderStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
+	activeTabStyle = lipgloss.NewStyle().Bold(true).Reverse(true).
+			Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
 	labelStyle    = lipgloss.NewStyle().Faint(true)
 	ruleStyle     = lipgloss.NewStyle().Faint(true)
 	staleStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "130", Dark: "214"})
@@ -76,14 +79,28 @@ func (m Model) View() string {
 	lines := m.bodyLines(width)
 	rows := m.visibleRows()
 	visible, offset := clip(lines, rows, m.offset)
+	bottom := m.bottomAlertLines(width)
+	separator := ruleStyle.Render(strings.Repeat("─", width))
+	if m.showHelp || m.activeTab != DetailsTab {
+		if offset > 0 {
+			chrome[len(chrome)-1] = m.scrollIndicator(width, true)
+		}
+		if offset+len(visible) < len(lines) {
+			if len(bottom) > 0 {
+				bottom[0] = m.scrollIndicator(width, false)
+			} else {
+				separator = m.scrollIndicator(width, false)
+			}
+		}
+	}
 	out := append(chrome, visible...)
 	if m.height > 0 {
 		for len(out) < m.height-2-m.bottomBarRows() {
 			out = append(out, "")
 		}
 	}
-	out = append(out, m.bottomAlertLines(width)...)
-	out = append(out, ruleStyle.Render(strings.Repeat("─", width)))
+	out = append(out, bottom...)
+	out = append(out, separator)
 	hint := footerHint(len(lines), rows, offset)
 	if m.showHelp {
 		hint = strings.Replace(hint, "h help · a alerts", "h/esc back · a alerts", 1)
@@ -96,6 +113,31 @@ func (m Model) View() string {
 	}
 	out = append(out, fitWidth(footerStyle.Render(hint), width))
 	return strings.Join(out, "\n")
+}
+
+func (m Model) scrollIndicator(width int, above bool) string {
+	content := "metrics"
+	switch {
+	case m.showHelp:
+		content = "help"
+	case m.activeTab == TrendsTab:
+		content = "charts"
+	case m.activeTab == AlertsTab:
+		content = "alert details"
+	}
+	direction, keys := "below", "Down/PgDn"
+	if above {
+		direction, keys = "above", "Up/PgUp"
+	}
+	label := "more " + content + " " + direction
+	if len(label)+3 > width {
+		label = "more " + direction
+	}
+	if len(label)+len(keys)+6 <= width {
+		label += " | " + keys
+	}
+	return headingStyle.Render(fitWidth("─ "+label+" "+
+		strings.Repeat("─", max(0, width-len(label)-3)), width))
 }
 
 // renderWidth is the width to lay out at. Once Bubble Tea reports the terminal
@@ -123,9 +165,9 @@ func (m Model) chromeLines(width int) []string {
 	if platform := m.platformLine(); platform != "" {
 		lines = append(lines, platform)
 	}
-	status := fmt.Sprintf("poll %s", m.refreshInterval())
+	status := headingStyle.Render(fmt.Sprintf("interval: %s", m.refreshInterval()))
 	if !m.config.Alerts.BottomBar {
-		status += " | " + m.alertSummary(width)
+		status += " | " + m.alertSummary(max(0, width-lipgloss.Width(status)-3))
 	}
 	lines = append(lines, m.tabLine(), status,
 		ruleStyle.Render(strings.Repeat("─", width)))
@@ -172,6 +214,12 @@ func (m Model) panelGrid(width int) string {
 	if m.dash.NPU.Present {
 		panels = append(panels, m.npuSection())
 	}
+	for _, network := range m.dash.Network {
+		panels = append(panels, m.networkSection(network))
+	}
+	if m.dash.NetworkLimited {
+		panels = append(panels, "Network\nInterface limit reached; adjust network.interfaces or network.maxInterfaces.")
+	}
 
 	// Processes go last because the hardware panels are what the dashboard
 	// is for, but on a wide terminal they can use otherwise idle space.
@@ -185,7 +233,23 @@ func (m Model) panelGrid(width int) string {
 	for i := range panels {
 		panels[i] = framePanel(lipgloss.NewStyle().Width(panelWidth).Render(panels[i]), panelWidth+2)
 	}
-	return packPanels(panels, width, panelMinWidth, 3)
+	return packPanelColumns(panels, width, panelMinWidth, 3)
+}
+
+func packPanelColumns(panels []string, width, minWidth, maxColumns int) string {
+	columns := max(1, min(maxColumns, (width+panelGap)/(minWidth+panelGap)))
+	columnWidth := (width - panelGap*(columns-1)) / columns
+	stacks := make([][]string, columns)
+	for i, panel := range panels {
+		column := i % columns
+		stacks[column] = append(stacks[column], strings.TrimRight(panel, "\n"))
+	}
+	rendered := make([]string, columns)
+	for i, stack := range stacks {
+		rendered[i] = lipgloss.NewStyle().Width(columnWidth).MaxWidth(columnWidth).
+			Render(strings.Join(stack, "\n\n"))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithGap(rendered, panelGap)...)
 }
 
 func (m Model) panelWidth() int {
@@ -293,7 +357,7 @@ func (m Model) tabLine() string {
 	tabs := m.tabLabels()
 	for i, tab := range tabs {
 		if Tab(i) == m.activeTab {
-			tabs[i] = titleStyle.Render("[" + tab + "]")
+			tabs[i] = activeTabStyle.Render("[" + tab + "]")
 		} else {
 			tabs[i] = labelStyle.Render(tab)
 		}
@@ -606,6 +670,9 @@ func (m Model) processSection() string {
 
 	b.WriteString(labelStyle.Render(m.processSortLabel()) + "\n")
 	processes := m.sortedProcesses()
+	if len(processes) == 0 && m.processSourceMissing() {
+		b.WriteString("No current process samples.\n")
+	}
 	rows := make([][]string, 0, len(processes))
 	for _, p := range processes {
 		rows = append(rows, []string{
@@ -812,9 +879,7 @@ func (m Model) thresholdTemperature(metric string, value Reading) string {
 
 func (m Model) thresholdValue(metric string, value Reading, format func(Reading) string) string {
 	text := format(value)
-	if metric == "gpu.enginePercent" {
-		metric = "gpu.utilizationPercent"
-	}
+	metric = thresholdMetric(metric)
 	threshold, enabled := m.config.Thresholds[metric]
 	if !enabled || !value.OK || math.IsNaN(value.Value) || math.IsInf(value.Value, 0) {
 		return text

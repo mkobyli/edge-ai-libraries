@@ -67,7 +67,7 @@ func compareProcess(config ProcessConfig, aPID, bPID string, aUsage, bUsage, aMe
 }
 
 func (m Model) sortedProcesses() []Process {
-	processes := slices.Clone(m.dash.Processes)
+	processes := currentProcesses(m.dash, m.now())
 	slices.SortFunc(processes, func(a, b Process) int {
 		return compareProcess(m.config.Processes, a.PID, b.PID, a.CPUPercent, b.CPUPercent, a.MemoryBytes, b.MemoryBytes)
 	})

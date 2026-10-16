@@ -304,7 +304,7 @@ func TestDetailsKeepsDeviceIdentityBeforeTruncatedTitles(t *testing.T) {
 	}
 	wantContains(t, m.detailsBody(80), "> GPU 0 / render")
 	frame := m.detailsLayout(80)
-	if !strings.HasPrefix(frame.chart[0], "╭ GPU 0 / render") {
+	if !strings.HasPrefix(frame.chart[0], "┌ GPU 0 / render") {
 		t.Fatal("chart lost selected device/engine identity")
 	}
 }
@@ -359,6 +359,9 @@ func TestDetailsConfigValidationAndPackagedDefaults(t *testing.T) {
 	}
 	if !reflect.DeepEqual(packaged.Details, DefaultChartsConfig().Details) {
 		t.Fatal("packaged Details defaults differ from built-in defaults")
+	}
+	if !reflect.DeepEqual(packaged.Charts, DefaultChartsConfig().Charts) {
+		t.Fatal("packaged Trends defaults differ from built-in defaults")
 	}
 }
 

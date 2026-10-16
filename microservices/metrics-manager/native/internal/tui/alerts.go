@@ -33,15 +33,20 @@ func (s Severity) String() string {
 }
 
 type Alert struct {
-	Key         string
-	Metric      string
-	Device      string
-	Severity    Severity
-	Value       float64
-	Threshold   float64
-	Since       time.Time
-	Message     string
-	Unavailable bool
+	Key              string
+	Metric           string
+	Device           string
+	Severity         Severity
+	Value            float64
+	Threshold        float64
+	Since            time.Time
+	Message          string
+	Unavailable      bool
+	TriggerValue     Reading
+	TriggerThreshold float64
+	PeakValue        Reading
+	PeakAt           time.Time
+	RecoveryValue    Reading
 }
 
 type AlertEvent struct {
@@ -53,14 +58,17 @@ type AlertEvent struct {
 type observation struct {
 	key, metric, device, message string
 	value                        float64
+	at                           time.Time
 }
 
 type alertState struct {
-	active       Severity
-	pending      Severity
-	pendingCount int
-	missingCount int
-	alert        Alert
+	observedAt    time.Time
+	observedValue float64
+	active        Severity
+	pending       Severity
+	pendingCount  int
+	missingCount  int
+	alert         Alert
 }
 
 type AlertTracker struct {
@@ -80,9 +88,12 @@ func NewAlertTracker(config AlertConfig, processLimit int) AlertTracker {
 
 func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Threshold, at time.Time) {
 	seen := make(map[string]bool)
-	for _, observation := range dashboardObservations(dashboard, t.processLimit) {
+	for _, observation := range dashboardObservations(dashboard, t.processLimit, at) {
 		threshold, enabled := thresholds[observation.metric]
 		if !enabled || math.IsNaN(observation.value) || math.IsInf(observation.value, 0) {
+			continue
+		}
+		if observation.metric == "process.cpuPercent" && !freshProcessCPU(observation.at, at) {
 			continue
 		}
 
@@ -94,6 +105,24 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 		}
 		state.missingCount = 0
 		state.alert.Unavailable = false
+		if !observation.at.IsZero() {
+			if observation.at.Before(state.observedAt) {
+				state.pending = state.active
+				state.pendingCount = 0
+				state.alert.Unavailable = true
+				continue
+			}
+			if observation.at.Equal(state.observedAt) {
+				if observation.value != state.observedValue {
+					state.pending = state.active
+					state.pendingCount = 0
+					state.alert.Unavailable = true
+				}
+				continue
+			}
+			state.observedAt = observation.at
+			state.observedValue = observation.value
+		}
 
 		target := classifyWithHysteresis(observation.value, threshold, state.active,
 			t.config.HysteresisPercent)
@@ -130,13 +159,18 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 			state.active = state.pending
 			state.pendingCount = 0
 			if previous >= t.minimumSeverity() && state.active < t.minimumSeverity() {
-				t.archive(state.alert, at, "recovered")
+				ended := state.alert
+				ended.RecoveryValue = reading(observation.value)
+				t.archive(ended, at, "recovered")
 			}
 			if state.active == SeverityOK {
 				state.alert = Alert{}
 			} else if previous == SeverityOK ||
 				(previous < t.minimumSeverity() && state.active >= t.minimumSeverity()) {
-				state.alert.Since = at
+				state.alert = Alert{
+					Since: at, TriggerValue: reading(observation.value),
+					TriggerThreshold: thresholdFor(threshold, state.active),
+				}
 			}
 		}
 		if state.active != SeverityOK {
@@ -147,6 +181,13 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 			state.alert.Value = observation.value
 			state.alert.Threshold = thresholdFor(threshold, state.active)
 			state.alert.Message = observation.message
+			if !state.alert.PeakValue.OK || observation.value > state.alert.PeakValue.Value {
+				state.alert.PeakValue = reading(observation.value)
+				state.alert.PeakAt = at
+				if !observation.at.IsZero() {
+					state.alert.PeakAt = observation.at
+				}
+			}
 		}
 	}
 
@@ -265,7 +306,7 @@ func thresholdFor(threshold Threshold, severity Severity) float64 {
 	}
 }
 
-func dashboardObservations(d Dashboard, processLimit int) []observation {
+func dashboardObservations(d Dashboard, processLimit int, at time.Time) []observation {
 	var observations []observation
 	add := func(key, metric, device, message string, reading Reading) {
 		if reading.OK {
@@ -307,16 +348,70 @@ func dashboardObservations(d Dashboard, processLimit int) []observation {
 	add("npu.temperature", "npu.temperatureC", "NPU",
 		"Check NPU load and cooling.", d.NPU.TempC)
 
-	processes := d.Processes
-	if len(processes) > processLimit {
-		processes = processes[:processLimit]
+	for _, network := range d.Network {
+		for _, spec := range networkChartSpecs() {
+			metric := thresholdMetric(spec.Metric)
+			if !supportedThresholds[metric] {
+				continue
+			}
+			value := network.Metrics[spec.Metric]
+			if value.OK {
+				observations = append(observations, observation{
+					key: "network." + network.Key + "." + spec.Metric, metric: metric,
+					device:  network.label() + " / " + spec.Title,
+					message: "Inspect interface traffic, link capacity and packet errors; thresholds are diagnostic.",
+					value:   value.Value, at: value.At,
+				})
+			}
+		}
 	}
-	for _, process := range processes {
-		add("process."+process.PID, "process.cpuPercent", process.Command,
-			"Process CPU utilization is sustained.", process.CPUPercent)
+	for _, process := range processAlertCandidates(d, processLimit, at) {
+		if process.CPUPercent.OK {
+			observations = append(observations, observation{
+				key: "process." + process.PID, metric: "process.cpuPercent",
+				device: process.Command + " (PID " + process.PID + ")", value: process.CPUPercent.Value, at: process.CPUAt,
+				message: "Process CPU is relative to one logical CPU (100%), not the whole host; inspect the process workload.",
+			})
+		}
 	}
 
 	return observations
+}
+
+func currentProcesses(d Dashboard, at time.Time) []Process {
+	processes := make([]Process, 0, len(d.Processes))
+	for _, process := range d.Processes {
+		if !expiredProcessCPU(process.CPUAt, at) {
+			processes = append(processes, process)
+		}
+	}
+	return processes
+}
+
+func processAlertCandidates(d Dashboard, limit int, at time.Time) []Process {
+	processes := currentProcesses(d, at)
+	return processes[:min(len(processes), max(0, limit))]
+}
+
+func expiredProcessCPU(measuredAt, now time.Time) bool {
+	return !measuredAt.IsZero() && now.Sub(measuredAt) > 10*time.Second
+}
+
+func processTimestampIssue(measuredAt, now time.Time) string {
+	switch {
+	case measuredAt.IsZero():
+		return "measurement timestamp missing"
+	case measuredAt.After(now):
+		return "measurement timestamp is in the future"
+	case expiredProcessCPU(measuredAt, now):
+		return "measurement is older than 10s"
+	default:
+		return ""
+	}
+}
+
+func freshProcessCPU(measuredAt, now time.Time) bool {
+	return processTimestampIssue(measuredAt, now) == ""
 }
 
 func totalCPUUsage(cpu CPU) Reading {

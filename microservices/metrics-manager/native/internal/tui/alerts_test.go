@@ -173,8 +173,12 @@ func TestAlertTrackerOnlyChecksDisplayedProcesses(t *testing.T) {
 		{PID: "1", Command: "visible", CPUPercent: reading(1)},
 		{PID: "2", Command: "hidden", CPUPercent: reading(99)},
 	}}
-	for range 3 {
-		tracker.Update(dashboard, config.Thresholds, fixedNow)
+	for i := range 3 {
+		at := fixedNow.Add(time.Duration(i) * time.Second)
+		for j := range dashboard.Processes {
+			dashboard.Processes[j].CPUAt = at
+		}
+		tracker.Update(dashboard, config.Thresholds, at)
 	}
 
 	if alerts := tracker.Active(); len(alerts) != 0 {

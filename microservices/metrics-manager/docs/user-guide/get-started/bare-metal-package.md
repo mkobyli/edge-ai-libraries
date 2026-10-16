@@ -220,24 +220,41 @@ while help is open. Tab shortcuts leave help; `a` goes directly to alerts.
 
 Overview responds to the terminal width. It uses one column in a narrow window,
 two columns once each panel can remain readable, and up to three columns in a
-wide terminal. Scrolling remains available when the resulting rows do not fit
-the terminal height. The panels retain their hardware-first reading order.
+wide terminal. Scrolling remains available when the resulting columns do not fit
+the terminal height. Panels are assigned across columns in hardware-first order,
+then stacked independently with one blank line between panels. A short Memory
+panel no longer waits for a taller CPU panel before the next panel can begin.
+Changes to panel heights do not move panels between columns; resizing the
+terminal or adding/removing devices may reflow the layout.
 Tables that cannot fit switch to labelled rows, keeping measurements such as
 RSS, idle time and throttle reasons visible rather than clipping their columns.
 Long descriptive values wrap within their panel.
 
 Device and metric-group panels have borders, including Trends plots and
 Details sections. Borders are included in the responsive width calculation.
-The header displays the age of the last successful poll; the `poll` line shows
+All edges use the same fixed color, independent of metric thresholds. Titles
+cannot reset the color halfway through a border. Square corners use common
+box-drawing glyphs. The active tab is highlighted with reverse video as well as
+brackets; highlighting does not change the mouse hitboxes.
+The header displays the age of the last successful poll; the highlighted `interval:` line shows
 the configured TUI polling interval. Use `mm-tui -interval 1s` to change it.
 This does not change the Telegraf collection interval (normally 1 second).
 Request time and failure backoff can make actual polls less frequent.
 
 The header, tabs, two-line bottom alert preview and footer stay fixed while content
-scrolls. The preview always reserves two rows, with the alert counts and highest
+scrolls. The preview always reserves a separator and two content rows, with the alert counts and highest
 severity event, so a new alert does not shift the device panels. It shows a
 no-events message when empty. Set `alerts.bottomBar=false` to recover those rows;
-counts then appear above the body. On very short terminals the preview is omitted.
+counts then appear above the body. The separator prevents clipped panel content
+from running directly into alerts in any tab. On very short terminals the preview is omitted.
+Overview, Trends, Alerts and help highlight the viewport boundary when content
+is hidden: `more metrics below`, `more charts below`, `more alert details below`
+or `more help below`. After scrolling, the upper boundary similarly indicates
+content `above`. Use arrows, `PgUp`/`PgDn`, `Home`/`End`, or the mouse wheel
+(outside help) to navigate. Each indicator disappears when no content remains
+hidden on that side. Narrow terminals use shorter labels. These hints reuse
+existing separators, consume no additional content rows and also work with
+`alerts.bottomBar=false`. Details retains its separate metric-list indicator.
 The footer
 reports which content lines you are looking at, as in `lines 1-28 of 42`, so
 a short terminal hides content rather than dropping it. The header reports how
@@ -266,10 +283,22 @@ each available GPU and the NPU. Missing hardware produces no empty chart.
 
 The time axis always spans the configured window ending at the current time.
 New samples appear near the right edge during startup; a short history is never
-stretched to look like five minutes of data. Each plot column represents an
-equal time interval and displays the highest observed value in that interval.
-Plots use filled eighth-cell blocks instead of isolated dots. Measured zero
-has a visible baseline mark, and a full-scale value fills the column.
+stretched to look like five minutes of data. Time buckets are anchored to fixed
+clock boundaries, not regrouped around each new poll time. Each bucket displays
+its highest observed value. Between boundaries, new samples change only their
+bucket; at a boundary, the previous buckets shift together. With an unchanged
+scale, width and historical measurements, closed interior columns keep their
+shape. The oldest bucket can lose expired samples as the window advances.
+
+For `N` time columns, the interval is the history window divided by `N-1`
+(rounded up to nanoseconds), allowing partial buckets at the window edges.
+For example, five minutes across 101 columns advances one column every three
+seconds, not every 500ms TUI poll. Braille has two time columns per terminal
+cell. Changing the terminal width or graph mode recomputes the time resolution.
+Plots use Braille dots by default, with two time columns and four vertical
+positions per terminal cell. Measured zero has a visible baseline dot, and a
+full-scale value fills the dot column. Use `solid` for background cells without
+special glyphs if the terminal font does not support Braille.
 Columns with no samples stay blank, including interruptions and the part of
 the window before TUI startup. There is no interpolation or zero-filling.
 Gaps shorter than a column's time interval may share a column with valid data.
@@ -283,9 +312,10 @@ a successfully measured zero does. The clock advances and expires history
 once per second even while a request is blocked or the poller is backing off.
 Fully expired series disappear until a valid measurement is received again.
 
-History timestamps describe when the TUI received a successful poll, not when
+For CPU, memory and device readings, history timestamps describe when the TUI received a successful poll, not when
 the underlying hardware counter was sampled. An endpoint returning cached
 values cannot be distinguished from a fresh hardware measurement here.
+Network rates retain their source measurement timestamps.
 GPU utilisation is the busiest engine on that device for each sample. When
 there are more samples than terminal columns, each horizontal bucket keeps its
 peak so a short spike does not disappear during downsampling.
@@ -464,8 +494,40 @@ It clears after three consecutive samples below the threshold exit,
 with a 5% hysteresis by default so a value close to a boundary does not make the
 alert repeatedly appear and disappear. Missing measurements and failed polls
 break consecutive-sample runs; they do not count as recovery.
+For process CPU and Network, only distinct source measurement timestamps
+advance activation/recovery streaks. Repeated scrapes of a cached measurement
+do not count again. Process CPU samples without a timestamp, from the future,
+or older than 10 seconds cannot confirm alerts.
 
-Press `4`, click Alerts, or press `a` to open the fourth, scrollable tab. Each entry
+The process collector publishes the union of top CPU and top memory processes.
+When a process leaves that set or exits, Telegraf can retain its last series
+until the exporter cache expires (60 seconds by default). TUI excludes samples
+older than 10 seconds **before** applying the display or alert-evaluation limit,
+so cached values cannot crowd out current processes. Excluded entries are
+listed as neutral `Retained process samples` diagnostics in Alerts. Their
+presence alone does not produce `limited` while current process data remains.
+This is age-based filtering, not proof that a particular process exited or
+left the collector's top list; no process-name exclusions are used.
+
+Missing timestamps, future timestamps and inconsistent current samples still
+limit alert confirmation. Loss of all current process samples from a previously
+observed source is also reported, even after its cached entries disappear.
+A process source never observed in this session remains optional.
+Collection is not disabled by these diagnostics.
+The alert status shows `Process CPU alerts: limited` (shortened to
+`CPU alerts limited` or `CPU!` in narrow layouts). Open Alerts for the affected
+process names/PIDs, precise reasons and source/check timestamps. Diagnostics also
+identify missing/non-finite CPU readings, out-of-order timestamps and conflicting
+values at the same timestamp. Expiration or disappearance of an active event's
+process ends the episode as `no longer observed`, never as confirmed recovery.
+Coverage uses the same current process candidates as the
+alert tracker, not the current display sort order. Keep Telegraf
+`export_timestamp = true`. Other metric families retain their existing
+successful-poll-based debounce behavior.
+
+The status hint `[4/a] Open alerts` (or `[4/a] Alerts`) opens alert information,
+not the metric Details tab. Press `4`, click Alerts, or press `a` to open the
+fourth, scrollable tab. Each entry
 identifies the metric and device (including the GPU engine), its severity,
 value and threshold with units, start time and duration through the latest
 successful snapshot, and diagnostic guidance. Press `a` or `Esc` to return to
@@ -475,14 +537,30 @@ The details view retains up to `alerts.maxHistory=50` ended events, newest
 first, in memory for the current TUI session only. Set this to `0` to disable
 history or choose a limit up to `1000`. Recovery below the displayed severity
 ends an event; warning/critical transitions within one episode keep its start
-time. History values and severity describe the last active reading, not the
-recovery sample. After three missing samples, an event ends as
+time. Each episode retains the value and threshold at activation, the peak
+value and its timestamp since activation, and (for recovered episodes) the
+sample that confirmed recovery. The `last observed` reading is the final
+reading while the event was still active, which can already be below the
+threshold during recovery debounce. It is **not** the value that triggered
+the alert; use the activation and peak lines for that evidence. An episode
+that escalates can have an activation threshold below its last active threshold.
+After three missing samples, an event ends as
 `no longer observed`, not `recovered`. Earlier measurements still explain why
 the event was raised; the label means subsequent observations stopped. For a
 process, this can mean it exited or left the monitored top-N list, not
 necessarily a collector failure. Before then it is marked as waiting for data.
 A failed poll keeps last-known events but marks the summary and details as disconnected/stale.
 History is not written to disk and is not a record of events before TUI startup.
+Evidence cannot be reconstructed for episodes from an earlier TUI session.
+
+Process CPU alerts include the PID and use **one logical CPU as 100%**.
+They are not directly comparable to the aggregate host CPU chart: 90% for
+one process corresponds to roughly 6.4% of total capacity on a 14-thread host.
+A multithreaded process can exceed 100%. There are no per-process history plots
+in Trends or Details. An alert naming `mm-tui` refers to the monitor's own
+process and is not suppressed; it should be investigated like any other process.
+`Recent history` entries are ended episodes, while `Active (0)` means no alert
+is currently active. Current graphs need not show the same value as past events.
 
 The defaults and the maximum number of displayed processes are configured in
 `/etc/metrics-manager/tui-dashboard.json`. The installed file documents the
@@ -525,6 +603,8 @@ Color coverage is shared between Overview and Details:
 | GPU process utilization | `gpu.processPercent` |
 | NPU utilization, CPU process utilization | `npu.utilizationPercent`, `process.cpuPercent` |
 | CPU/GPU/NPU temperature | Corresponding `*.temperatureC` threshold |
+| Network RX/TX link utilization | `network.rxPercent`, `network.txPercent`; neutral/unavailable without a known capacity |
+| Network RX/TX errors and drops | Shared `network.errorsPerSecond`, `network.dropsPerSecond` thresholds, evaluated separately per direction |
 | Frequency, watts, bandwidth, absolute memory, CPU user/system/idle and C-state shares | Neutral: a high number alone does not establish an unhealthy condition |
 
 Core-class, VRAM and GPU-process thresholds also produce debounced alert events.
@@ -532,34 +612,162 @@ New VRAM defaults are 70/85/95 percent; core-class and GPU-process defaults matc
 the corresponding utilization thresholds. No universal wattage/frequency limits
 are inferred from clock ceilings or CPU TDP.
 
-### Proposed follow-up: network and storage I/O
+### Optional Network monitoring
 
-Network and storage I/O panels are not implemented in this TUI version.
-Telegraf 1.39.3 provides the required inputs:
+Network collection is **opt-in**. The package installs an example outside the
+active Telegraf configuration directory; upgrading does not enable it.
+The TUI automatically displays interfaces when `net_*` metrics are available:
 
-- [`net`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/net):
-  per-interface RX/TX bytes and packets, errors and drops.
-- [`diskio`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/diskio):
-  per-device read/write counters, operation timing, active time and in-flight I/O.
-- [`disk`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/disk):
-  filesystem capacity, free space and inode usage; this is not I/O throughput.
+- Overview: a frame per interface with independent RX/TX transfer in MiB/s,
+  packets/s, errors/s, drops/s, link utilization and cumulative byte totals.
+- Trends: five-minute RX/TX charts per interface with the new default chart list.
+- Details: one group per interface, with ten selectable rate/utilization charts.
+- Alerts: timestamp-aware Network events and the existing bottom alert preview.
 
-The container configuration contains commented network/disk examples; enabling
-an input alone does not add its metrics to the TUI. A proposed separate change
-would add opt-in native Telegraf configuration, Network and Storage panels,
-per-device Details groups and five-minute RX/TX and read/write charts.
-Rates must be calculated from counter differences and elapsed measurement time,
-handling startup, resets, missing data and device disappearance without false
-spikes. Repeated scrapes of unchanged collector samples must not masquerade as
-new rate measurements.
+Enable the native
+[`net` input](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/net)
+by copying the example. If the destination already exists, edit it instead of
+overwriting your settings:
 
-The implementation should filter interfaces/devices/mounts to avoid double
-counting bridges, virtual devices and partitions. Filesystem/inode thresholds
-can be configurable; raw MB/s and NVMe active time alone should not be labelled
-as bottlenecks. Native systemd sandbox visibility and read permissions must be
-verified first, without blanket root/privileged changes. Container host I/O
-visibility needs separate validation. This proposal does not change collectors
-or enable I/O collection in the package.
+```bash
+sudo install -o root -g root -m 0644 \
+  /usr/share/doc/metrics-manager/examples/telegraf-network.conf \
+  /etc/metrics-manager/telegraf.d/network.conf
+sudoedit /etc/metrics-manager/telegraf.d/network.conf
+```
+
+Set `interfaces = ["enp1s0"]` to your actual interface names (`ip -brief link`).
+An empty list collects UP, non-loopback interfaces, including virtual devices.
+Explicitly select the relevant physical interfaces to avoid interpreting traffic
+on a bridge and its member/veth devices as separate physical traffic. The TUI
+does not sum interfaces.
+
+```bash
+sudo systemctl restart metrics-manager-telegraf.service
+curl --fail --silent http://127.0.0.1:9273/metrics |
+  grep -E '^net_(bytes|packets|err|drop|speed)'
+mm-tui
+```
+
+Keep `metric_version = 1` and `export_timestamp = true` in the existing
+`outputs.prometheus_client` configuration. Expected names include `net_bytes_recv`,
+`net_bytes_sent`, `net_packets_recv`, `net_err_in`, `net_drop_in` and `net_speed`,
+with `interface` and normally `host` labels and a final timestamp in milliseconds.
+The pinned Telegraf 1.39.3 exporter uses these names without an added `_total`.
+No root service, capabilities or sandbox relaxation are required by this input.
+If samples are absent, inspect `journalctl -u metrics-manager-telegraf.service`
+and interface selection before changing service permissions.
+
+To disable collection without deleting the local configuration:
+
+```bash
+sudo mv -i /etc/metrics-manager/telegraf.d/network.conf \
+  /etc/metrics-manager/telegraf.d/network.conf.disabled
+sudo systemctl restart metrics-manager-telegraf.service
+```
+
+The `.conf.disabled` file is not loaded. Telegraf configuration changes require
+a service restart; dashboard-only changes require restarting `mm-tui`.
+Container host-network visibility is a separate deployment concern: the native
+setup does not imply that an isolated container sees the host's interfaces.
+
+#### Counter rates and missing data
+
+Rates use `(new counter - previous counter) / elapsed measurement seconds`,
+not elapsed time between TUI polls. Polling faster than Telegraf never creates
+alternating zero/spike rates: repeated source timestamps retain the last rate
+and do not append history points or advance Network alert activation/recovery.
+Three distinct qualifying rate measurements are required with default alerts.
+Each history point is dated at the end of its measured interval; the value is
+an average over that interval, not an instantaneous peak.
+
+The first measurement establishes a baseline. `-once` therefore shows totals
+but cannot calculate rates. Resets, missing/invalid counters, failed polls and
+interface disappearance break the baseline; new rate data needs another
+measurement. Out-of-order samples do not rewind the baseline. Missing timestamps
+leave totals readable but rates unavailable. Samples from the future or older
+than `network.maxSampleAge` are rejected. Overview explains these conditions;
+unavailable measurements are never shown as a green zero. Missing measurements
+can end an active event as `no longer observed`, never as confirmed recovery.
+
+Network configuration in `tui-dashboard.json`:
+
+```json
+"network": {
+  "interfaces": [],
+  "maxInterfaces": 8,
+  "maxSampleAge": "10s",
+  "speedMbps": {}
+}
+```
+
+- `interfaces`: an exact-name allowlist for display and evaluation, at most 32
+  names; empty accepts all exported interfaces. It does not reconfigure Telegraf.
+- `maxInterfaces`: 1-32, default 8. Admission is deterministic by host/interface.
+  Overview reports omissions. Only admitted interfaces consume rate state;
+  all history remains subject to the existing 128-series limit.
+- `maxSampleAge`: 1s-5m, default 10s. Set above the collector interval plus
+  expected flush latency. It applies to the source timestamp, not TUI refresh.
+- `speedMbps`: optional known-capacity overrides keyed by exact interface name,
+  for example `{"enp1s0": 1000}`. Values must be positive, finite and at most
+  10000000 Mbit/s. Overrides apply to that name on every exported host; use a
+  single-host endpoint when interfaces with the same name have different limits.
+
+Without an override, utilization uses Telegraf's reported link speed in Mbit/s.
+Unknown/negative speed (common for virtual or wireless interfaces) means no
+percentage or utilization alert; byte and packet rates still work. Speed and
+byte-counter timestamps must match. RX and TX are compared separately, not
+summed: this is a full-duplex capacity diagnostic, not measured application
+goodput. Wireless, shared and half-duplex links may need operator-provided
+capacity estimates. A reported speed can also change; utilization then reflects
+the capacity reported at the interval end. Incorrect limits can produce values
+above 100%; values are not clamped, although default percentage plots end at 100%.
+
+#### Network threshold defaults
+
+| Threshold key | Careful | Warning | Critical | Unit |
+|---|---:|---:|---:|---|
+| `network.rxPercent` | 70 | 80 | 90 | % of link capacity |
+| `network.txPercent` | 70 | 80 | 90 | % of link capacity |
+| `network.errorsPerSecond` | 0.1 | 1 | 10 | events/s, separately RX and TX |
+| `network.dropsPerSecond` | 0.1 | 1 | 10 | events/s, separately RX and TX |
+
+The 70/80/90 capacity bands follow the established
+[Glances v4.5.2 Network defaults](https://github.com/nicolargo/glances/blob/v4.5.2/conf/glances.conf).
+They are practical monitoring defaults, **not a universal industry standard**.
+The error/drop bands are configurable **project diagnostic heuristics**, not
+Glances defaults or hardware limits. They use interval increments rather than
+lifetime counters or a percentage that could become misleading at very low
+traffic. Consider traffic volume and driver behavior when interpreting them;
+a high-speed production link may need a very different error budget.
+
+Colors in Overview and Details use exactly the same thresholds as alerts.
+The default three-sample debounce, 5% hysteresis and warning/critical-only event
+visibility also apply to Network. Raw transfer, packet rates and byte totals
+remain neutral because a large number alone does not identify a fault.
+All four thresholds can be tuned in `thresholds` without changing the collector.
+
+#### Upgrading an existing TUI configuration
+
+Existing dashboard files inherit the new Network settings and threshold keys
+when omitted. Explicit `charts` and `details.metrics` arrays, however, replace
+the defaults; they are not merged. Preserve local customizations and add the
+Network entries from the new packaged `tui-charts.json` (or its `.dpkg-dist`
+upgrade copy). A fresh configuration contains RX/TX Trends and all ten Network
+Details metrics. No empty Network groups appear before an interface is observed.
+
+### Planned follow-up: Storage I/O
+
+Storage remains a separate follow-up, not an implemented panel.
+Telegraf 1.39.3 provides
+[`diskio`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/diskio)
+for device read/write counters and timings, and
+[`disk`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/disk)
+for filesystem capacity and inode usage.
+The proposed scope is opt-in collection, per-device groups, read/write history
+and configurable filesystem/inode thresholds. Raw MB/s and NVMe active time alone
+must not be labelled as bottlenecks. Native sandbox filesystem visibility needs
+separate verification without blanket root/privileged changes.
 
 ### Trend chart configuration
 
@@ -586,6 +794,88 @@ six-row charts. Supported metrics are:
 - `npu.frequencyMHz`
 - `npu.powerW`
 - `npu.memoryMiB`
+- `network.rxMiBps`, `network.txMiBps`
+- `network.rxPercent`, `network.txPercent`
+- `network.rxPacketsPerSecond`, `network.txPacketsPerSecond`
+- `network.rxErrorsPerSecond`, `network.txErrorsPerSecond`
+- `network.rxDropsPerSecond`, `network.txDropsPerSecond`
+
+#### Plot appearance and xterm compatibility
+
+Both Trends and the selected Details chart use a vertical blue gradient:
+dark blue at the baseline, progressively lighter blue toward the top of the
+axis. The shade depends only on the row's position within the plot, not on
+thresholds, trend direction or each column's individual peak. At the same
+scale and size, equal-height columns therefore have identical shading and a
+tall column contains the gradient from its base upward.
+There is no extra color-mode setting: `solid` uses background shades, while
+`unicode`, `ascii` and `braille` use foreground shades. Light terminal themes
+use a darker palette for legibility. True-color terminals display the full
+gradient, 256-color terminals approximate it, 16-color terminals use two blue
+shades, and monochrome output retains its visible glyph fallback.
+Numeric readings in Overview and Details and the `last` statistic still use
+the configured metric thresholds (green OK, cyan careful, amber warning, red
+critical); readings without a health threshold remain neutral. Alert events
+still require the configured consecutive samples. `last` remains a
+historical reading with a displayed age when current data is unavailable.
+
+For nonnegative metrics (utilization, frequency, power, memory and Network
+rates), omitting `min` means a zero baseline. The upper bound is automatically
+scaled unless `max` is explicitly configured. With automatic bounds, an initially
+all-zero series uses `0..1`, with only the baseline occupied rather than half the plot.
+This also applies to existing configurations without `min`;
+no configuration replacement is required. An explicit nonnegative `min` can
+still zoom the range; negative `min` or nonpositive `max` is rejected for these
+metrics. Celsius temperatures are not subject to that domain restriction.
+Missing samples remain gaps, not fabricated zero measurements.
+
+Automatic bounds use outward-rounded 1/2/5 decade steps instead of following
+every small fluctuation. They expand immediately to include new peaks. A range
+that would be at most half the current span must persist for 30 seconds before
+the scale shrinks; this also avoids sudden contraction when an old peak expires.
+Scaling state is shared by the views for each retained series. Explicit bounds
+are never overridden. A scale change necessarily rescales historical heights.
+Small nonzero values below `0.1` use two significant digits (scientific notation
+when appropriate), so low Network traffic does not show two `0.0` axis labels.
+
+The top-level `graphMode` setting in `tui-charts.json` applies to both tabs:
+
+- `"braille"` (default): dotted fill, with two horizontal time columns and four
+  vertical dot positions per terminal cell. It uses the same stable time buckets
+  and vertical blue gradient, but requires a font with Unicode Braille support.
+- `"solid"`: colored backgrounds on ordinary spaces, with full-cell
+  vertical resolution. No partial-block font glyphs are required. A measured
+  zero still fills one baseline cell, distinct from missing data. In monochrome
+  output, `#` is used so the plot does not disappear with the colors.
+- `"unicode"`: optional eighth-cell blocks for finer vertical resolution, requiring
+  a font that supports every partial-block character.
+- `"ascii"`: `#` for full cells, `+` for partial cells and `_` for the lowest
+  partial cell/zero baseline, with ASCII plot axes. Colors and data are unchanged.
+
+To switch an existing installation to dotted plots, set `"graphMode": "braille"` at the top level of the
+charts configuration loaded by `-charts-config`, then restart `mm-tui`.
+New installations and configurations without an explicit mode default to
+`"braille"`; no change is required to get stable
+scrolling and scaling in existing modes.
+
+If xterm displays empty squares or broken glyphs,
+its selected font may lack Braille or partial-block characters. Set:
+
+```json
+"graphMode": "solid"
+```
+
+Add this property at the top level of your existing charts configuration and
+restart `mm-tui`. Alternatively use an xterm font with the required Unicode
+glyphs. Terminal name alone does not reliably identify font coverage, so the
+TUI does not guess a mode from `TERM`. This option changes the plot symbols,
+not all UI text or panel borders. Missing samples remain blank; measured zero
+keeps a visible baseline in every mode. Configurations omitting `graphMode`
+inherit `braille`. Explicit older modes such as `"solid"` and `"unicode"` are
+preserved: change the mode to `"braille"` in the file actually loaded by
+`-charts-config` to use dotted plots, or keep `"solid"` for font compatibility.
+Package upgrades preserve locally installed configuration; reinstalling alone
+does not override an explicit mode.
 
 The same file also configures Details through its `details` object:
 
@@ -602,6 +892,14 @@ devices, engines or tiles. Both lists accept 1–32 unique metric types. Old
 configuration files without a `details` object use the built-in defaults.
 The configured metric order is preserved within each hardware section; the
 section order remains fixed even if the configuration interleaves device types.
+Network metric cells show short titles such as `RX transfer` or `TX errors`.
+The host and interface remain in the group and selected-chart headings, rather
+than consuming each cell's label space. Device identity, selection and history
+are unchanged.
+Details reserves space for a closing edge below the visible metric rows.
+When a group continues outside the viewport, the edge says `more metrics below`;
+at the last metric it closes normally. That edge is separate from the fixed
+alert separator and cannot be clicked to select a hidden metric.
 The top-level `historyDuration` and `maxPoints` apply to both tabs; no additional
 configuration file is needed. Selecting an unsupported or currently absent
 hardware measurement cannot make its collector expose data.

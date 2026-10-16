@@ -13,9 +13,21 @@ func TestLoadChartsConfigDefaultsWhenAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.HistoryDuration != "5m" || config.MaxPoints != 600 || len(config.Charts) != 6 {
+	if config.HistoryDuration != "5m" || config.MaxPoints != 600 || len(config.Charts) != 8 || config.GraphMode != "braille" {
 		t.Errorf("unexpected chart defaults: %+v", config)
 	}
+}
+
+func TestDefaultGraphModeRendersDottedColumns(t *testing.T) {
+	m := testModel(nil)
+	text := m.renderChart(fixedChart("cpu.totalPercent", "CPU", "%", 0, 100),
+		HistorySeries{Available: true, Points: []HistoryPoint{{At: fixedNow, Value: 100}}}, 30)
+	for _, cell := range text {
+		if cell > '\u2800' && cell <= '\u28ff' {
+			return
+		}
+	}
+	t.Fatal("default chart did not render Braille dots")
 }
 
 func TestLoadChartsConfigOverridesDefaults(t *testing.T) {

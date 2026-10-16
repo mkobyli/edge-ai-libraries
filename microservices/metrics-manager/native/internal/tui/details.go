@@ -53,8 +53,10 @@ func detailGroup(item detailItem) (rank int, device, title string) {
 		return 2, "", "GPU"
 	case strings.HasPrefix(item.spec.Metric, "npu."):
 		return 3, "", "NPU"
+	case strings.HasPrefix(item.spec.Metric, "network."):
+		return 4, item.choice.device, item.choice.label
 	default:
-		return 4, "", "Other"
+		return 5, "", "Other"
 	}
 }
 
@@ -82,6 +84,13 @@ func detailTitle(item detailItem) string {
 		return item.series.Label + " / " + item.spec.Title
 	}
 	return item.spec.Title
+}
+
+func detailCellTitle(item detailItem) string {
+	if strings.HasPrefix(item.spec.Metric, "network.") {
+		return item.spec.Title
+	}
+	return detailTitle(item)
 }
 
 func (m Model) detailItems() []detailItem {
@@ -140,6 +149,9 @@ func (m Model) detailItems() []detailItem {
 			items = append(items, instances[key])
 		}
 		if len(keys) == 0 {
+			if strings.HasPrefix(spec.Metric, "network.") && m.detailSelection.metric != spec.Metric {
+				continue
+			}
 			items = append(items, detailItem{
 				choice: detailChoice{metric: spec.Metric}, spec: spec,
 				series: HistorySeries{Metric: spec.Metric},
@@ -231,22 +243,22 @@ func (m Model) detailsLayout(width int) detailsFrame {
 	frame.chart = render()
 	available := m.visibleRows()
 	if m.height > 0 {
-		for len(frame.chart)+3 > available && chartModel.chartsConfig.ChartHeight > 3 {
+		for len(frame.chart)+6 > available && chartModel.chartsConfig.ChartHeight > 3 {
 			chartModel.chartsConfig.ChartHeight--
 			frame.chart = render()
 		}
-		if len(frame.chart)+2 > available {
+		if len(frame.chart)+3 > available {
 			frame.chart = []string{
 				fitWidth(headingStyle.Render(sanitize(detailTitle(item), width)), width),
 				"Taller terminal needed for plot.",
 			}
-			frame.chart = frame.chart[:min(len(frame.chart), max(0, available-2))]
+			frame.chart = frame.chart[:min(len(frame.chart), max(0, available-3))]
 		}
 	}
 	totalRows := len(frame.rows)
 	frame.visibleRows = totalRows
 	if m.height > 0 {
-		frame.visibleRows = min(totalRows, max(0, available-len(frame.chart)-1))
+		frame.visibleRows = min(totalRows, max(0, available-len(frame.chart)-2))
 	}
 	frame.firstRow = min(m.detailTop, max(0, totalRows-frame.visibleRows))
 	selectedRow := frame.itemRows[frame.selected]
@@ -285,7 +297,7 @@ func (m Model) detailsBody(width int) string {
 				}
 				return fmt.Sprintf("%.1f%s", value.Value, sanitize(item.spec.Unit, 16))
 			})
-			label := sanitize(detailTitle(item), 180)
+			label := sanitize(detailCellTitle(item), 180)
 			marker := "  "
 			if i == frame.selected {
 				marker = "> "
@@ -304,6 +316,16 @@ func (m Model) detailsBody(width int) string {
 			cells = append(cells, cell)
 		}
 		lines = append(lines, panelRow(strings.Join(cells, strings.Repeat(" ", panelGap)), width))
+	}
+	if frame.visibleRows > 0 {
+		last := frame.firstRow + frame.visibleRows - 1
+		if !frame.rows[last].bottom {
+			title := ""
+			if last < len(frame.rows)-2 {
+				title = "more metrics below"
+			}
+			lines = append(lines, panelEdge(title, width, true))
+		}
 	}
 	return strings.Join(lines, "\n")
 }

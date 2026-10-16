@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 const chartMinWidth = 52
@@ -47,7 +48,7 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 	window := m.chartsConfig.historyWindow()
 	start := end.Add(-window)
 	points := windowPoints(series.Points, start, end)
-	minValue, maxValue := chartBounds(spec, points)
+	minValue, maxValue := series.scale.bounds(spec, points)
 
 	var b strings.Builder
 	b.WriteString(headingStyle.Render(sanitize(seriesTitle(spec, series), width)) + "\n")
@@ -55,8 +56,9 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 		last, minimum, average, maximum := pointStats(points)
 		unit := sanitize(spec.Unit, 16)
 		latest := points[len(points)-1]
-		b.WriteString(fmt.Sprintf("last %.1f%s | %s\n", last, unit, formatAge(end.Sub(latest.At))))
-		b.WriteString(fmt.Sprintf("min %.1f | sample avg %.1f | max %.1f\n", minimum, average, maximum))
+		lastText := m.thresholdValue(spec.Metric, reading(last), func(Reading) string { return chartNumber(last) + unit })
+		b.WriteString(fmt.Sprintf("last %s | %s\n", lastText, formatAge(end.Sub(latest.At))))
+		b.WriteString(fmt.Sprintf("min %s | sample avg %s | max %s\n", chartNumber(minimum), chartNumber(average), chartNumber(maximum)))
 		if !series.Available || m.err != nil {
 			b.WriteString("No current measurement; showing retained samples.\n")
 		}
@@ -64,14 +66,19 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 		b.WriteString("No samples in this time window.\n")
 	}
 
-	labelWidth := max(6, len(fmt.Sprintf("%.1f", minValue)), len(fmt.Sprintf("%.1f", maxValue)))
+	labelWidth := max(6, len(chartNumber(minValue)), len(chartNumber(maxValue)))
 	axisWidth := labelWidth + 2
 	plotWidth := width - axisWidth
 	if plotWidth < 4 {
 		b.WriteString("Widen terminal for plot.\n")
 		return lipgloss.NewStyle().Width(max(1, width)).Render(b.String())
 	}
-	buckets := timeBuckets(points, plotWidth, start, end)
+	bucketWidth, cellLevels := plotWidth, 8
+	if m.chartsConfig.GraphMode == "braille" {
+		bucketWidth *= 2
+		cellLevels = 4
+	}
+	buckets := timeBuckets(points, bucketWidth, start, end)
 	height := m.chartsConfig.ChartHeight
 	grid := make([][]rune, height)
 	for row := range grid {
@@ -81,14 +88,41 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 		if !point.OK {
 			continue
 		}
-		// Eighth-cell blocks show an area, including a visible baseline for
-		// measured zero. Missing time buckets remain entirely blank.
-		level := int(math.Round((point.Value - minValue) / (maxValue - minValue) * float64(height*8)))
-		level = max(1, min(height*8, level))
+		// Keep measured zero visible at the baseline, unlike missing buckets.
+		fraction := (point.Value - minValue) / (maxValue - minValue)
+		fraction = math.Max(0, math.Min(1, fraction))
+		level := int(math.Round(fraction * float64(height*cellLevels)))
+		level = max(1, min(height*cellLevels, level))
+		if m.chartsConfig.GraphMode == "solid" {
+			level = max(1, int(math.Ceil(fraction*float64(height)))) * 8
+		}
 		blocks := []rune(" ▁▂▃▄▅▆▇█")
 		for row := height - 1; row >= 0 && level > 0; row-- {
-			fill := min(8, level)
-			grid[row][column] = blocks[fill]
+			fill := min(cellLevels, level)
+			if m.chartsConfig.GraphMode == "braille" {
+				x := column / 2
+				cell := grid[row][x]
+				if cell == ' ' {
+					cell = '\u2800'
+				}
+				dots := [2][4]uint{{0, 1, 2, 6}, {3, 4, 5, 7}}
+				for dot := 4 - fill; dot < 4; dot++ {
+					cell |= 1 << dots[column%2][dot]
+				}
+				grid[row][x] = cell
+				level -= fill
+				continue
+			}
+			cell := blocks[fill]
+			if m.chartsConfig.GraphMode == "ascii" {
+				cell = '+'
+				if fill == 8 {
+					cell = '#'
+				} else if fill == 1 {
+					cell = '_'
+				}
+			}
+			grid[row][column] = cell
 			level -= fill
 		}
 	}
@@ -96,15 +130,47 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 	for row := range grid {
 		label := strings.Repeat(" ", labelWidth)
 		if row == 0 {
-			label = fmt.Sprintf("%*.1f", labelWidth, maxValue)
+			label = fmt.Sprintf("%*s", labelWidth, chartNumber(maxValue))
 		} else if row == height-1 {
-			label = fmt.Sprintf("%*.1f", labelWidth, minValue)
+			label = fmt.Sprintf("%*s", labelWidth, chartNumber(minValue))
 		}
-		b.WriteString(labelStyle.Render(label + " │"))
-		b.WriteString(string(grid[row]))
+		axis := " │"
+		if m.chartsConfig.GraphMode == "ascii" {
+			axis = " |"
+		}
+		b.WriteString(labelStyle.Render(label + axis))
+		style := chartRowStyle(row, height)
+		solidBackground := m.chartsConfig.GraphMode == "solid" && lipgloss.ColorProfile() != termenv.Ascii
+		if solidBackground {
+			style = lipgloss.NewStyle().Background(style.GetForeground())
+		}
+		// Style contiguous runs rather than every cell to keep terminal output
+		// compact on wide plots.
+		for start := 0; start < plotWidth; {
+			end := start + 1
+			empty := grid[row][start] == ' '
+			for end < plotWidth && (grid[row][end] == ' ') == empty {
+				end++
+			}
+			text := string(grid[row][start:end])
+			if !empty {
+				if solidBackground {
+					text = strings.Repeat(" ", end-start)
+				} else if m.chartsConfig.GraphMode == "solid" {
+					text = strings.Repeat("#", end-start)
+				}
+				text = style.Render(text)
+			}
+			b.WriteString(text)
+			start = end
+		}
 		b.WriteString("\n")
 	}
-	b.WriteString(labelStyle.Render(strings.Repeat(" ", axisWidth) + strings.Repeat("─", plotWidth)))
+	horizontal := "─"
+	if m.chartsConfig.GraphMode == "ascii" {
+		horizontal = "-"
+	}
+	b.WriteString(labelStyle.Render(strings.Repeat(" ", axisWidth) + strings.Repeat(horizontal, plotWidth)))
 	b.WriteString("\n")
 	left := "-" + formatWindow(window)
 	timeline := "now"
@@ -114,6 +180,23 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 	b.WriteString(labelStyle.Render(strings.Repeat(" ", axisWidth) + timeline))
 
 	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func chartRowStyle(row, height int) lipgloss.Style {
+	level, span := max(0, min(height-1, height-1-row)), max(1, height-1)
+	if lipgloss.ColorProfile() == termenv.ANSI {
+		// Keep limited palettes blue instead of quantizing pale shades to white.
+		color := lipgloss.Color("4")
+		if level*2 >= span {
+			color = lipgloss.Color("12")
+		}
+		return lipgloss.NewStyle().Foreground(color)
+	}
+	mix := func(low, high int) int { return low + (high-low)*level/span }
+	return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
+		Light: fmt.Sprintf("#%02x%02x%02x", mix(15, 45), mix(52, 110), mix(100, 180)),
+		Dark:  fmt.Sprintf("#%02x%02x%02x", mix(25, 155), mix(95, 215), mix(175, 255)),
+	})
 }
 
 func windowPoints(points []HistoryPoint, start, end time.Time) []HistoryPoint {
@@ -127,19 +210,32 @@ func windowPoints(points []HistoryPoint, start, end time.Time) []HistoryPoint {
 	return visible
 }
 
-// Each column represents an equal time interval, not an equal sample count.
-// Empty columns stay empty: neither missing data nor startup becomes zero.
+// Absolute bucket boundaries do not change between frames. The first and last
+// buckets may be partial, so reserve one interval less than the column count
+// to cover the full window. Missing data and startup remain empty.
 func timeBuckets(points []HistoryPoint, width int, start, end time.Time) []Reading {
 	if width <= 0 || !end.After(start) {
 		return nil
 	}
 	buckets := make([]Reading, width)
+	intervals := time.Duration(max(1, width-1))
+	step := end.Sub(start) / intervals
+	if end.Sub(start)%intervals != 0 {
+		step++
+	}
+	right := end.Truncate(step)
 	for _, point := range points {
 		if point.At.Before(start) || point.At.After(end) ||
 			math.IsNaN(point.Value) || math.IsInf(point.Value, 0) {
 			continue
 		}
-		column := min(width-1, int(float64(point.At.Sub(start))/float64(end.Sub(start))*float64(width)))
+		column := 0
+		if width > 1 {
+			column = width - 1 - int(right.Sub(point.At.Truncate(step))/step)
+		}
+		if column < 0 || column >= width {
+			continue
+		}
 		if !buckets[column].OK || point.Value > buckets[column].Value {
 			buckets[column] = reading(point.Value)
 		}
@@ -147,7 +243,18 @@ func timeBuckets(points []HistoryPoint, width int, start, end time.Time) []Readi
 	return buckets
 }
 
+func chartNumber(value float64) string {
+	if value != 0 && math.Abs(value) < 0.1 {
+		return fmt.Sprintf("%.2g", value)
+	}
+	return fmt.Sprintf("%.1f", value)
+}
+
 func chartBounds(spec ChartSpec, points []HistoryPoint) (float64, float64) {
+	if spec.Min == nil && nonnegativeChart(spec.Metric) {
+		zero := 0.0
+		spec.Min = &zero
+	}
 	minValue, maxValue := 0.0, 1.0
 	if len(points) > 0 {
 		minValue, maxValue = points[0].Value, points[0].Value

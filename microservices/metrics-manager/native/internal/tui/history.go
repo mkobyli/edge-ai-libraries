@@ -24,6 +24,7 @@ type HistorySeries struct {
 	Device    string
 	Points    []HistoryPoint
 	Available bool
+	scale     chartScale
 }
 
 type History struct {
@@ -37,6 +38,7 @@ type chartObservation struct {
 	key, metric, label string
 	device             string
 	value              Reading
+	at                 time.Time
 }
 
 func NewHistory(config ChartsConfig) History {
@@ -60,6 +62,13 @@ func (h *History) Update(dashboard Dashboard, at time.Time) {
 			math.IsInf(observation.value.Value, 0) {
 			continue
 		}
+		pointAt := at
+		if !observation.at.IsZero() {
+			pointAt = observation.at
+		}
+		if pointAt.Before(at.Add(-h.window)) || pointAt.After(at) {
+			continue
+		}
 
 		series := h.series[observation.key]
 		if series == nil {
@@ -73,11 +82,11 @@ func (h *History) Update(dashboard Dashboard, at time.Time) {
 			}
 			h.series[observation.key] = series
 		}
-		point := HistoryPoint{At: at, Value: observation.value.Value}
+		point := HistoryPoint{At: pointAt, Value: observation.value.Value}
 		i := sort.Search(len(series.Points), func(i int) bool {
-			return !series.Points[i].At.Before(at)
+			return !series.Points[i].At.Before(pointAt)
 		})
-		if i < len(series.Points) && series.Points[i].At.Equal(at) {
+		if i < len(series.Points) && series.Points[i].At.Equal(pointAt) {
 			series.Points[i] = point
 		} else {
 			series.Points = append(series.Points, HistoryPoint{})
@@ -111,6 +120,7 @@ func (h *History) prune(series *HistorySeries, now time.Time) {
 		clear(series.Points[n:])
 		series.Points = series.Points[:n]
 	}
+	series.scale.update(series.Metric, series.Points, now)
 }
 
 func (h History) Series(metric string) []HistorySeries {
@@ -190,6 +200,15 @@ func chartObservations(d Dashboard) []chartObservation {
 			observations = append(observations, chartObservation{
 				key: "gpu." + gpu.ID + ".tile." + tile.Name, metric: "gpu.frequencyMHz", device: gpu.ID,
 				label: "GPU " + gpu.ID + " / " + tile.Name, value: tile.ActualMHz,
+			})
+		}
+	}
+	for _, network := range d.Network {
+		for _, spec := range networkChartSpecs() {
+			value := network.Metrics[spec.Metric]
+			observations = append(observations, chartObservation{
+				key: "network." + network.Key + "." + spec.Metric, metric: spec.Metric,
+				label: network.label(), device: network.Key, value: value.Reading, at: value.At,
 			})
 		}
 	}

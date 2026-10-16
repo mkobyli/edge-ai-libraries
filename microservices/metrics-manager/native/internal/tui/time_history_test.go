@@ -65,16 +65,16 @@ func TestTimeBucketsDoNotStretchStartupOrPointLimitedHistory(t *testing.T) {
 
 func TestTimeBucketsPreserveGapsAndShiftDuringOutage(t *testing.T) {
 	points := []HistoryPoint{
-		{At: fixedNow.Add(-4 * time.Minute), Value: 10},
-		{At: fixedNow.Add(-time.Minute), Value: 90},
+		{At: fixedNow.Add(-225 * time.Second), Value: 10},
+		{At: fixedNow.Add(-75 * time.Second), Value: 90},
 	}
 	buckets := timeBuckets(points, 5, fixedNow.Add(-5*time.Minute), fixedNow)
-	if !buckets[1].OK || !buckets[4].OK || buckets[2].OK || buckets[3].OK {
+	if !buckets[1].OK || !buckets[3].OK || buckets[2].OK || buckets[4].OK {
 		t.Fatalf("gap compressed or filled: %+v", buckets)
 	}
-	later := fixedNow.Add(time.Minute)
+	later := fixedNow.Add(75 * time.Second)
 	buckets = timeBuckets(points, 5, later.Add(-5*time.Minute), later)
-	if !buckets[0].OK || !buckets[3].OK || buckets[4].OK {
+	if !buckets[0].OK || !buckets[2].OK || buckets[3].OK || buckets[4].OK {
 		t.Fatalf("outage did not advance the axis: %+v", buckets)
 	}
 }
@@ -226,6 +226,7 @@ func TestChartStatsUseWindowSamplesNotBucketPeaks(t *testing.T) {
 
 func TestRenderedChartUsesTimeColumns(t *testing.T) {
 	m := testModel(nil)
+	m.chartsConfig.GraphMode = "solid"
 	spec := fixedChart("cpu.totalPercent", "CPU", "%", 0, 100)
 	for _, tt := range []struct {
 		name    string
@@ -235,7 +236,7 @@ func TestRenderedChartUsesTimeColumns(t *testing.T) {
 		{
 			name:    "startup zero is measured at the right edge",
 			points:  []HistoryPoint{{At: fixedNow, Value: 0}},
-			columns: []int{49},
+			columns: []int{50},
 		},
 		{
 			name: "outage stays blank",
@@ -247,8 +248,8 @@ func TestRenderedChartUsesTimeColumns(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			// Eight axis columns leave 50 time buckets, six seconds each.
-			view := m.renderChart(spec, HistorySeries{Points: tt.points, Available: true}, 58)
+			// Fifty intervals plus the open bucket cover the full five minutes.
+			view := m.renderChart(spec, HistorySeries{Points: tt.points, Available: true}, 59)
 			occupied := make(map[int]bool)
 			rows := 0
 			for _, line := range strings.Split(view, "\n") {
@@ -257,11 +258,11 @@ func TestRenderedChartUsesTimeColumns(t *testing.T) {
 					continue
 				}
 				rows++
-				if lipgloss.Width(plot) != 50 {
-					t.Fatalf("plot width = %d, want 50", lipgloss.Width(plot))
+				if lipgloss.Width(plot) != 51 {
+					t.Fatalf("plot width = %d, want 51", lipgloss.Width(plot))
 				}
 				for column, cell := range []rune(plot) {
-					if strings.ContainsRune("▁▂▃▄▅▆▇█", cell) {
+					if strings.ContainsRune("▁▂▃▄▅▆▇█#", cell) {
 						occupied[column] = true
 					}
 				}

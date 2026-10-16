@@ -67,8 +67,8 @@ func TestDownsamplePreservesPeaks(t *testing.T) {
 		{At: fixedNow.Add(2 * time.Second), Value: 2},
 		{At: fixedNow.Add(3 * time.Second), Value: 8},
 	}
-	got := timeBuckets(points, 2, fixedNow, fixedNow.Add(4*time.Second))
-	if len(got) != 2 || got[0].Value != 9 || got[1].Value != 8 {
+	got := timeBuckets(points, 3, fixedNow, fixedNow.Add(4*time.Second))
+	if len(got) != 3 || got[0].Value != 9 || got[1].Value != 8 || got[2].OK {
 		t.Errorf("time buckets = %+v, want bucket peaks 9 and 8", got)
 	}
 }

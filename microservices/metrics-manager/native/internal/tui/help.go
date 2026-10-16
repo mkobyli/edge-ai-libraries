@@ -22,6 +22,8 @@ func (m Model) helpBody(width int) string {
 		"  Up / Down or k / j: scroll one line.\n" +
 		"  PgUp / PgDn: previous / next page. Space: next page.\n" +
 		"  Home / End or g / G: first / last line.\n\n" +
+		"  Highlighted viewport edges say more metrics/charts/alert details above or below.\n" +
+		"  Indicators disappear at that edge when no more content is hidden.\n\n" +
 		"Details - select the metric plotted above the list\n" +
 		"  Arrow keys: select immediately. j / k / l: down / up / right.\n" +
 		"  Use Left Arrow to move left; h opens help in every view.\n" +
@@ -32,12 +34,20 @@ func (m Model) helpBody(width int) string {
 		"  Mouse capture enables tab clicks and scrolling; help releases it.\n" +
 		"  Set mouse=false in the dashboard config to disable all capture.\n" +
 		"  details.mouse=false disables only metric click/wheel selection.\n" +
-		"  CPU, Memory, individual GPUs and NPU have separate sections.\n\n" +
+		"  CPU, Memory, individual GPUs, NPU and network interfaces have separate sections.\n\n" +
 		"Reading the display\n" +
 		"  Overview: current readings. Trends: multiple history charts.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
 		"  Filled plots preserve blank gaps where measurements are missing.\n" +
-		"  poll shows the configured TUI interval, not the collector cadence.\n" +
+		"  Time buckets are anchored: closed columns move together, not regrouped per poll.\n" +
+		"  Auto scales expand in steps; halving the range needs 30s before shrinking.\n" +
+		"  Plots fade from dark blue at the baseline to light blue at the top of the axis.\n" +
+		"  Shades depend on height, not health or trend direction; values keep threshold colors.\n" +
+		"  Nonnegative metrics default to a zero baseline, including all-zero samples.\n" +
+		"  graphMode=\"braille\" (default) uses 2x4 dots per cell; requires font support.\n" +
+		"  Use graphMode=\"solid\" for background spaces if dotted glyphs render poorly.\n" +
+		"  Existing explicit graphMode settings are preserved; choose braille to switch.\n" +
+		"  interval shows the configured TUI interval, not the collector cadence.\n" +
 		"  Set -interval at startup to change it (for example -interval 1s).\n" +
 		"  The fixed bottom alert preview can be disabled with alerts.bottomBar=false.\n" +
 		"  Alert colors indicate configured diagnostic thresholds,\n" +
@@ -45,7 +55,24 @@ func (m Model) helpBody(width int) string {
 		"  Frequency, power and bandwidth stay neutral without a configured limit.\n" +
 		"  recovered: readings confirm the alert ended.\n" +
 		"  no longer observed: observations stopped, not confirmed recovery.\n" +
+		"  Alert evidence: activation value, peak since activation and confirmed recovery.\n" +
+		"  A low last-observed value may be from the recovery-confirmation period.\n" +
+		"  Process CPU: 100% means one logical CPU, not the whole host chart.\n" +
+		"  Process CPU alerts need distinct timestamps no older than 10s.\n" +
+		"  [4/a] Open alerts shows events and per-process data-quality diagnostics.\n" +
+		"  Process CPU alerts: limited (CPU! on narrow screens) means incomplete evaluation,\n" +
+		"  not stopped collection. The process table remains available.\n" +
+		"  Cached process samples older than 10s are excluded before ranking.\n" +
+		"  Their retention alone is informational; loss of all current process data is flagged.\n" +
 		"  Collection and history continue while help is open.\n\n" +
+		"Network - optional Telegraf net input\n" +
+		"  RX/TX rates need two distinct, timestamped counter measurements.\n" +
+		"  Cached samples do not advance Network charts or alert streaks.\n" +
+		"  Unknown link speed means no utilization percentage or utilization alert.\n" +
+		"  network.interfaces filters exact names; network.speedMbps supplies known limits.\n" +
+		"  Errors/drops use events/s, not lifetime totals; rate colors share alert thresholds.\n" +
+		"  -once shows totals but cannot calculate a rate from one snapshot.\n" +
+		"  See the native package guide to enable the optional input.\n\n" +
 		"Startup reference - defaults, not the current session settings\n\n" +
 		CommandLineHelp()
 	return lipgloss.NewStyle().Width(width).Render(content)

@@ -17,6 +17,7 @@ type ChartsConfig struct {
 	HistoryDuration       string        `json:"historyDuration"`
 	MaxPoints             int           `json:"maxPoints"`
 	ChartHeight           int           `json:"chartHeight"`
+	GraphMode             string        `json:"graphMode"`
 	Charts                []ChartSpec   `json:"charts"`
 	Details               DetailsConfig `json:"details"`
 }
@@ -37,31 +38,58 @@ type ChartSpec struct {
 }
 
 var supportedCharts = map[string]bool{
-	"cpu.totalPercent":       true,
-	"cpu.temperatureC":       true,
-	"memory.usedPercent":     true,
-	"memory.bandwidthMiBps":  true,
-	"gpu.utilizationPercent": true,
-	"gpu.temperatureC":       true,
-	"npu.utilizationPercent": true,
-	"npu.temperatureC":       true,
-	"cpu.classPercent":       true,
-	"cpu.frequencyMHz":       true,
-	"cpu.powerW":             true,
-	"gpu.enginePercent":      true,
-	"gpu.frequencyMHz":       true,
-	"gpu.powerW":             true,
-	"gpu.vramPercent":        true,
-	"npu.frequencyMHz":       true,
-	"npu.powerW":             true,
-	"npu.memoryMiB":          true,
+	"cpu.totalPercent":           true,
+	"cpu.temperatureC":           true,
+	"memory.usedPercent":         true,
+	"memory.bandwidthMiBps":      true,
+	"gpu.utilizationPercent":     true,
+	"gpu.temperatureC":           true,
+	"npu.utilizationPercent":     true,
+	"npu.temperatureC":           true,
+	"cpu.classPercent":           true,
+	"cpu.frequencyMHz":           true,
+	"cpu.powerW":                 true,
+	"gpu.enginePercent":          true,
+	"gpu.frequencyMHz":           true,
+	"gpu.powerW":                 true,
+	"gpu.vramPercent":            true,
+	"npu.frequencyMHz":           true,
+	"npu.powerW":                 true,
+	"npu.memoryMiB":              true,
+	"network.rxMiBps":            true,
+	"network.txMiBps":            true,
+	"network.rxPercent":          true,
+	"network.txPercent":          true,
+	"network.rxPacketsPerSecond": true,
+	"network.txPacketsPerSecond": true,
+	"network.rxErrorsPerSecond":  true,
+	"network.txErrorsPerSecond":  true,
+	"network.rxDropsPerSecond":   true,
+	"network.txDropsPerSecond":   true,
+}
+
+func nonnegativeChart(metric string) bool {
+	switch metric {
+	case "cpu.totalPercent", "cpu.classPercent", "cpu.frequencyMHz", "cpu.powerW",
+		"memory.usedPercent", "memory.bandwidthMiBps",
+		"gpu.utilizationPercent", "gpu.enginePercent", "gpu.frequencyMHz", "gpu.powerW", "gpu.vramPercent",
+		"npu.utilizationPercent", "npu.frequencyMHz", "npu.powerW", "npu.memoryMiB",
+		"network.rxMiBps", "network.txMiBps", "network.rxPercent", "network.txPercent",
+		"network.rxPacketsPerSecond", "network.txPacketsPerSecond",
+		"network.rxErrorsPerSecond", "network.txErrorsPerSecond",
+		"network.rxDropsPerSecond", "network.txDropsPerSecond":
+		return true
+	default:
+		return false
+	}
 }
 
 func DefaultChartsConfig() ChartsConfig {
-	return ChartsConfig{
+	config := ChartsConfig{
 		HistoryDuration: "5m",
 		MaxPoints:       600,
 		ChartHeight:     6,
+		GraphMode:       "braille",
 		Details: DetailsConfig{
 			DefaultMetric: "cpu.totalPercent",
 			ChartHeight:   10,
@@ -96,6 +124,9 @@ func DefaultChartsConfig() ChartsConfig {
 			fixedChart("npu.utilizationPercent", "NPU utilization", "%", 0, 100),
 		},
 	}
+	config.Details.Metrics = append(config.Details.Metrics, networkChartSpecs()...)
+	config.Charts = append(config.Charts, networkChartSpecs()[:2]...)
+	return config
 }
 
 func fixedChart(metric, title, unit string, minValue, maxValue float64) ChartSpec {
@@ -121,6 +152,9 @@ func LoadChartsConfig(path string) (ChartsConfig, error) {
 }
 
 func (c ChartsConfig) Validate() error {
+	if c.GraphMode != "solid" && c.GraphMode != "unicode" && c.GraphMode != "ascii" && c.GraphMode != "braille" {
+		return fmt.Errorf("graphMode must be solid, unicode, ascii or braille")
+	}
 	duration, err := time.ParseDuration(c.HistoryDuration)
 	if err != nil {
 		return fmt.Errorf("historyDuration: %w", err)
@@ -178,6 +212,14 @@ func validateChartSpecs(name string, specs []ChartSpec) error {
 		}
 		if chart.Min != nil && chart.Max != nil && *chart.Min >= *chart.Max {
 			return fmt.Errorf("%s[%d] must satisfy min < max", name, i)
+		}
+		if nonnegativeChart(chart.Metric) {
+			if chart.Min != nil && *chart.Min < 0 {
+				return fmt.Errorf("%s[%d].min must be nonnegative for %s", name, i, chart.Metric)
+			}
+			if chart.Max != nil && *chart.Max <= 0 {
+				return fmt.Errorf("%s[%d].max must be positive for %s", name, i, chart.Metric)
+			}
 		}
 	}
 

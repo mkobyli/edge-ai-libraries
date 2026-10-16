@@ -30,7 +30,7 @@ func TestProcessSortingBeforeLimitWithoutMutatingObservations(t *testing.T) {
 			PID: p.PID, UsagePct: p.CPUPercent, MemoryBytes: p.MemoryBytes,
 		})
 	}
-	before := dashboardObservations(m.dash, m.config.Processes.MaxDisplayed)
+	before := dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow)
 	for _, tc := range []struct {
 		sort string
 		desc bool
@@ -54,7 +54,7 @@ func TestProcessSortingBeforeLimitWithoutMutatingObservations(t *testing.T) {
 		if strings.Join(cpu, ",") != tc.pids || strings.Join(gpu, ",") != tc.pids {
 			t.Fatalf("%s desc=%v: CPU %v GPU %v, want %s", tc.sort, tc.desc, cpu, gpu, tc.pids)
 		}
-		if !reflect.DeepEqual(before, dashboardObservations(m.dash, m.config.Processes.MaxDisplayed)) {
+		if !reflect.DeepEqual(before, dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow)) {
 			t.Fatal("display sorting changed the alert population")
 		}
 	}
@@ -127,7 +127,7 @@ func TestAlertBottomBarHasFixedHeightAndHighestSeverity(t *testing.T) {
 		t.Fatal("new alerts displaced the layout")
 	}
 	lines := m.bottomAlertLines(100)
-	if len(lines) != 2 || !strings.Contains(lines[0], "20 critical") || !strings.Contains(lines[1], "CRITICAL") {
+	if len(lines) != 3 || !strings.Contains(lines[1], "20 critical") || !strings.Contains(lines[2], "CRITICAL") {
 		t.Fatalf("unexpected bottom alert bar: %v", lines)
 	}
 	for tab := OverviewTab; tab < tabCount; tab++ {
@@ -138,8 +138,8 @@ func TestAlertBottomBarHasFixedHeightAndHighestSeverity(t *testing.T) {
 		}
 	}
 	m.config.Alerts.BottomBar = false
-	if len(m.bottomAlertLines(100)) != 0 || m.visibleRows() != beforeRows+2 {
-		t.Fatal("disabling bottom bar did not restore exactly two rows")
+	if len(m.bottomAlertLines(100)) != 0 || m.visibleRows() != beforeRows+3 {
+		t.Fatal("disabling bottom bar did not restore its separator and two content rows")
 	}
 }
 
@@ -192,6 +192,7 @@ func TestThresholdColorsMatchAcrossOverviewAndDetails(t *testing.T) {
 
 func TestFilledChartRendersAreaWithExactBoundsAndMissingColumns(t *testing.T) {
 	m := testModel(nil)
+	m.chartsConfig.GraphMode = "unicode"
 	m.chartsConfig.ChartHeight = 3
 	spec := fixedChart("cpu.totalPercent", "CPU", "%", 0, 100)
 	series := HistorySeries{Available: true, Points: []HistoryPoint{
@@ -223,7 +224,7 @@ func TestRefreshIntervalIsVisibleAndControlsStaleness(t *testing.T) {
 	m.width = 40
 	m.pollInterval = 10 * time.Second
 	m.now = func() time.Time { return m.updatedAt.Add(30 * time.Second) }
-	wantContains(t, m.View(), "poll 10s")
+	wantContains(t, m.View(), "interval: 10s")
 	if strings.Contains(m.alertSummary(100), "stale") {
 		t.Fatal("slow configured polling was falsely reported as stale")
 	}
@@ -264,7 +265,7 @@ func TestNewThresholdObservationsDebounceAndIgnoreUnavailableVRAM(t *testing.T) 
 	}
 }
 
-func TestFeedbackPreferencesOverrideAndInheritDefaults(t *testing.T) {
+func TestDashboardPreferencesOverrideAndInheritDefaults(t *testing.T) {
 	old, err := LoadDashboardConfig(writeConfig(t, `{"processes":{"maxDisplayed":20}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -297,7 +298,7 @@ func TestCoreClassTableFitsInsideTwoColumnFrame(t *testing.T) {
 	}
 }
 
-func TestFeedbackFrameAndAlertBounds(t *testing.T) {
+func TestDashboardViewsFitTerminalBounds(t *testing.T) {
 	for _, width := range []int{1, 2, 12, 20, 40, 80, 139, 210} {
 		for _, height := range []int{1, 5, 8, 12, 24, 40} {
 			m := acceleratorModel(t, height)

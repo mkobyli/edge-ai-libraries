@@ -7,24 +7,25 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func panelEdge(title string, width int, bottom bool) string {
 	if width < 2 {
 		return ""
 	}
-	left, right := "╭", "╮"
+	left, right := "┌", "┐"
 	if bottom {
-		left, right = "╰", "╯"
+		left, right = "└", "┘"
 	}
 	text := ""
 	if title != "" {
-		text = fitWidth(" "+title+" ", width-2)
+		text = fitWidth(" "+ansi.Strip(title)+" ", width-2)
 		if width == 2 {
 			text = ""
 		}
 	}
-	return headingStyle.Render(left + text + strings.Repeat("─", max(0, width-2-lipgloss.Width(text))) + right)
+	return borderStyle.Render(left + text + strings.Repeat("─", max(0, width-2-lipgloss.Width(text))) + right)
 }
 
 func panelRow(content string, width int) string {
@@ -32,8 +33,8 @@ func panelRow(content string, width int) string {
 		return fitWidth(content, width)
 	}
 	content = fitWidth(content, width-2)
-	return headingStyle.Render("│") + content +
-		strings.Repeat(" ", max(0, width-2-lipgloss.Width(content))) + headingStyle.Render("│")
+	return borderStyle.Render("│") + content +
+		strings.Repeat(" ", max(0, width-2-lipgloss.Width(content))) + borderStyle.Render("│")
 }
 
 func framePanel(content string, width int) string {
