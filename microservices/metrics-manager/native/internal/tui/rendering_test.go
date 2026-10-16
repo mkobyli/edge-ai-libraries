@@ -252,13 +252,13 @@ func TestIntervalActiveTabsAndBottomSeparatorAcrossViews(t *testing.T) {
 }
 
 func TestGraphModeValidationInheritanceAndPackagedDefault(t *testing.T) {
-	for _, mode := range []string{"solid", "unicode", "ascii"} {
+	for _, mode := range []string{"solid", "unicode", "ascii", "braille"} {
 		config, err := LoadChartsConfig(writeConfig(t, `{"graphMode":"`+mode+`"}`))
 		if err != nil || config.GraphMode != mode {
 			t.Fatalf("mode %s: %+v, %v", mode, config, err)
 		}
 	}
-	if _, err := LoadChartsConfig(writeConfig(t, `{"graphMode":"braille"}`)); err == nil {
+	if _, err := LoadChartsConfig(writeConfig(t, `{"graphMode":"invalid"}`)); err == nil {
 		t.Fatal("unsupported graph mode was accepted")
 	}
 	old, err := LoadChartsConfig(writeConfig(t, `{}`))

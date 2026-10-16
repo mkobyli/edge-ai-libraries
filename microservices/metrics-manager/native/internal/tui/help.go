@@ -39,9 +39,12 @@ func (m Model) helpBody(width int) string {
 		"  Overview: current readings. Trends: multiple history charts.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
 		"  Filled plots preserve blank gaps where measurements are missing.\n" +
+		"  Time buckets are anchored: closed columns move together, not regrouped per poll.\n" +
+		"  Auto scales expand in steps; halving the range needs 30s before shrinking.\n" +
 		"  Plots use one fixed color; numeric readings and last keep threshold colors.\n" +
 		"  Nonnegative metrics default to a zero baseline, including all-zero samples.\n" +
 		"  graphMode=\"solid\" (default) uses background spaces, not block glyphs.\n" +
+		"  Optional graphMode=\"braille\" uses 2x4 dots per cell; requires font support.\n" +
 		"  Existing graphMode=\"unicode\" settings must be changed to use solid plots.\n" +
 		"  interval shows the configured TUI interval, not the collector cadence.\n" +
 		"  Set -interval at startup to change it (for example -interval 1s).\n" +

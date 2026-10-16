@@ -283,8 +283,18 @@ each available GPU and the NPU. Missing hardware produces no empty chart.
 
 The time axis always spans the configured window ending at the current time.
 New samples appear near the right edge during startup; a short history is never
-stretched to look like five minutes of data. Each plot column represents an
-equal time interval and displays the highest observed value in that interval.
+stretched to look like five minutes of data. Time buckets are anchored to fixed
+clock boundaries, not regrouped around each new poll time. Each bucket displays
+its highest observed value. Between boundaries, new samples change only their
+bucket; at a boundary, the previous buckets shift together. With an unchanged
+scale, width and historical measurements, closed interior columns keep their
+shape. The oldest bucket can lose expired samples as the window advances.
+
+For `N` time columns, the interval is the history window divided by `N-1`
+(rounded up to nanoseconds), allowing partial buckets at the window edges.
+For example, five minutes across 101 columns advances one column every three
+seconds, not every 500ms TUI poll. Braille has two time columns per terminal
+cell. Changing the terminal width or graph mode recomputes the time resolution.
 Plots use colored background cells by default, without special block glyphs.
 The vertical resolution is one terminal cell; measured zero has a visible
 one-cell baseline, and a full-scale value fills the column.
@@ -301,9 +311,10 @@ a successfully measured zero does. The clock advances and expires history
 once per second even while a request is blocked or the poller is backing off.
 Fully expired series disappear until a valid measurement is received again.
 
-History timestamps describe when the TUI received a successful poll, not when
+For CPU, memory and device readings, history timestamps describe when the TUI received a successful poll, not when
 the underlying hardware counter was sampled. An endpoint returning cached
 values cannot be distinguished from a fresh hardware measurement here.
+Network rates retain their source measurement timestamps.
 GPU utilisation is the busiest engine on that device for each sample. When
 there are more samples than terminal columns, each horizontal bucket keeps its
 peak so a short spike does not disappear during downsampling.
@@ -793,7 +804,7 @@ six-row charts. Supported metrics are:
 Both Trends and the selected Details chart use filled plots in one fixed
 cyan/blue color, independent of metric thresholds. This avoids giving
 identically rounded column heights different health colors. There is no extra
-color-mode setting: `solid`, `unicode` and `ascii` all use the same policy.
+color-mode setting: `solid`, `unicode`, `ascii` and `braille` all use the same policy.
 Numeric readings in Overview and Details and the `last` statistic still use
 the configured metric thresholds (green OK, cyan careful, amber warning, red
 critical); readings without a health threshold remain neutral. Alert events
@@ -802,13 +813,22 @@ historical reading with a displayed age when current data is unavailable.
 
 For nonnegative metrics (utilization, frequency, power, memory and Network
 rates), omitting `min` means a zero baseline. The upper bound is automatically
-scaled unless `max` is explicitly configured. With automatic bounds, all-zero
-data uses `0..1`, with only the bottom cell occupied rather than half the plot.
+scaled unless `max` is explicitly configured. With automatic bounds, an initially
+all-zero series uses `0..1`, with only the baseline occupied rather than half the plot.
 This also applies to existing configurations without `min`;
 no configuration replacement is required. An explicit nonnegative `min` can
 still zoom the range; negative `min` or nonpositive `max` is rejected for these
 metrics. Celsius temperatures are not subject to that domain restriction.
 Missing samples remain gaps, not fabricated zero measurements.
+
+Automatic bounds use outward-rounded 1/2/5 decade steps instead of following
+every small fluctuation. They expand immediately to include new peaks. A range
+that would be at most half the current span must persist for 30 seconds before
+the scale shrinks; this also avoids sudden contraction when an old peak expires.
+Scaling state is shared by the views for each retained series. Explicit bounds
+are never overridden. A scale change necessarily rescales historical heights.
+Small nonzero values below `0.1` use two significant digits (scientific notation
+when appropriate), so low Network traffic does not show two `0.0` axis labels.
 
 The top-level `graphMode` setting in `tui-charts.json` applies to both tabs:
 
@@ -820,6 +840,14 @@ The top-level `graphMode` setting in `tui-charts.json` applies to both tabs:
   a font that supports every partial-block character.
 - `"ascii"`: `#` for full cells, `+` for partial cells and `_` for the lowest
   partial cell/zero baseline, with ASCII plot axes. Colors and data are unchanged.
+- `"braille"`: optional dotted fill, with two horizontal time columns and four
+  vertical dot positions per terminal cell. It uses the same stable time buckets
+  and single plot color, but requires a font with Unicode Braille support.
+
+To compare dotted plots, set `"graphMode": "braille"` at the top level of the
+charts configuration loaded by `-charts-config`, then restart `mm-tui`.
+The packaged default remains `"solid"`; no change is required to get stable
+scrolling and scaling in existing modes.
 
 If xterm displays empty squares or broken glyphs along the tops of columns,
 its selected font may lack the partial-block characters. Set:

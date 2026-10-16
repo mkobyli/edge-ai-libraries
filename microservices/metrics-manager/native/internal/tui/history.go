@@ -24,6 +24,7 @@ type HistorySeries struct {
 	Device    string
 	Points    []HistoryPoint
 	Available bool
+	scale     chartScale
 }
 
 type History struct {
@@ -119,6 +120,7 @@ func (h *History) prune(series *HistorySeries, now time.Time) {
 		clear(series.Points[n:])
 		series.Points = series.Points[:n]
 	}
+	series.scale.update(series.Metric, series.Points, now)
 }
 
 func (h History) Series(metric string) []HistorySeries {

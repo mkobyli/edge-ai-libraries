@@ -152,8 +152,8 @@ func LoadChartsConfig(path string) (ChartsConfig, error) {
 }
 
 func (c ChartsConfig) Validate() error {
-	if c.GraphMode != "solid" && c.GraphMode != "unicode" && c.GraphMode != "ascii" {
-		return fmt.Errorf("graphMode must be solid, unicode or ascii")
+	if c.GraphMode != "solid" && c.GraphMode != "unicode" && c.GraphMode != "ascii" && c.GraphMode != "braille" {
+		return fmt.Errorf("graphMode must be solid, unicode, ascii or braille")
 	}
 	duration, err := time.ParseDuration(c.HistoryDuration)
 	if err != nil {
