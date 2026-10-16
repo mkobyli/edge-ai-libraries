@@ -6,6 +6,7 @@ package proc
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -66,7 +67,7 @@ func TestCollectReportsUsageOverTheInterval(t *testing.T) {
 
 	collector, clock := newTestCollector(t, root, 0)
 
-	// Half a second of CPU time over one second of wall clock is 50%.
+	// Half a second of CPU time over one second is 50% divided by the core count.
 	writeProcess(t, root, 10, "busy", 30, 20, 1, 50)
 	clock.advance(time.Second)
 
@@ -76,8 +77,9 @@ func TestCollectReportsUsageOverTheInterval(t *testing.T) {
 	}
 
 	line := render(t, points)
-	if !strings.Contains(line, "cpu_percent=50.00") {
-		t.Errorf("Collect() = %s, want cpu_percent=50.00", line)
+	wantCPU := "cpu_percent=" + strconv.FormatFloat(50/float64(runtime.NumCPU()), 'f', 2, 64)
+	if !strings.Contains(line, wantCPU) {
+		t.Errorf("Collect() = %s, want %s", line, wantCPU)
 	}
 	if !strings.Contains(line, "memory_rss_bytes="+strconv.Itoa(50*os.Getpagesize())+"i") {
 		t.Errorf("Collect() = %s, want the resident size in bytes", line)

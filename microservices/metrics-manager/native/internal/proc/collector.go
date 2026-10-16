@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -129,7 +130,7 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 			continue
 		}
 
-		entry.cpuPercent = float64(entry.cpuTime-before) / clockTicksPerSecond / elapsed * 100
+		entry.cpuPercent = float64(entry.cpuTime-before) / clockTicksPerSecond / elapsed * 100 / float64(runtime.NumCPU())
 	}
 
 	c.remember(snapshot, now)
