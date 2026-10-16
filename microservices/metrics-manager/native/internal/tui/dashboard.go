@@ -346,6 +346,8 @@ type Process struct {
 	// never collected, because arguments routinely carry credentials.
 	Command string
 
+	Threads     Reading
+	User        string
 	CPUPercent  Reading
 	CPUAt       time.Time
 	MemoryBytes Reading
@@ -413,19 +415,36 @@ func buildProcesses(idx *Index) []Process {
 	processes := make([]Process, 0, len(pids))
 	for _, pid := range pids {
 		match := map[string]string{"pid": pid}
-		cpu, cpuOK := idx.Sample("process_cpu_percent", match)
+		cpu, cpuOK := latestProcessCPU(idx, pid)
 		var cpuAt time.Time
 		if cpu.TimestampMS > 0 {
 			cpuAt = time.UnixMilli(cpu.TimestampMS)
 		}
 
-		processes = append(processes, Process{
-			PID:         pid,
-			Command:     soleValue(idx.LabelValues("process_", "process", match)),
-			CPUPercent:  Reading{Value: cpu.Value, OK: cpuOK},
-			CPUAt:       cpuAt,
-			MemoryBytes: idx.Value("process_memory_rss_bytes", match),
-		})
+		process := Process{
+			PID:        pid,
+			Command:    soleValue(idx.LabelValues("process_", "process", match)),
+			CPUPercent: Reading{Value: cpu.Value, OK: cpuOK},
+			CPUAt:      cpuAt,
+		}
+		if cpuOK && cpu.Labels == nil {
+			processes = append(processes, process)
+			continue
+		}
+		if cpuOK {
+			match = cpu.Labels
+			process.Command = match["process"]
+			process.User = match["user"]
+			if process.User == "" {
+				process.User = match["uid"]
+			}
+			process.MemoryBytes = processField(idx, "process_memory_rss_bytes", cpu)
+			process.Threads = processField(idx, "process_threads", cpu)
+		} else {
+			process.MemoryBytes = idx.Value("process_memory_rss_bytes", match)
+			process.Threads = idx.Value("process_threads", match)
+		}
+		processes = append(processes, process)
 	}
 
 	// By CPU, then by memory, then by pid. The last tier matters: on an idle

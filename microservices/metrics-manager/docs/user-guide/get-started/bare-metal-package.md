@@ -276,7 +276,7 @@ What each panel shows:
 | Memory | Used and available, and memory controller throughput |
 | GPU | Power, temperature, memory, engine occupancy, per-tile frequencies and throttle reasons, and the processes using the device |
 | NPU | Utilisation, frequency, power, temperature, bandwidth, memory, tile configuration |
-| Processes | The busiest by CPU and by resident memory |
+| Processes | The busiest by CPU and RSS, with OS thread count and owner |
 
 The Trends tab retains the most recent five minutes by default. It shows CPU
 utilisation, memory usage, CPU temperature, and utilisation and temperature for
@@ -482,6 +482,40 @@ sudo systemctl restart 'metrics-manager-*.service'
 
 These files are marked as configuration, so an upgrade preserves your edits and
 leaves the new packaged version alongside as `.dpkg-dist`.
+
+### Process columns and ownership
+
+The CPU process table follows this order:
+**PID, Process, Threads, User, Memory, CPU**.
+If it does not fit, the same fields appear as labelled rows in the same order.
+The GPU process table is unchanged.
+
+- **Threads** is the number of OS threads from `/proc/<pid>/stat`, including
+  sleeping threads. It is not the number of busy CPUs or Go goroutines.
+  No generic warning threshold is applied to it.
+- **User** is the name associated with the process's real UID from
+  `/proc/<pid>/status`, resolved on the monitored host. It is not necessarily
+  the effective user of a setuid program. If no name is resolved, the numeric
+  UID is shown. Static native builds use local account records, so a
+  directory-only account may be displayed as a UID.
+- **Memory** remains RSS, and **CPU** retains the selectable scale described
+  below. Neither metric changes because these columns were added.
+
+Older collectors can still be monitored: missing Threads/User are shown as
+absent, not zero or an invented user. To obtain these fields, upgrade the
+process collector as well as TUI. Missing/invalid owner metadata leaves CPU,
+RSS and Threads available; unexpected read/lookup errors are reported by the
+collector. The UID can still be shown when only name resolution fails.
+
+The endpoint now includes UID/account-name labels. Full command-line arguments
+are still never collected. Treat account names as part of the telemetry when
+deciding who can access or receive it.
+
+When owner labels change, Telegraf may temporarily retain both identities.
+TUI selects the newest CPU sample and matches the remaining numeric fields to
+its labels and timestamp. It does not combine an old user's RSS or Threads
+with a new owner's CPU. Ambiguous newest identities are unavailable and
+reported through the existing CPU alert-coverage diagnostics.
 
 ### Process CPU display modes
 

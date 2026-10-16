@@ -15,6 +15,10 @@ func (m Model) helpBody(width int) string {
 		"  1 / 2 / 3 / 4: Overview / Trends / Details / Alerts.\n" +
 		"  Tab / Shift+Tab or click a tab: change tab.\n\n" +
 		"Processes - Overview (CPU and GPU lists)\n" +
+		"  CPU columns: PID, Process, Threads, User, Memory (RSS), CPU.\n" +
+		"  Threads counts OS threads, not busy CPUs or Go goroutines; no health threshold.\n" +
+		"  User is the real UID's name on the monitored host, or the numeric UID if unresolved.\n" +
+		"  Older collectors may omit Threads/User; missing values are not zero.\n" +
 		"  s: cycle sort key: usage, memory, PID.\n" +
 		"  r: reverse sort direction. Current sorting is shown above each list.\n" +
 		"  c: toggle process CPU per-core / total; does not affect GPU usage.\n" +

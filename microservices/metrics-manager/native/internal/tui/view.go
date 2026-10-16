@@ -658,8 +658,10 @@ func npuFrequency(npu NPU) string {
 var processColumns = []column{
 	{title: "pid", width: 8, left: true},
 	{title: "process", width: 20, left: true},
-	{title: "cpu", width: 9},
+	{title: "threads", width: 8},
+	{title: "user", width: 16, left: true},
 	{title: "memory", width: 12},
+	{title: "cpu", width: 9},
 }
 
 func (m Model) processSection() string {
@@ -682,8 +684,10 @@ func (m Model) processSection() string {
 			// external string that reaches the terminal.
 			sanitize(p.PID, 8),
 			sanitize(p.Command, 20),
-			m.processCPUPercent(p.CPUPercent),
+			formatProcessThreads(p.Threads),
+			formatProcessUser(p.User),
 			formatBytes(p.MemoryBytes),
+			m.processCPUPercent(p.CPUPercent),
 		})
 	}
 
