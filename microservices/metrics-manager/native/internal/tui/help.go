@@ -15,8 +15,19 @@ func (m Model) helpBody(width int) string {
 		"  1 / 2 / 3 / 4: Overview / Trends / Details / Alerts.\n" +
 		"  Tab / Shift+Tab or click a tab: change tab.\n\n" +
 		"Processes - Overview (CPU and GPU lists)\n" +
+		"  CPU columns: PID, Process, Threads, User, Memory (RSS), CPU.\n" +
+		"  Threads counts OS threads, not busy CPUs or Go goroutines; no health threshold.\n" +
+		"  User is the real UID's name on the monitored host, or the numeric UID if unresolved.\n" +
+		"  Older collectors may omit Threads/User; missing values are not zero.\n" +
 		"  s: cycle sort key: usage, memory, PID.\n" +
 		"  r: reverse sort direction. Current sorting is shown above each list.\n" +
+		"  c: toggle process CPU per-core / total; does not affect GPU usage.\n" +
+		"  total (default): 100% = the monitored host's total logical CPU capacity.\n" +
+		"  per-core: diagnostic view; 100% = one logical CPU, values can exceed 100%.\n" +
+		"  Missing/invalid CPU count: total is n/a, never guessed from the TUI machine.\n" +
+		"  Colors and alerts always use total host CPU thresholds, even in per-core view.\n" +
+		"  Missing/invalid CPU count disables process CPU colors and alert evaluation.\n" +
+		"  Set processes.cpuMode in the dashboard config to persist the startup mode.\n" +
 		"  Sorting only covers processes published by the collectors.\n\n" +
 		"Scrolling - Overview, Trends, alerts and help\n" +
 		"  Up / Down or k / j: scroll one line.\n" +
@@ -57,12 +68,13 @@ func (m Model) helpBody(width int) string {
 		"  no longer observed: observations stopped, not confirmed recovery.\n" +
 		"  Alert evidence: activation value, peak since activation and confirmed recovery.\n" +
 		"  A low last-observed value may be from the recovery-confirmation period.\n" +
-		"  Process CPU: 100% means one logical CPU, not the whole host chart.\n" +
-		"  Process CPU alerts need distinct timestamps no older than 10s.\n" +
+		"  Process CPU alert evidence: 100% means total host CPU, regardless of display mode.\n" +
+		"  Process CPU alerts need distinct timestamps within processes.maxSampleAge (default 3s).\n" +
 		"  [4/a] Open alerts shows events and per-process data-quality diagnostics.\n" +
 		"  Process CPU alerts: limited (CPU! on narrow screens) means incomplete evaluation,\n" +
 		"  not stopped collection. The process table remains available.\n" +
-		"  Cached process samples older than 10s are excluded before ranking.\n" +
+		"  Cached process samples older than processes.maxSampleAge are excluded before ranking.\n" +
+		"  Set this duration above the collector interval plus delivery delay; range 1s to 5m.\n" +
 		"  Their retention alone is informational; loss of all current process data is flagged.\n" +
 		"  Collection and history continue while help is open.\n\n" +
 		"Network - optional Telegraf net input\n" +

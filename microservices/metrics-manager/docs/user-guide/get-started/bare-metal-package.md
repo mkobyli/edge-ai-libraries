@@ -189,6 +189,7 @@ mm-tui
 | `Tab`, `Shift+Tab` | Cycle through Overview, Trends, Details and Alerts |
 | `1`, `2`, `3`, `4` | Open Overview, Trends, Details or Alerts directly |
 | `s`, `r` | In Overview, cycle process sorting / reverse sort direction |
+| `c` | In Overview, toggle process CPU between per-core and whole-host percentage |
 | Click tab | Switch to that tab, including Alerts |
 | `↑` `↓`, `k` `j` | Scroll the current view a line |
 | `PgUp` `PgDn`, `Space` | Scroll a screen |
@@ -275,7 +276,7 @@ What each panel shows:
 | Memory | Used and available, and memory controller throughput |
 | GPU | Power, temperature, memory, engine occupancy, per-tile frequencies and throttle reasons, and the processes using the device |
 | NPU | Utilisation, frequency, power, temperature, bandwidth, memory, tile configuration |
-| Processes | The busiest by CPU and by resident memory |
+| Processes | The busiest by CPU and RSS, with OS thread count and owner |
 
 The Trends tab retains the most recent five minutes by default. It shows CPU
 utilisation, memory usage, CPU temperature, and utilisation and temperature for
@@ -482,6 +483,105 @@ sudo systemctl restart 'metrics-manager-*.service'
 These files are marked as configuration, so an upgrade preserves your edits and
 leaves the new packaged version alongside as `.dpkg-dist`.
 
+### Process columns and ownership
+
+The CPU process table follows this order:
+**PID, Process, Threads, User, Memory, CPU**.
+If it does not fit, the same fields appear as labelled rows in the same order.
+The GPU process table is unchanged.
+
+- **Threads** is the number of OS threads from `/proc/<pid>/stat`, including
+  sleeping threads. It is not the number of busy CPUs or Go goroutines.
+  No generic warning threshold is applied to it.
+- **User** is the name associated with the process's real UID from
+  `/proc/<pid>/status`, resolved on the monitored host. It is not necessarily
+  the effective user of a setuid program. If no name is resolved, the numeric
+  UID is shown. Static native builds use local account records, so a
+  directory-only account may be displayed as a UID.
+- **Memory** remains RSS, and **CPU** retains the selectable scale described
+  below. Neither metric changes because these columns were added.
+
+Older collectors can still be monitored: missing Threads/User are shown as
+absent, not zero or an invented user. To obtain these fields, upgrade the
+process collector as well as TUI. Missing/invalid owner metadata leaves CPU,
+RSS and Threads available; unexpected read/lookup errors are reported by the
+collector. The UID can still be shown when only name resolution fails.
+
+The endpoint now includes UID/account-name labels. Full command-line arguments
+are still never collected. Treat account names as part of the telemetry when
+deciding who can access or receive it.
+
+When owner labels change, Telegraf may temporarily retain both identities.
+TUI selects the newest CPU sample and matches the remaining numeric fields to
+its labels and timestamp. It does not combine an old user's RSS or Threads
+with a new owner's CPU. Ambiguous newest identities are unavailable and
+reported through the existing CPU alert-coverage diagnostics.
+
+### Process CPU display modes
+
+Press `c` in Overview to toggle the CPU column in Processes:
+
+- `total` (default): the per-core reading divided by the monitored host's reported
+  logical CPU count. For example, 140% per-core is 10% total on a 14-CPU host.
+  This is the share of aggregate CPU time, not a frequency-weighted measure
+  of compute performance or a percentage of the process's cgroup CPU quota.
+- `per-core`: a diagnostic view where 100% means one logical CPU. CPU time
+  includes all threads, so a multithreaded process can exceed 100%.
+
+The panel shows the current mode and its 100% reference. The shortcut affects
+only the CPU process table, not GPU process usage, host charts, sorting,
+collector output or alert state. It is inactive in other tabs and help.
+Colors, thresholds and alert evidence always use **total host CPU in both modes**.
+Switching the view cannot raise or clear an alert. The per-core panel reminds
+you that its displayed numbers use a different scale from the health assessment.
+On a 14-CPU host, 95.2% per-core is 6.8% total and stays below the default
+50/70/90 careful/warning/critical thresholds.
+
+For a persistent startup preference, add `"cpuMode": "total"` (or
+`"per-core"`) to the existing `processes` object in
+`/etc/metrics-manager/tui-dashboard.json`, or the file selected by `-config`:
+
+```json
+"processes": {
+  "maxDisplayed": 10,
+  "sortBy": "usage",
+  "descending": true,
+  "cpuMode": "total"
+}
+```
+
+Restart `mm-tui` after editing. Keyboard toggles are session-only and do not
+write configuration. Configurations without `cpuMode` now default to `total`.
+An explicit installed `"cpuMode": "per-core"` is preserved; change it to
+`"total"` for the new default view. No collector or Telegraf restart is needed.
+
+**Threshold migration:** `thresholds["process.cpuPercent"]` now describes
+total host CPU, regardless of an existing display preference. Custom threshold
+numbers are preserved but their scale changes; review them when upgrading.
+The exported `process_cpu_percent` metric remains per-core for existing clients.
+
+The denominator comes from `platform_logical_cpus` on the monitored endpoint,
+never from the machine running the TUI. Without a positive, finite, whole-number
+CPU count, total readings show `n/a` with an explanatory panel message; switch
+back to per-core to inspect the original values without health coloring.
+Without that CPU count, process CPU alerts cannot be evaluated; Alerts shows
+limited coverage instead of guessing a denominator. Existing episodes lose
+observation rather than being reported as recovered. On restricted deployments,
+verify that the platform collector sees all host CPUs: a count limited by
+CPU affinity does not describe the whole host.
+
+For comparison with btop, enable its `per-core` option for our `per-core` mode,
+or disable it for our `total` mode. Sampling windows and rounding can still
+produce differences: our process collector defaults to 1 second, TUI polls
+every 500 ms, and btop's interval is independently configurable.
+
+Process CPU and RSS memory are read from `/proc/<pid>/stat` by
+`mm-plugin-proc`. In the native package it runs as a separate unprivileged
+service and sends samples to Telegraf's Unix socket. Telegraf exposes them
+through its Prometheus endpoint; TUI displays that data without rescanning
+local processes. The collector selects the union of the top CPU and top RSS
+processes, not the complete process list.
+
 ### Dashboard thresholds and warnings
 
 The dashboard colors monitored readings as OK, careful, warning or critical.
@@ -497,17 +597,32 @@ break consecutive-sample runs; they do not count as recovery.
 For process CPU and Network, only distinct source measurement timestamps
 advance activation/recovery streaks. Repeated scrapes of a cached measurement
 do not count again. Process CPU samples without a timestamp, from the future,
-or older than 10 seconds cannot confirm alerts.
+or older than `processes.maxSampleAge` (3 seconds by default) cannot confirm alerts.
 
 The process collector publishes the union of top CPU and top memory processes.
 When a process leaves that set or exits, Telegraf can retain its last series
 until the exporter cache expires (60 seconds by default). TUI excludes samples
-older than 10 seconds **before** applying the display or alert-evaluation limit,
+older than `processes.maxSampleAge` **before** applying the display or alert-evaluation limit,
 so cached values cannot crowd out current processes. Excluded entries are
 listed as neutral `Retained process samples` diagnostics in Alerts. Their
 presence alone does not produce `limited` while current process data remains.
 This is age-based filtering, not proof that a particular process exited or
 left the collector's top list; no process-name exclusions are used.
+
+Set `"maxSampleAge": "3s"` inside the existing `processes` object in
+`/etc/metrics-manager/tui-dashboard.json` (or the file selected by `-config`).
+Accepted durations range from `1s` to `5m`; use `"10s"` to retain the previous
+timeout. Existing configurations without this field inherit the new `3s`
+default. Restart TUI after editing; the collector and Telegraf do not need
+restarting for this setting.
+
+The limit measures time since the last source sample, not since process exit.
+A sample exactly at the limit is still accepted; it is hidden on the next
+render after exceeding the limit, even without a new successful scrape.
+Choose a value above the collector interval plus delivery delay to avoid
+hiding live processes during normal delays. Missing timestamps are diagnosed
+but cannot be age-filtered; they remain subject to Telegraf's exporter expiry.
+This option does not change Network sample age or Telegraf's cache lifetime.
 
 Missing timestamps, future timestamps and inconsistent current samples still
 limit alert confirmation. Loss of all current process samples from a previously
@@ -553,10 +668,12 @@ A failed poll keeps last-known events but marks the summary and details as disco
 History is not written to disk and is not a record of events before TUI startup.
 Evidence cannot be reconstructed for episodes from an earlier TUI session.
 
-Process CPU alerts include the PID and use **one logical CPU as 100%**.
-They are not directly comparable to the aggregate host CPU chart: 90% for
-one process corresponds to roughly 6.4% of total capacity on a 14-thread host.
-A multithreaded process can exceed 100%. There are no per-process history plots
+Process CPU alerts include the PID and use **the whole host as 100%**,
+including activation, peak, last-observed and recovery evidence. For example,
+90% total corresponds to 1260% per-core on a 14-CPU host. A process saturating
+one logical CPU uses roughly 7.1% total on that host: it can be a single-thread
+bottleneck without loading the whole machine. High CPU alone does not prove
+that an application is malfunctioning. There are no per-process history plots
 in Trends or Details. An alert naming `mm-tui` refers to the monitor's own
 process and is not suppressed; it should be investigated like any other process.
 `Recent history` entries are ended episodes, while `Active (0)` means no alert

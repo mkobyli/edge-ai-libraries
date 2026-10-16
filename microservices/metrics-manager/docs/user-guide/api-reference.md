@@ -628,10 +628,27 @@ a machine typically has several and only some carry events.
 | -------------------------- | ------------------ | --------------------------------------- |
 | `process_cpu_percent`      | `cpu_percent`      | CPU used over the interval              |
 | `process_memory_rss_bytes` | `memory_rss_bytes` | Resident set size                       |
+| `process_threads`         | `threads`         | Number of OS threads, not active CPUs   |
 
-Tagged with `pid` and `process`. Only the process name is collected; command
-lines are deliberately never read, because arguments routinely carry
-credentials.
+Tagged with `host`, `pid`, `process`, and, when available, `uid` and `user`.
+`uid` is the real UID (the first `Uid` value in `/proc/<pid>/status`), not
+the effective UID or the owner of the procfs directory. `user` is resolved on
+the collector host; if no name can be resolved, `uid` remains available and
+`user` is omitted. Static native builds resolve local account names from
+`/etc/passwd`; directory-only accounts may therefore appear as numeric UIDs.
+Name lookups are shared by UID within each collection and refreshed on the
+next collection. Unreadable/invalid owner metadata does not discard CPU,
+RSS or thread measurements; unexpected metadata failures are logged.
+
+Thread count comes from field 20 of `/proc/<pid>/stat`. It includes sleeping
+threads and is not a core assignment, a Go goroutine count or a health score.
+CPU includes all threads and retains the scale 100% = one logical CPU.
+TUI defaults to displaying this value divided by `platform_logical_cpus`.
+Its process CPU colors and alerts always use that total-host percentage,
+even when the optional per-core display is selected; the exported metric
+itself is not rescaled.
+Only the process name is collected; command lines are deliberately never
+read, because arguments routinely carry credentials.
 
 Two rankings are published and combined: the busiest by CPU and the largest by
 resident memory. Ranking on CPU alone would hide a process leaking memory while
@@ -642,6 +659,13 @@ to twenty processes.
 ids are not reused predictably, so a long-running Prometheus scrape accumulates
 series as processes come and go. The limit is what bounds this; raising it, or
 setting it to 0 for every process, raises the rate.
+Owner-label changes also create new series until old exporter entries expire.
+TUI selects the newest timestamped process identity and only uses fields with
+matching labels and timestamps, rather than mixing retained owners with
+current CPU values. Conflicting identities at the newest timestamp are shown
+as unavailable and cannot confirm CPU alerts. Account names and UIDs are
+included in exported telemetry; account for this when granting endpoint access
+or forwarding metrics.
 
 ---
 

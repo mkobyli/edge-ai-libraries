@@ -74,7 +74,7 @@ func (m Model) alertDetails(width int) string {
 	var b strings.Builder
 	b.WriteString(headingStyle.Render("Alerts") + "\n")
 	b.WriteString("High utilization may be expected during inference; thresholds are diagnostic, not safety limits.\n\n")
-	b.WriteString("History shows ended episodes, not current load. Process CPU uses one logical CPU as 100%; host charts show aggregate CPU.\n\n")
+	b.WriteString("History shows ended episodes, not current load. Process CPU alerts always use total host CPU capacity as 100%, regardless of the Overview CPU display mode.\n\n")
 	if m.err != nil || (!m.updatedAt.IsZero() && m.now().Sub(m.updatedAt) > m.staleAfter()) {
 		b.WriteString("Data is stale: these are last known events, not confirmed current conditions.\n\n")
 	}
@@ -89,7 +89,7 @@ func (m Model) alertDetails(width int) string {
 	}
 	if issues := m.processAlertIssues(); len(issues) > 0 {
 		b.WriteString("\n" + headingStyle.Render(fmt.Sprintf("Process CPU alert coverage (%d/%d limited)",
-			len(issues), len(processAlertCandidates(m.dash, m.alerts.processLimit, m.now())))) + "\n")
+			len(issues), len(processAlertCandidates(m.dash, m.alerts.processLimit, m.now(), m.alerts.processMaxAge)))) + "\n")
 		b.WriteString("These samples cannot confirm CPU alerts; this does not block process collection or display.\n")
 		for _, issue := range issues {
 			b.WriteString(fmt.Sprintf("  %s (PID %s): %s\n", sanitize(issue.process.Command, 60),
@@ -99,18 +99,18 @@ func (m Model) alertDetails(width int) string {
 					issue.process.CPUAt.Format(time.RFC3339Nano), m.now().Format(time.RFC3339Nano)))
 			}
 		}
-		b.WriteString("Check process_cpu_percent timestamps, export_timestamp=true, collector cadence and clock synchronization.\n")
+		b.WriteString("Check platform_logical_cpus, process_cpu_percent timestamps, export_timestamp=true, collector cadence and clock synchronization.\n")
 	}
 	if m.processSourceMissing() {
 		b.WriteString("\n" + headingStyle.Render("Process CPU data unavailable") + "\n")
 		b.WriteString("No current process samples remain from a previously observed source. Check the process collector and its delivery to Telegraf.\n")
 	}
-	if retained := len(m.dash.Processes) - len(currentProcesses(m.dash, m.now())); retained > 0 {
+	if retained := len(m.dash.Processes) - len(currentProcesses(m.dash, m.now(), m.alerts.processMaxAge)); retained > 0 {
 		b.WriteString("\n" + headingStyle.Render(fmt.Sprintf("Retained process samples (%d excluded)", retained)) + "\n")
-		b.WriteString("Samples older than 10s are excluded before ranking and alert evaluation. Top-list rotation or an exited process can leave cached samples; this alone does not mean collection failed.\n")
+		b.WriteString(fmt.Sprintf("Samples older than %s are excluded before ranking and alert evaluation (processes.maxSampleAge). Top-list rotation or an exited process can leave cached samples; this alone does not mean collection failed.\n", m.alerts.processMaxAge))
 		shown := 0
 		for _, process := range m.dash.Processes {
-			if expiredProcessCPU(process.CPUAt, m.now()) && shown < m.alerts.processLimit {
+			if expiredProcessCPU(process.CPUAt, m.now(), m.alerts.processMaxAge) && shown < m.alerts.processLimit {
 				b.WriteString(fmt.Sprintf("  %s (PID %s): last sample %s\n",
 					sanitize(process.Command, 60), sanitize(process.PID, 20), process.CPUAt.Format(time.RFC3339Nano)))
 				shown++
@@ -137,7 +137,7 @@ type processAlertIssue struct {
 }
 
 func (m Model) processSourceMissing() bool {
-	return (m.processDataSeen || len(m.dash.Processes) > 0) && len(currentProcesses(m.dash, m.now())) == 0
+	return (m.processDataSeen || len(m.dash.Processes) > 0) && len(currentProcesses(m.dash, m.now(), m.alerts.processMaxAge)) == 0
 }
 
 func (m Model) processCoverageLimited() bool {
@@ -153,15 +153,17 @@ func (m Model) processAlertIssues() []processAlertIssue {
 	}
 	var issues []processAlertIssue
 	now := m.now()
-	for _, process := range processAlertCandidates(m.dash, m.alerts.processLimit, now) {
-		reason := processTimestampIssue(process.CPUAt, now)
+	for _, process := range processAlertCandidates(m.dash, m.alerts.processLimit, now, m.alerts.processMaxAge) {
+		reason := processTimestampIssue(process.CPUAt, now, m.alerts.processMaxAge)
 		if !finiteReading(process.CPUPercent) {
 			reason = "CPU measurement missing or non-finite"
+		} else if reason == "" && !usableCPUCount(m.dash.Platform.LogicalCPUs) {
+			reason = "total CPU unavailable: logical CPU count missing or invalid"
 		} else if reason == "" {
 			if state := m.alerts.states["process."+process.PID]; state != nil {
 				if process.CPUAt.Before(state.observedAt) {
 					reason = "out-of-order measurement timestamp"
-				} else if process.CPUAt.Equal(state.observedAt) && process.CPUPercent.Value != state.observedValue {
+				} else if process.CPUAt.Equal(state.observedAt) && processTotalCPU(process.CPUPercent, m.dash.Platform.LogicalCPUs).Value != state.observedValue {
 					reason = "conflicting CPU values at one timestamp"
 				}
 			}

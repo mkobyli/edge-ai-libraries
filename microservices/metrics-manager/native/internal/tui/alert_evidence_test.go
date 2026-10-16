@@ -17,7 +17,7 @@ func TestProcessAlertsRequireDistinctMeasurementsAndRetainEpisodeEvidence(t *tes
 	values := []float64{91, 94, 96, 99, 7, 4, 3}
 	for i, value := range values {
 		at := fixedNow.Add(time.Duration(i) * time.Second)
-		text := fmt.Sprintf("process_cpu_percent{pid=\"42\",process=\"mm-tui\"} %.1f %d\n", value, at.UnixMilli())
+		text := fmt.Sprintf("platform_logical_cpus 14\nprocess_cpu_percent{pid=\"42\",process=\"mm-tui\"} %.1f %d\n", value*14, at.UnixMilli())
 		for poll := 0; poll < 4; poll++ {
 			m, _ = update(t, m, snapshotMsg(source.Snapshot{
 				At: at.Add(time.Duration(poll) * 100 * time.Millisecond), Samples: parseFixture(t, text),
@@ -56,7 +56,7 @@ func TestProcessAlertStreakBreaksOnMissingInvalidAndOldTimestamps(t *testing.T) 
 		m := testModel(nil)
 		send := func(measuredMS int64, at time.Time) {
 			t.Helper()
-			text := fmt.Sprintf("process_cpu_percent{pid=\"42\",process=\"worker\"} 99 %d\n", measuredMS)
+			text := fmt.Sprintf("platform_logical_cpus 1\nprocess_cpu_percent{pid=\"42\",process=\"worker\"} 99 %d\n", measuredMS)
 			m, _ = update(t, m, snapshotMsg(source.Snapshot{At: at, Samples: parseFixture(t, text)}))
 		}
 		send(fixedNow.UnixMilli(), fixedNow)
@@ -72,8 +72,8 @@ func TestProcessAlertStreakBreaksOnMissingInvalidAndOldTimestamps(t *testing.T) 
 func TestProcessAlertMissingDataKeepsEvidenceWithoutClaimingRecovery(t *testing.T) {
 	config := DefaultDashboardConfig()
 	config.Alerts.SamplesToRaise = 1
-	tracker := NewAlertTracker(config.Alerts, 10)
-	tracker.Update(Dashboard{Processes: []Process{{PID: "1", CPUPercent: reading(99), CPUAt: fixedNow}}},
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
+	tracker.Update(Dashboard{Platform: Platform{LogicalCPUs: reading(1)}, Processes: []Process{{PID: "1", CPUPercent: reading(99), CPUAt: fixedNow}}},
 		config.Thresholds, fixedNow)
 	for i := 1; i <= config.Alerts.SamplesToClear; i++ {
 		tracker.Update(Dashboard{}, config.Thresholds, fixedNow.Add(time.Duration(i)*time.Second))
@@ -91,7 +91,7 @@ func TestProcessAlertMissingDataKeepsEvidenceWithoutClaimingRecovery(t *testing.
 func TestAlertEvidenceSurvivesEscalationAndRecoveryDebounce(t *testing.T) {
 	config := DefaultDashboardConfig()
 	config.Alerts.SamplesToRaise = 1
-	tracker := NewAlertTracker(config.Alerts, 10)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	for i, value := range []float64{75, 95, 4, 3, 2} {
 		tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(value)}}, config.Thresholds,
 			fixedNow.Add(time.Duration(i)*time.Second))
@@ -106,6 +106,7 @@ func TestAlertEvidenceSurvivesEscalationAndRecoveryDebounce(t *testing.T) {
 func TestMissingProcessTimestampsAreExplainedInAlertsNotTheProcessTable(t *testing.T) {
 	m := testModel(nil)
 	m.dash = BuildDashboard(parseFixture(t, `process_cpu_percent{pid="42",process="worker"} 99`))
+	m.dash.Platform.LogicalCPUs = reading(1)
 	m.updatedAt = fixedNow
 	if strings.Contains(m.processSection(), "CPU alerts") {
 		t.Fatal("technical alert diagnostic still occupies the process table")
@@ -126,9 +127,9 @@ func TestMissingProcessTimestampsAreExplainedInAlertsNotTheProcessTable(t *testi
 func TestProcessAlertStreakBreaksOnConflictingOrRewoundMeasurements(t *testing.T) {
 	for _, rewind := range []bool{false, true} {
 		config := DefaultDashboardConfig()
-		tracker := NewAlertTracker(config.Alerts, 10)
+		tracker := NewAlertTracker(config.Alerts, config.Processes)
 		send := func(stamp, now time.Time, value float64) {
-			tracker.Update(Dashboard{Processes: []Process{{PID: "42", CPUPercent: reading(value), CPUAt: stamp}}},
+			tracker.Update(Dashboard{Platform: Platform{LogicalCPUs: reading(1)}, Processes: []Process{{PID: "42", CPUPercent: reading(value), CPUAt: stamp}}},
 				config.Thresholds, now)
 		}
 		send(fixedNow, fixedNow, 99)

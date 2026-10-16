@@ -72,28 +72,30 @@ type alertState struct {
 }
 
 type AlertTracker struct {
-	config       AlertConfig
-	processLimit int
-	states       map[string]*alertState
-	events       []AlertEvent
+	config        AlertConfig
+	processLimit  int
+	processMaxAge time.Duration
+	states        map[string]*alertState
+	events        []AlertEvent
 }
 
-func NewAlertTracker(config AlertConfig, processLimit int) AlertTracker {
+func NewAlertTracker(config AlertConfig, processes ProcessConfig) AlertTracker {
 	return AlertTracker{
-		config:       config,
-		processLimit: processLimit,
-		states:       make(map[string]*alertState),
+		config:        config,
+		processLimit:  processes.MaxDisplayed,
+		processMaxAge: time.Duration(processes.MaxSampleAge),
+		states:        make(map[string]*alertState),
 	}
 }
 
 func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Threshold, at time.Time) {
 	seen := make(map[string]bool)
-	for _, observation := range dashboardObservations(dashboard, t.processLimit, at) {
+	for _, observation := range dashboardObservations(dashboard, t.processLimit, at, t.processMaxAge) {
 		threshold, enabled := thresholds[observation.metric]
 		if !enabled || math.IsNaN(observation.value) || math.IsInf(observation.value, 0) {
 			continue
 		}
-		if observation.metric == "process.cpuPercent" && !freshProcessCPU(observation.at, at) {
+		if observation.metric == "process.cpuPercent" && !freshProcessCPU(observation.at, at, t.processMaxAge) {
 			continue
 		}
 
@@ -306,7 +308,7 @@ func thresholdFor(threshold Threshold, severity Severity) float64 {
 	}
 }
 
-func dashboardObservations(d Dashboard, processLimit int, at time.Time) []observation {
+func dashboardObservations(d Dashboard, processLimit int, at time.Time, processMaxAge time.Duration) []observation {
 	var observations []observation
 	add := func(key, metric, device, message string, reading Reading) {
 		if reading.OK {
@@ -365,12 +367,13 @@ func dashboardObservations(d Dashboard, processLimit int, at time.Time) []observ
 			}
 		}
 	}
-	for _, process := range processAlertCandidates(d, processLimit, at) {
-		if process.CPUPercent.OK {
+	for _, process := range processAlertCandidates(d, processLimit, at, processMaxAge) {
+		total := processTotalCPU(process.CPUPercent, d.Platform.LogicalCPUs)
+		if total.OK {
 			observations = append(observations, observation{
 				key: "process." + process.PID, metric: "process.cpuPercent",
-				device: process.Command + " (PID " + process.PID + ")", value: process.CPUPercent.Value, at: process.CPUAt,
-				message: "Process CPU is relative to one logical CPU (100%), not the whole host; inspect the process workload.",
+				device: process.Command + " (PID " + process.PID + ")", value: total.Value, at: process.CPUAt,
+				message: "Process CPU is a share of total host CPU capacity (100%). High utilization may be expected; inspect the workload.",
 			})
 		}
 	}
@@ -378,40 +381,40 @@ func dashboardObservations(d Dashboard, processLimit int, at time.Time) []observ
 	return observations
 }
 
-func currentProcesses(d Dashboard, at time.Time) []Process {
+func currentProcesses(d Dashboard, at time.Time, maxAge time.Duration) []Process {
 	processes := make([]Process, 0, len(d.Processes))
 	for _, process := range d.Processes {
-		if !expiredProcessCPU(process.CPUAt, at) {
+		if !expiredProcessCPU(process.CPUAt, at, maxAge) {
 			processes = append(processes, process)
 		}
 	}
 	return processes
 }
 
-func processAlertCandidates(d Dashboard, limit int, at time.Time) []Process {
-	processes := currentProcesses(d, at)
+func processAlertCandidates(d Dashboard, limit int, at time.Time, maxAge time.Duration) []Process {
+	processes := currentProcesses(d, at, maxAge)
 	return processes[:min(len(processes), max(0, limit))]
 }
 
-func expiredProcessCPU(measuredAt, now time.Time) bool {
-	return !measuredAt.IsZero() && now.Sub(measuredAt) > 10*time.Second
+func expiredProcessCPU(measuredAt, now time.Time, maxAge time.Duration) bool {
+	return !measuredAt.IsZero() && now.Sub(measuredAt) > maxAge
 }
 
-func processTimestampIssue(measuredAt, now time.Time) string {
+func processTimestampIssue(measuredAt, now time.Time, maxAge time.Duration) string {
 	switch {
 	case measuredAt.IsZero():
 		return "measurement timestamp missing"
 	case measuredAt.After(now):
 		return "measurement timestamp is in the future"
-	case expiredProcessCPU(measuredAt, now):
-		return "measurement is older than 10s"
+	case expiredProcessCPU(measuredAt, now, maxAge):
+		return fmt.Sprintf("measurement is older than %s", maxAge)
 	default:
 		return ""
 	}
 }
 
-func freshProcessCPU(measuredAt, now time.Time) bool {
-	return processTimestampIssue(measuredAt, now) == ""
+func freshProcessCPU(measuredAt, now time.Time, maxAge time.Duration) bool {
+	return processTimestampIssue(measuredAt, now, maxAge) == ""
 }
 
 func totalCPUUsage(cpu CPU) Reading {

@@ -97,7 +97,7 @@ func NewModelWithConfigs(
 		snapshots:       ch,
 		config:          config,
 		chartsConfig:    chartsConfig,
-		alerts:          NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed),
+		alerts:          NewAlertTracker(config.Alerts, config.Processes),
 		history:         NewHistory(chartsConfig),
 		detailSelection: detailChoice{metric: chartsConfig.Details.DefaultMetric},
 		now:             time.Now,
@@ -161,6 +161,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			if m.activeTab == OverviewTab && !m.showHelp {
 				m.config.Processes.Descending = !m.config.Processes.Descending
+			}
+		case "c":
+			if m.activeTab == OverviewTab && !m.showHelp {
+				m.toggleProcessCPUMode()
 			}
 		case "up", "k":
 			m.setOffset(m.offset - 1)

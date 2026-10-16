@@ -64,8 +64,8 @@ func CommandLineHelp() string {
 		"  mm-tui -endpoint http://127.0.0.1:9273/metrics\n" +
 		"  mm-tui -config ./dashboard.json -charts-config ./charts.json\n\n" +
 		"Start the Metrics Manager collectors before monitoring.\n" +
-		"Use -config for layout, alerts, process limits and network settings;\n" +
+		"Use -config for layout, alerts, process limits/CPU mode and network settings;\n" +
 		"use -charts-config for chart history and Details selection.\n" +
 		"Configuration changes take effect after restarting mm-tui.\n" +
-		"In the TUI: h help, a alerts, 1/2/3/4 tabs, s sort, r reverse, q quit.\n"
+		"In the TUI: h help, a alerts, 1/2/3/4 tabs, s sort, r reverse, c CPU mode, q quit.\n"
 }

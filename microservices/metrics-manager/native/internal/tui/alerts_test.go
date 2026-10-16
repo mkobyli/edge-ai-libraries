@@ -10,7 +10,7 @@ import (
 
 func TestAlertTrackerRaisesAfterConsecutiveSamples(t *testing.T) {
 	config := DefaultDashboardConfig()
-	tracker := NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	dashboard := Dashboard{Memory: Memory{UsedPercent: reading(75)}}
 
 	for sample := 1; sample <= 2; sample++ {
@@ -29,7 +29,7 @@ func TestAlertTrackerRaisesAfterConsecutiveSamples(t *testing.T) {
 
 func TestAlertTrackerUsesHysteresisAndConsecutiveClearSamples(t *testing.T) {
 	config := DefaultDashboardConfig()
-	tracker := NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	updateMemory := func(percent float64) {
 		tracker.Update(
 			Dashboard{Memory: Memory{UsedPercent: reading(percent)}},
@@ -66,7 +66,7 @@ func TestAlertTrackerUsesHysteresisAndConsecutiveClearSamples(t *testing.T) {
 
 func TestAlertTrackerDropsMissingMeasurements(t *testing.T) {
 	config := DefaultDashboardConfig()
-	tracker := NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	for range 3 {
 		tracker.Update(
 			Dashboard{CPU: CPU{PackageTempC: reading(100)}},
@@ -88,7 +88,7 @@ func TestAlertTrackerDropsMissingMeasurements(t *testing.T) {
 
 func TestAlertTrackerSortsBySeverity(t *testing.T) {
 	config := DefaultDashboardConfig()
-	tracker := NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	dashboard := Dashboard{
 		CPU:    CPU{PackageTempC: reading(100)},
 		Memory: Memory{UsedPercent: reading(55)},
@@ -127,7 +127,7 @@ func TestTotalCPUUsageRejectsInvalidAndClampsRange(t *testing.T) {
 
 func TestAlertTrackerCountsSeverityChangesInSameDirection(t *testing.T) {
 	config := DefaultDashboardConfig()
-	tracker := NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	for _, percent := range []float64{80, 90, 80} {
 		tracker.Update(
 			Dashboard{Memory: Memory{UsedPercent: reading(percent)}},
@@ -144,7 +144,7 @@ func TestAlertTrackerCountsSeverityChangesInSameDirection(t *testing.T) {
 
 func TestAlertTrackerDowngradesAcrossVaryingLowerSeverities(t *testing.T) {
 	config := DefaultDashboardConfig()
-	tracker := NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	update := func(percent float64) {
 		tracker.Update(
 			Dashboard{Memory: Memory{UsedPercent: reading(percent)}},
@@ -168,8 +168,8 @@ func TestAlertTrackerDowngradesAcrossVaryingLowerSeverities(t *testing.T) {
 func TestAlertTrackerOnlyChecksDisplayedProcesses(t *testing.T) {
 	config := DefaultDashboardConfig()
 	config.Processes.MaxDisplayed = 1
-	tracker := NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed)
-	dashboard := Dashboard{Processes: []Process{
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
+	dashboard := Dashboard{Platform: Platform{LogicalCPUs: reading(1)}, Processes: []Process{
 		{PID: "1", Command: "visible", CPUPercent: reading(1)},
 		{PID: "2", Command: "hidden", CPUPercent: reading(99)},
 	}}
@@ -190,7 +190,7 @@ func TestAlertTrackerCarefulVisibility(t *testing.T) {
 	for _, show := range []bool{false, true} {
 		config := DefaultDashboardConfig()
 		config.Alerts.ShowCareful = show
-		tracker := NewAlertTracker(config.Alerts, 10)
+		tracker := NewAlertTracker(config.Alerts, config.Processes)
 		for range 3 {
 			tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(55)}}, config.Thresholds, fixedNow)
 		}
@@ -210,7 +210,7 @@ func TestAlertTrackerArchivesEpisodesAndPreservesStart(t *testing.T) {
 	config := DefaultDashboardConfig()
 	config.Alerts.SamplesToRaise = 1
 	config.Alerts.SamplesToClear = 1
-	tracker := NewAlertTracker(config.Alerts, 10)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	for i, value := range []float64{75, 95, 75, 55} {
 		tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(value)}},
 			config.Thresholds, fixedNow.Add(time.Duration(i)*time.Second))
@@ -231,7 +231,7 @@ func TestAlertTrackerHistoryIsBoundedAndNewestFirst(t *testing.T) {
 		config.Alerts.MaxHistory = limit
 		config.Alerts.SamplesToRaise = 1
 		config.Alerts.SamplesToClear = 1
-		tracker := NewAlertTracker(config.Alerts, 10)
+		tracker := NewAlertTracker(config.Alerts, config.Processes)
 		for i := range 10 {
 			at := fixedNow.Add(time.Duration(i) * time.Second)
 			tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(95)}}, config.Thresholds, at)
@@ -248,7 +248,7 @@ func TestAlertTrackerHistoryIsBoundedAndNewestFirst(t *testing.T) {
 
 func TestAlertTrackerMissingIsNotRecovery(t *testing.T) {
 	config := DefaultDashboardConfig()
-	tracker := NewAlertTracker(config.Alerts, 10)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	for range 3 {
 		tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(95)}}, config.Thresholds, fixedNow)
 	}
@@ -267,7 +267,7 @@ func TestAlertTrackerMissingIsNotRecovery(t *testing.T) {
 func TestAlertTrackerBreaksStreakOnMissingOrFailedSample(t *testing.T) {
 	for _, transportFailure := range []bool{false, true} {
 		config := DefaultDashboardConfig()
-		tracker := NewAlertTracker(config.Alerts, 10)
+		tracker := NewAlertTracker(config.Alerts, config.Processes)
 		high := Dashboard{Memory: Memory{UsedPercent: reading(95)}}
 		for range 2 {
 			tracker.Update(high, config.Thresholds, fixedNow)

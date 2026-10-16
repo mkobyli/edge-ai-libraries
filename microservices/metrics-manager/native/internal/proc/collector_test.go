@@ -5,6 +5,7 @@ package proc
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -230,6 +231,9 @@ func newTestCollector(t *testing.T, root string, limit int) (*Collector, *testCl
 	}
 	collector.now = func() time.Time { return clock.at }
 	collector.sampled = clock.at
+	collector.lookupUser = func(uid string) (*user.User, error) {
+		return &user.User{Uid: uid, Username: "test-user"}, nil
+	}
 
 	return collector, clock
 }
@@ -245,6 +249,7 @@ func statLine(command string, utime, stime, startTime, rssPages uint64) string {
 	fields[0] = "S"
 	fields[fieldUTime-3] = strconv.FormatUint(utime, 10)
 	fields[fieldSTime-3] = strconv.FormatUint(stime, 10)
+	fields[fieldThreads-3] = "1"
 	fields[fieldStartTime-3] = strconv.FormatUint(startTime, 10)
 	fields[fieldRSSPages-3] = strconv.FormatUint(rssPages, 10)
 
@@ -262,6 +267,9 @@ func writeProcess(t *testing.T, root string, pid int, command string, utime, sti
 	line := statLine(command, utime, stime, startTime, rssPages)
 	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte(line), 0o644); err != nil {
 		t.Fatalf("cannot write stat for pid %d: %v", pid, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "status"), []byte("Uid:\t1000\t1000\t1000\t1000\n"), 0o644); err != nil {
+		t.Fatalf("cannot write status for pid %d: %v", pid, err)
 	}
 }
 

@@ -16,6 +16,7 @@ package proc
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -57,7 +58,8 @@ type Collector struct {
 
 	// now is overridden by tests so utilisation can be asserted against a
 	// known interval rather than against wall-clock timing.
-	now func() time.Time
+	now        func() time.Time
+	lookupUser func(string) (*user.User, error)
 }
 
 // processKey identifies a process across samples.
@@ -74,12 +76,13 @@ func NewCollector(procRoot, hostname string, limit int) (*Collector, error) {
 	}
 
 	collector := &Collector{
-		procRoot: procRoot,
-		hostname: hostname,
-		limit:    limit,
-		pageSize: int64(os.Getpagesize()),
-		previous: make(map[processKey]uint64),
-		now:      time.Now,
+		procRoot:   procRoot,
+		hostname:   hostname,
+		limit:      limit,
+		pageSize:   int64(os.Getpagesize()),
+		previous:   make(map[processKey]uint64),
+		now:        time.Now,
+		lookupUser: user.LookupId,
 	}
 
 	snapshot, err := collector.scan()
@@ -97,6 +100,8 @@ type process struct {
 	command string
 	cpuTime uint64
 	rss     int64
+	threads int64
+	uid     string
 
 	// cpuPercent is filled in by Collect once the previous sample is known.
 	cpuPercent float64
@@ -135,18 +140,27 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 	c.remember(snapshot, now)
 
 	timestamp := now
+	users := make(map[string]string)
 	points := make([]lineproto.Point, 0, len(snapshot))
 	for _, entry := range c.busiest(snapshot) {
+		username, resolved := users[entry.uid]
+		if !resolved && entry.uid != "" {
+			username = c.username(entry.uid)
+			users[entry.uid] = username
+		}
 		points = append(points, lineproto.Point{
 			Measurement: Measurement,
 			Tags: []lineproto.Tag{
 				{Key: "host", Value: c.hostname},
 				{Key: "pid", Value: strconv.Itoa(entry.key.pid)},
 				{Key: "process", Value: entry.command},
+				{Key: "uid", Value: entry.uid},
+				{Key: "user", Value: username},
 			},
 			Fields: []lineproto.Field{
 				lineproto.FixedFloatField("cpu_percent", entry.cpuPercent, 2),
 				lineproto.IntField("memory_rss_bytes", entry.rss),
+				lineproto.IntField("threads", entry.threads),
 			},
 			Timestamp: timestamp,
 		})
@@ -266,12 +280,24 @@ func (c *Collector) scan() ([]process, error) {
 
 // read parses one /proc/<pid>/stat file.
 func (c *Collector) read(pid int) (process, error) {
-	raw, err := os.ReadFile(filepath.Join(c.procRoot, strconv.Itoa(pid), "stat"))
+	// Pin the process directory so a recycled PID cannot mix one process's
+	// CPU counters with another process's owner.
+	root, err := os.OpenRoot(filepath.Join(c.procRoot, strconv.Itoa(pid)))
+	if err != nil {
+		return process{}, err
+	}
+	defer root.Close()
+	raw, err := root.ReadFile("stat")
 	if err != nil {
 		return process{}, err
 	}
 
-	return parseStat(string(raw), pid, c.pageSize)
+	parsed, err := parseStat(string(raw), pid, c.pageSize)
+	if err != nil {
+		return process{}, err
+	}
+	parsed.uid = processUID(root, pid)
+	return parsed, nil
 }
 
 // Field positions in /proc/<pid>/stat, counting from 1 as the proc(5) manual
@@ -280,6 +306,7 @@ func (c *Collector) read(pid int) (process, error) {
 const (
 	fieldUTime     = 14
 	fieldSTime     = 15
+	fieldThreads   = 20
 	fieldStartTime = 22
 	fieldRSSPages  = 24
 )
@@ -321,6 +348,13 @@ func parseStat(raw string, pid int, pageSize int64) (process, error) {
 	if err != nil {
 		return process{}, err
 	}
+	threads, err := value(fieldThreads)
+	if err != nil {
+		return process{}, err
+	}
+	if threads == 0 || threads > 1<<63-1 {
+		return process{}, fmt.Errorf("pid %d: stat has invalid thread count", pid)
+	}
 	startTime, err := value(fieldStartTime)
 	if err != nil {
 		return process{}, err
@@ -335,5 +369,6 @@ func parseStat(raw string, pid int, pageSize int64) (process, error) {
 		command: command,
 		cpuTime: utime + stime,
 		rss:     int64(rssPages) * pageSize,
+		threads: int64(threads),
 	}, nil
 }

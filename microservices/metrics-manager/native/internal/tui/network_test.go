@@ -364,7 +364,7 @@ func TestNetworkThresholdBoundariesShareColorsAndAlerts(t *testing.T) {
 				t.Errorf("%s value %g color disagrees with %v", metric, tc.value, tc.want)
 			}
 			at := time.Unix(1000, 0)
-			tracker := NewAlertTracker(m.config.Alerts, 10)
+			tracker := NewAlertTracker(m.config.Alerts, m.config.Processes)
 			dashboard := Dashboard{Network: []NetworkInterface{{
 				Key: "device", Name: "eth0",
 				Metrics: map[string]timedReading{metric: {Reading: reading(tc.value), At: at}},

@@ -122,6 +122,7 @@ func TestCompactTablesKeepMeasurements(t *testing.T) {
 	m := testModel(nil)
 	m.width = 40
 	m.dash = Dashboard{
+		Platform: Platform{LogicalCPUs: reading(1)},
 		CPU: CPU{Classes: []CoreClass{{
 			Name: "P", Cores: reading(4), FrequencyKHz: reading(2300000),
 			UsageUser: reading(15), UsageSystem: reading(20), UsageIdle: reading(65), Source: "pmu",
@@ -156,8 +157,8 @@ func TestAlertDetailsSanitizeNamesAndShowUnits(t *testing.T) {
 }
 
 func TestColoredTablesKeepColumnAlignment(t *testing.T) {
-	plain := []string{"7", "worker", "87.0%", "1.0 GiB"}
-	colored := []string{"7", "worker", "\x1b[31m87.0%\x1b[0m", "1.0 GiB"}
+	plain := []string{"7", "worker", "16", "test-user", "1.0 GiB", "87.0%"}
+	colored := []string{"7", "worker", "16", "test-user", "1.0 GiB", "\x1b[31m87.0%\x1b[0m"}
 	want := tableRow(processColumns, plain)
 	got := tableRow(processColumns, colored)
 	got = strings.ReplaceAll(strings.ReplaceAll(got, "\x1b[31m", ""), "\x1b[0m", "")
