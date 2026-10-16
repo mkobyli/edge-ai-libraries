@@ -80,14 +80,28 @@ func (m Model) View() string {
 	lines := m.bodyLines(width)
 	rows := m.visibleRows()
 	visible, offset := clip(lines, rows, m.offset)
+	bottom := m.bottomAlertLines(width)
+	separator := ruleStyle.Render(strings.Repeat("─", width))
+	if m.showHelp || m.activeTab != DetailsTab {
+		if offset > 0 {
+			chrome[len(chrome)-1] = m.scrollIndicator(width, true)
+		}
+		if offset+len(visible) < len(lines) {
+			if len(bottom) > 0 {
+				bottom[0] = m.scrollIndicator(width, false)
+			} else {
+				separator = m.scrollIndicator(width, false)
+			}
+		}
+	}
 	out := append(chrome, visible...)
 	if m.height > 0 {
 		for len(out) < m.height-2-m.bottomBarRows() {
 			out = append(out, "")
 		}
 	}
-	out = append(out, m.bottomAlertLines(width)...)
-	out = append(out, ruleStyle.Render(strings.Repeat("─", width)))
+	out = append(out, bottom...)
+	out = append(out, separator)
 	hint := footerHint(len(lines), rows, offset)
 	if m.showHelp {
 		hint = strings.Replace(hint, "h help · a alerts", "h/esc back · a alerts", 1)
@@ -100,6 +114,31 @@ func (m Model) View() string {
 	}
 	out = append(out, fitWidth(footerStyle.Render(hint), width))
 	return strings.Join(out, "\n")
+}
+
+func (m Model) scrollIndicator(width int, above bool) string {
+	content := "metrics"
+	switch {
+	case m.showHelp:
+		content = "help"
+	case m.activeTab == TrendsTab:
+		content = "charts"
+	case m.activeTab == AlertsTab:
+		content = "alert details"
+	}
+	direction, keys := "below", "Down/PgDn"
+	if above {
+		direction, keys = "above", "Up/PgUp"
+	}
+	label := "more " + content + " " + direction
+	if len(label)+3 > width {
+		label = "more " + direction
+	}
+	if len(label)+len(keys)+6 <= width {
+		label += " | " + keys
+	}
+	return headingStyle.Render(fitWidth("─ "+label+" "+
+		strings.Repeat("─", max(0, width-len(label)-3)), width))
 }
 
 // renderWidth is the width to lay out at. Once Bubble Tea reports the terminal

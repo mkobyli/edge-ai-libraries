@@ -247,6 +247,14 @@ severity event, so a new alert does not shift the device panels. It shows a
 no-events message when empty. Set `alerts.bottomBar=false` to recover those rows;
 counts then appear above the body. The separator prevents clipped panel content
 from running directly into alerts in any tab. On very short terminals the preview is omitted.
+Overview, Trends, Alerts and help highlight the viewport boundary when content
+is hidden: `more metrics below`, `more charts below`, `more alert details below`
+or `more help below`. After scrolling, the upper boundary similarly indicates
+content `above`. Use arrows, `PgUp`/`PgDn`, `Home`/`End`, or the mouse wheel
+(outside help) to navigate. Each indicator disappears when no content remains
+hidden on that side. Narrow terminals use shorter labels. These hints reuse
+existing separators, consume no additional content rows and also work with
+`alerts.bottomBar=false`. Details retains its separate metric-list indicator.
 The footer
 reports which content lines you are looking at, as in `lines 1-28 of 42`, so
 a short terminal hides content rather than dropping it. The header reports how

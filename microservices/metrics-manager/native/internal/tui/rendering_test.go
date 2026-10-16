@@ -235,7 +235,7 @@ func TestIntervalActiveTabsAndBottomSeparatorAcrossViews(t *testing.T) {
 		}
 		wantContains(t, m.tabLine(), activeTabStyle.Render("["+m.tabLabels()[tab]+"]"))
 		wantContains(t, m.View(), headingStyle.Render("interval: 500ms"))
-		if view[len(view)-5] != borderStyle.Render(strings.Repeat("─", m.width)) {
+		if !strings.HasPrefix(ansi.Strip(view[len(view)-5]), "─") {
 			t.Fatalf("tab %d does not separate the body from the alert footer", tab)
 		}
 		for _, line := range view {
@@ -246,7 +246,7 @@ func TestIntervalActiveTabsAndBottomSeparatorAcrossViews(t *testing.T) {
 	}
 	m, _ = update(t, m, key("h"))
 	view := strings.Split(m.View(), "\n")
-	if view[len(view)-5] != borderStyle.Render(strings.Repeat("─", m.width)) {
+	if !strings.HasPrefix(ansi.Strip(view[len(view)-5]), "─") {
 		t.Fatal("help lost the fixed bottom separator")
 	}
 }

@@ -22,6 +22,8 @@ func (m Model) helpBody(width int) string {
 		"  Up / Down or k / j: scroll one line.\n" +
 		"  PgUp / PgDn: previous / next page. Space: next page.\n" +
 		"  Home / End or g / G: first / last line.\n\n" +
+		"  Highlighted viewport edges say more metrics/charts/alert details above or below.\n" +
+		"  Indicators disappear at that edge when no more content is hidden.\n\n" +
 		"Details - select the metric plotted above the list\n" +
 		"  Arrow keys: select immediately. j / k / l: down / up / right.\n" +
 		"  Use Left Arrow to move left; h opens help in every view.\n" +
