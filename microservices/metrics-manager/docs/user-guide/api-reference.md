@@ -496,14 +496,6 @@ device (`i915` or `xe`).
 On a multi-tile part such as Meteor Lake, `gpu_frequency` and `gpu_throttle` are
 reported once per graphics tile, distinguished by the `tile` tag (`gt0`, `gt1`).
 
-To inspect readings as they arrive from `qmassa`, start `mm-plugin-gpu` with
-`-debug-qmassa`. For each device, it logs the incoming `eng_usage` and
-`mem_info` sample windows to stderr before converting them to metrics; stdout
-remains reserved for line protocol. Process command lines are not logged.
-The container's `telegraf.conf` enables this flag by default. It is verbose:
-remove it from the GPU `inputs.execd` command and rebuild the image after
-the diagnostic session.
-
 #### Counters that depend on the driver
 
 The `driver` tag exists because `i915` and `xe` do not populate the same
