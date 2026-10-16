@@ -125,6 +125,7 @@ func TestSolidChartsRemainVisibleWithoutColorSupport(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
 	m := testModel(nil)
+	m.chartsConfig.GraphMode = "solid"
 	text := m.renderChart(fixedChart("cpu.totalPercent", "CPU", "%", 0, 100),
 		HistorySeries{Available: true, Points: []HistoryPoint{{At: fixedNow, Value: 100}}}, 30)
 	if !strings.Contains(text, "#") || strings.ContainsAny(text, "▁▂▃▄▅▆▇█") {

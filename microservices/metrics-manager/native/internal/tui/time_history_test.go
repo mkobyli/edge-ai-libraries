@@ -226,6 +226,7 @@ func TestChartStatsUseWindowSamplesNotBucketPeaks(t *testing.T) {
 
 func TestRenderedChartUsesTimeColumns(t *testing.T) {
 	m := testModel(nil)
+	m.chartsConfig.GraphMode = "solid"
 	spec := fixedChart("cpu.totalPercent", "CPU", "%", 0, 100)
 	for _, tt := range []struct {
 		name    string

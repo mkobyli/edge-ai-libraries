@@ -295,9 +295,10 @@ For `N` time columns, the interval is the history window divided by `N-1`
 For example, five minutes across 101 columns advances one column every three
 seconds, not every 500ms TUI poll. Braille has two time columns per terminal
 cell. Changing the terminal width or graph mode recomputes the time resolution.
-Plots use colored background cells by default, without special block glyphs.
-The vertical resolution is one terminal cell; measured zero has a visible
-one-cell baseline, and a full-scale value fills the column.
+Plots use Braille dots by default, with two time columns and four vertical
+positions per terminal cell. Measured zero has a visible baseline dot, and a
+full-scale value fills the dot column. Use `solid` for background cells without
+special glyphs if the terminal font does not support Braille.
 Columns with no samples stay blank, including interruptions and the part of
 the window before TUI startup. There is no interpolation or zero-filling.
 Gaps shorter than a column's time interval may share a column with valid data.
@@ -839,7 +840,10 @@ when appropriate), so low Network traffic does not show two `0.0` axis labels.
 
 The top-level `graphMode` setting in `tui-charts.json` applies to both tabs:
 
-- `"solid"` (default): colored backgrounds on ordinary spaces, with full-cell
+- `"braille"` (default): dotted fill, with two horizontal time columns and four
+  vertical dot positions per terminal cell. It uses the same stable time buckets
+  and vertical blue gradient, but requires a font with Unicode Braille support.
+- `"solid"`: colored backgrounds on ordinary spaces, with full-cell
   vertical resolution. No partial-block font glyphs are required. A measured
   zero still fills one baseline cell, distinct from missing data. In monochrome
   output, `#` is used so the plot does not disappear with the colors.
@@ -847,17 +851,15 @@ The top-level `graphMode` setting in `tui-charts.json` applies to both tabs:
   a font that supports every partial-block character.
 - `"ascii"`: `#` for full cells, `+` for partial cells and `_` for the lowest
   partial cell/zero baseline, with ASCII plot axes. Colors and data are unchanged.
-- `"braille"`: optional dotted fill, with two horizontal time columns and four
-  vertical dot positions per terminal cell. It uses the same stable time buckets
-  and vertical blue gradient, but requires a font with Unicode Braille support.
 
-To compare dotted plots, set `"graphMode": "braille"` at the top level of the
+To switch an existing installation to dotted plots, set `"graphMode": "braille"` at the top level of the
 charts configuration loaded by `-charts-config`, then restart `mm-tui`.
-The packaged default remains `"solid"`; no change is required to get stable
+New installations and configurations without an explicit mode default to
+`"braille"`; no change is required to get stable
 scrolling and scaling in existing modes.
 
-If xterm displays empty squares or broken glyphs along the tops of columns,
-its selected font may lack the partial-block characters. Set:
+If xterm displays empty squares or broken glyphs,
+its selected font may lack Braille or partial-block characters. Set:
 
 ```json
 "graphMode": "solid"
@@ -869,8 +871,9 @@ glyphs. Terminal name alone does not reliably identify font coverage, so the
 TUI does not guess a mode from `TERM`. This option changes the plot symbols,
 not all UI text or panel borders. Missing samples remain blank; measured zero
 keeps a visible baseline in every mode. Configurations omitting `graphMode`
-inherit `solid`. An explicit older `"graphMode": "unicode"` is preserved:
-change it to `"solid"` in the file actually loaded by `-charts-config`.
+inherit `braille`. Explicit older modes such as `"solid"` and `"unicode"` are
+preserved: change the mode to `"braille"` in the file actually loaded by
+`-charts-config` to use dotted plots, or keep `"solid"` for font compatibility.
 Package upgrades preserve locally installed configuration; reinstalling alone
 does not override an explicit mode.
 

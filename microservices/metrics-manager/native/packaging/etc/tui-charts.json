@@ -4,7 +4,7 @@
   "historyDuration": "5m",
   "maxPoints": 600,
   "chartHeight": 6,
-  "graphMode": "solid",
+  "graphMode": "braille",
   "details": {
     "defaultMetric": "cpu.totalPercent",
     "chartHeight": 10,

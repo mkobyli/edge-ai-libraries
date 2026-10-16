@@ -89,7 +89,7 @@ func DefaultChartsConfig() ChartsConfig {
 		HistoryDuration: "5m",
 		MaxPoints:       600,
 		ChartHeight:     6,
-		GraphMode:       "solid",
+		GraphMode:       "braille",
 		Details: DetailsConfig{
 			DefaultMetric: "cpu.totalPercent",
 			ChartHeight:   10,

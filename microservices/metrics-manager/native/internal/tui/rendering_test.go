@@ -94,6 +94,7 @@ func TestSolidPlotColorDoesNotChangeAcrossRoundedThresholdBoundary(t *testing.T)
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
 	m := testModel(nil)
+	m.chartsConfig.GraphMode = "solid"
 	spec := fixedChart("gpu.temperatureC", "GPU temperature", "C", 0, 110)
 	var previous string
 	for _, value := range []float64{59, 61} {
@@ -255,11 +256,11 @@ func TestGraphModeValidationInheritanceAndPackagedDefault(t *testing.T) {
 		t.Fatal("unsupported graph mode was accepted")
 	}
 	old, err := LoadChartsConfig(writeConfig(t, `{}`))
-	if err != nil || old.GraphMode != "solid" {
-		t.Fatalf("old configuration lost the solid default: %+v, %v", old, err)
+	if err != nil || old.GraphMode != "braille" {
+		t.Fatalf("configuration without a mode did not inherit Braille: %+v, %v", old, err)
 	}
 	packaged, err := LoadChartsConfig("../../packaging/etc/tui-charts.json")
-	if err != nil || packaged.GraphMode != DefaultChartsConfig().GraphMode {
+	if err != nil || packaged.GraphMode != "braille" || packaged.GraphMode != DefaultChartsConfig().GraphMode {
 		t.Fatalf("packaged graph mode differs: %+v, %v", packaged, err)
 	}
 }

@@ -67,6 +67,7 @@ func TestZeroFrequencyOnlyFillsTheBaseline(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
 	m := testModel(nil)
+	m.chartsConfig.GraphMode = "solid"
 	m.chartsConfig.ChartHeight = 6
 	spec := ChartSpec{Metric: "gpu.frequencyMHz", Title: "Frequency", Unit: "MHz"}
 	text := ansi.Strip(m.renderChart(spec, HistorySeries{Available: true, Points: []HistoryPoint{{At: fixedNow, Value: 0}}}, 30))

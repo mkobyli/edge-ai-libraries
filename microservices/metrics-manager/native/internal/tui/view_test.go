@@ -281,7 +281,7 @@ mem_used_percent %g
 	wantContains(t, view, "Memory used")
 	wantContains(t, view, "last 60.0%")
 	wantContains(t, view, "-5m")
-	wantContains(t, view, "#")
+	wantContains(t, view, "⣿")
 
 	for _, line := range strings.Split(view, "\n") {
 		if width := lipgloss.Width(line); width > 120 {

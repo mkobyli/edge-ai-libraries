@@ -125,6 +125,7 @@ func TestGradientRetainsMonochromeFallbackAndBlankGaps(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
 	m := testModel(nil)
+	m.chartsConfig.GraphMode = "solid"
 	m.chartsConfig.ChartHeight = 3
 	spec := fixedChart("cpu.totalPercent", "CPU", "%", 0, 100)
 	series := HistorySeries{Available: true, Points: []HistoryPoint{{At: fixedNow, Value: 100}}}
