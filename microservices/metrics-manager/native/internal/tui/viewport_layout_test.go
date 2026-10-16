@@ -95,17 +95,17 @@ func TestSolidChartsUseOnlyBackgroundSpacesForPeaksAndZeros(t *testing.T) {
 		if strings.ContainsAny(text, "▁▂▃▄▅▆▇█#+_") {
 			t.Fatalf("solid mode emitted glyph-based bars: %q", text)
 		}
-		peak := lipgloss.NewStyle().Background(criticalStyle.GetForeground()).Render(" ")
-		zero := lipgloss.NewStyle().Background(okStyle.GetForeground()).Render(" ")
+		fill := lipgloss.NewStyle().Background(chartStyle.GetForeground()).Render(" ")
 		row := 0
 		for _, line := range strings.Split(text, "\n") {
 			if !strings.Contains(ansi.Strip(line), " │") {
 				continue
 			}
-			if !strings.Contains(line, peak) {
-				t.Fatalf("row %d lost full-height background fill: %q", row, line)
+			wantRuns := 1
+			if row == 2 {
+				wantRuns = 2
 			}
-			if strings.Contains(line, zero) != (row == 2) {
+			if strings.Count(line, fill) != wantRuns {
 				t.Fatalf("row %d confused measured zero with gap: %q", row, line)
 			}
 			_, plot, _ := strings.Cut(ansi.Strip(line), " │")

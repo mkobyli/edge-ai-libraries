@@ -29,14 +29,39 @@ func (m Model) alertSummary(width int) string {
 			summary += fmt.Sprintf(" | %d careful", counts[SeverityCareful])
 		}
 	}
-	summary += " | 4/a details"
+	hint := "[4/a] Open alerts"
+	if width < 90 {
+		hint = "[4/a] Alerts"
+	}
 	switch {
 	case m.err != nil:
-		summary = "Alerts: no contact | a details"
+		return labelStyle.Render("Alerts: no contact | " + hint)
 	case m.updatedAt.IsZero():
-		summary = "Alerts: waiting for data"
+		return labelStyle.Render("Alerts: waiting for data | " + hint)
 	case m.now().Sub(m.updatedAt) > m.staleAfter():
-		summary = "Alerts: stale data | a details"
+		return labelStyle.Render("Alerts: stale data | " + hint)
+	}
+	if len(m.processAlertIssues()) > 0 {
+		if len(summary)+len(hint)+10 > width {
+			summary = fmt.Sprintf("Alerts C:%d W:%d", counts[SeverityCritical], counts[SeverityWarning])
+			if m.config.Alerts.ShowCareful {
+				summary += fmt.Sprintf(" I:%d", counts[SeverityCareful])
+			}
+		}
+		if len(summary)+len(hint)+10 > width {
+			summary = "Alerts"
+		}
+		status := "CPU!"
+		for _, candidate := range []string{"Process CPU alerts: limited", "CPU alerts limited", "CPU!"} {
+			if len(summary)+len(candidate)+len(hint)+6 <= width {
+				status = candidate
+				break
+			}
+		}
+		summary += " | " + status
+	}
+	summary += " | " + hint
+	switch {
 	case counts[SeverityCritical] > 0:
 		return criticalStyle.Render(summary)
 	case counts[SeverityWarning] > 0:
@@ -62,6 +87,20 @@ func (m Model) alertDetails(width int) string {
 	for _, alert := range alerts {
 		b.WriteString(renderAlert(alert, m.updatedAt, "active"))
 	}
+	if issues := m.processAlertIssues(); len(issues) > 0 {
+		b.WriteString("\n" + headingStyle.Render(fmt.Sprintf("Process CPU alert coverage (%d/%d limited)",
+			len(issues), len(processAlertCandidates(m.dash, m.alerts.processLimit)))) + "\n")
+		b.WriteString("These samples cannot confirm CPU alerts; this does not block process collection or display.\n")
+		for _, issue := range issues {
+			b.WriteString(fmt.Sprintf("  %s (PID %s): %s\n", sanitize(issue.process.Command, 60),
+				sanitize(issue.process.PID, 20), issue.reason))
+			if !issue.process.CPUAt.IsZero() {
+				b.WriteString(fmt.Sprintf("    source time %s | checked %s\n",
+					issue.process.CPUAt.Format(time.RFC3339Nano), m.now().Format(time.RFC3339Nano)))
+			}
+		}
+		b.WriteString("Check process_cpu_percent timestamps, export_timestamp=true, collector cadence and clock synchronization.\n")
+	}
 	b.WriteString("\n" + headingStyle.Render(fmt.Sprintf("Recent history (%d/%d)",
 		len(m.alerts.events), m.config.Alerts.MaxHistory)) + "\n")
 	if len(m.alerts.events) == 0 {
@@ -71,6 +110,37 @@ func (m Model) alertDetails(width int) string {
 		b.WriteString(renderAlert(event.Alert, event.EndedAt, event.Outcome))
 	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+type processAlertIssue struct {
+	process Process
+	reason  string
+}
+
+func (m Model) processAlertIssues() []processAlertIssue {
+	if _, monitored := m.config.Thresholds["process.cpuPercent"]; !monitored {
+		return nil
+	}
+	var issues []processAlertIssue
+	now := m.now()
+	for _, process := range processAlertCandidates(m.dash, m.alerts.processLimit) {
+		reason := processTimestampIssue(process.CPUAt, now)
+		if !finiteReading(process.CPUPercent) {
+			reason = "CPU measurement missing or non-finite"
+		} else if reason == "" {
+			if state := m.alerts.states["process."+process.PID]; state != nil {
+				if process.CPUAt.Before(state.observedAt) {
+					reason = "out-of-order measurement timestamp"
+				} else if process.CPUAt.Equal(state.observedAt) && process.CPUPercent.Value != state.observedValue {
+					reason = "conflicting CPU values at one timestamp"
+				}
+			}
+		}
+		if reason != "" {
+			issues = append(issues, processAlertIssue{process: process, reason: reason})
+		}
+	}
+	return issues
 }
 
 func (m Model) bottomBarRows() int {

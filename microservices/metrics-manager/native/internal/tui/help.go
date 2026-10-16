@@ -37,7 +37,7 @@ func (m Model) helpBody(width int) string {
 		"  Overview: current readings. Trends: multiple history charts.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
 		"  Filled plots preserve blank gaps where measurements are missing.\n" +
-		"  Plot colors follow metric thresholds; unmonitored metrics use a fixed color.\n" +
+		"  Plots use one fixed color; numeric readings and last keep threshold colors.\n" +
 		"  graphMode=\"solid\" (default) uses background spaces, not block glyphs.\n" +
 		"  Existing graphMode=\"unicode\" settings must be changed to use solid plots.\n" +
 		"  interval shows the configured TUI interval, not the collector cadence.\n" +
@@ -52,6 +52,9 @@ func (m Model) helpBody(width int) string {
 		"  A low last-observed value may be from the recovery-confirmation period.\n" +
 		"  Process CPU: 100% means one logical CPU, not the whole host chart.\n" +
 		"  Process CPU alerts need distinct timestamps no older than 10s.\n" +
+		"  [4/a] Open alerts shows events and per-process data-quality diagnostics.\n" +
+		"  Process CPU alerts: limited (CPU! on narrow screens) means incomplete evaluation,\n" +
+		"  not stopped collection. The process table remains available.\n" +
 		"  Collection and history continue while help is open.\n\n" +
 		"Network - optional Telegraf net input\n" +
 		"  RX/TX rates need two distinct, timestamped counter measurements.\n" +

@@ -477,12 +477,20 @@ break consecutive-sample runs; they do not count as recovery.
 For process CPU and Network, only distinct source measurement timestamps
 advance activation/recovery streaks. Repeated scrapes of a cached measurement
 do not count again. Process CPU samples without a timestamp, from the future,
-or older than 10 seconds cannot confirm alerts; the Processes panel reports
-when timestamp freshness prevents evaluation. Keep Telegraf
+or older than 10 seconds cannot confirm alerts. Collection and the process table
+continue: this restriction applies to alert confirmation, not collection.
+The alert status shows `Process CPU alerts: limited` (shortened to
+`CPU alerts limited` or `CPU!` in narrow layouts). Open Alerts for the affected
+process names/PIDs, precise reasons and source/check timestamps. Diagnostics also
+identify missing/non-finite CPU readings, out-of-order timestamps and conflicting
+values at the same timestamp. Coverage uses the same process candidates as the
+alert tracker, not the current display sort order. Keep Telegraf
 `export_timestamp = true`. Other metric families retain their existing
 successful-poll-based debounce behavior.
 
-Press `4`, click Alerts, or press `a` to open the fourth, scrollable tab. Each entry
+The status hint `[4/a] Open alerts` (or `[4/a] Alerts`) opens alert information,
+not the metric Details tab. Press `4`, click Alerts, or press `a` to open the
+fourth, scrollable tab. Each entry
 identifies the metric and device (including the GPU engine), its severity,
 value and threshold with units, start time and duration through the latest
 successful snapshot, and diagnostic guidance. Press `a` or `Esc` to return to
@@ -757,15 +765,14 @@ six-row charts. Supported metrics are:
 
 #### Plot appearance and xterm compatibility
 
-Both Trends and the selected Details chart use filled plots. Each time bucket
-is colored using the same configured metric thresholds as Overview, Details
-values and alerts (green OK, cyan careful, amber warning, red critical).
-The color represents the bucket's value, not its height on the screen; a
-critical sample has a red column from baseline to peak. Plot colors are not
-debounced: alert events still require the configured consecutive samples.
-Metrics without a meaningful health threshold, such as transfer, frequency or
-power, have a fixed cyan/blue plot color instead of a fabricated health rating.
-The `last` statistic also uses the metric threshold color; it remains a
+Both Trends and the selected Details chart use filled plots in one fixed
+cyan/blue color, independent of metric thresholds. This avoids giving
+identically rounded column heights different health colors. There is no extra
+color-mode setting: `solid`, `unicode` and `ascii` all use the same policy.
+Numeric readings in Overview and Details and the `last` statistic still use
+the configured metric thresholds (green OK, cyan careful, amber warning, red
+critical); readings without a health threshold remain neutral. Alert events
+still require the configured consecutive samples. `last` remains a
 historical reading with a displayed age when current data is unavailable.
 
 The top-level `graphMode` setting in `tui-charts.json` applies to both tabs:

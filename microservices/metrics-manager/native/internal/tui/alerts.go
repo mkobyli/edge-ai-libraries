@@ -365,11 +365,7 @@ func dashboardObservations(d Dashboard, processLimit int) []observation {
 			}
 		}
 	}
-	processes := d.Processes
-	if len(processes) > processLimit {
-		processes = processes[:processLimit]
-	}
-	for _, process := range processes {
+	for _, process := range processAlertCandidates(d, processLimit) {
 		if process.CPUPercent.OK {
 			observations = append(observations, observation{
 				key: "process." + process.PID, metric: "process.cpuPercent",
@@ -382,8 +378,25 @@ func dashboardObservations(d Dashboard, processLimit int) []observation {
 	return observations
 }
 
+func processAlertCandidates(d Dashboard, limit int) []Process {
+	return d.Processes[:min(len(d.Processes), max(0, limit))]
+}
+
+func processTimestampIssue(measuredAt, now time.Time) string {
+	switch {
+	case measuredAt.IsZero():
+		return "measurement timestamp missing"
+	case measuredAt.After(now):
+		return "measurement timestamp is in the future"
+	case now.Sub(measuredAt) > 10*time.Second:
+		return "measurement is older than 10s"
+	default:
+		return ""
+	}
+}
+
 func freshProcessCPU(measuredAt, now time.Time) bool {
-	return !measuredAt.IsZero() && !measuredAt.After(now) && now.Sub(measuredAt) <= 10*time.Second
+	return processTimestampIssue(measuredAt, now) == ""
 }
 
 func totalCPUUsage(cpu CPU) Reading {

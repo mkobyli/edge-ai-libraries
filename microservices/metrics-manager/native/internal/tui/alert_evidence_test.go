@@ -103,19 +103,23 @@ func TestAlertEvidenceSurvivesEscalationAndRecoveryDebounce(t *testing.T) {
 	}
 }
 
-func TestProcessesWithoutTimestampExplainWhyCPUAlertsArePaused(t *testing.T) {
+func TestMissingProcessTimestampsAreExplainedInAlertsNotTheProcessTable(t *testing.T) {
 	m := testModel(nil)
 	m.dash = BuildDashboard(parseFixture(t, `process_cpu_percent{pid="42",process="worker"} 99`))
 	m.updatedAt = fixedNow
-	wantContains(t, m.processSection(), "CPU alerts paused")
+	if strings.Contains(m.processSection(), "CPU alerts") {
+		t.Fatal("technical alert diagnostic still occupies the process table")
+	}
+	wantContains(t, m.alertDetails(120), "worker (PID 42): measurement timestamp missing")
+	wantContains(t, m.alertSummary(120), "Process CPU alerts: limited")
 	m.alerts.Update(m.dash, m.config.Thresholds, fixedNow)
 	if len(m.alerts.Active()) != 0 {
 		t.Fatal("untimestamped process raised an alert")
 	}
 
 	m.dash.Processes[0].CPUAt = fixedNow
-	if strings.Contains(m.processSection(), "CPU alerts paused") {
-		t.Fatal("fresh timestamp still reports paused CPU alerts")
+	if len(m.processAlertIssues()) != 0 {
+		t.Fatal("fresh timestamp still reports limited CPU alerts")
 	}
 }
 

@@ -129,7 +129,7 @@ func (m Model) chromeLines(width int) []string {
 	}
 	status := headingStyle.Render(fmt.Sprintf("interval: %s", m.refreshInterval()))
 	if !m.config.Alerts.BottomBar {
-		status += " | " + m.alertSummary(width)
+		status += " | " + m.alertSummary(max(0, width-lipgloss.Width(status)-3))
 	}
 	lines = append(lines, m.tabLine(), status,
 		ruleStyle.Render(strings.Repeat("─", width)))
@@ -632,12 +632,6 @@ func (m Model) processSection() string {
 
 	b.WriteString(labelStyle.Render(m.processSortLabel()) + "\n")
 	processes := m.sortedProcesses()
-	for _, process := range processes {
-		if !freshProcessCPU(process.CPUAt, m.now()) {
-			b.WriteString("CPU alerts paused for rows without a timestamp from the last 10s.\n")
-			break
-		}
-	}
 	rows := make([][]string, 0, len(processes))
 	for _, p := range processes {
 		rows = append(rows, []string{

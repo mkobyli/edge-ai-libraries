@@ -76,17 +76,12 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 	buckets := timeBuckets(points, plotWidth, start, end)
 	height := m.chartsConfig.ChartHeight
 	grid := make([][]rune, height)
-	severities := make([]Severity, plotWidth)
-	threshold, monitored := m.config.Thresholds[thresholdMetric(spec.Metric)]
 	for row := range grid {
 		grid[row] = []rune(strings.Repeat(" ", plotWidth))
 	}
 	for column, point := range buckets {
 		if !point.OK {
 			continue
-		}
-		if monitored {
-			severities[column] = classify(point.Value, threshold)
 		}
 		// Eighth-cell blocks show an area, including a visible baseline for
 		// measured zero. Missing time buckets remain entirely blank.
@@ -127,19 +122,16 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 		}
 		b.WriteString(labelStyle.Render(label + axis))
 		// Style contiguous runs rather than every cell to keep terminal output
-		// compact on wide plots while preserving each bucket's severity.
+		// compact on wide plots.
 		for start := 0; start < plotWidth; {
 			end := start + 1
 			empty := grid[row][start] == ' '
-			for end < plotWidth && (grid[row][end] == ' ') == empty && severities[end] == severities[start] {
+			for end < plotWidth && (grid[row][end] == ' ') == empty {
 				end++
 			}
 			text := string(grid[row][start:end])
 			if !empty {
 				style := chartStyle
-				if monitored {
-					style = severityStyle(severities[start])
-				}
 				if m.chartsConfig.GraphMode == "solid" && lipgloss.ColorProfile() != termenv.Ascii {
 					style = lipgloss.NewStyle().Background(style.GetForeground())
 					text = strings.Repeat(" ", end-start)

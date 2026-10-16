@@ -4,6 +4,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +46,7 @@ func TestPanelBordersHaveOneStyleDespiteNestedTitleColors(t *testing.T) {
 	}
 }
 
-func TestChartColorsFollowEveryThresholdAndKeepUnmonitoredMetricsNeutral(t *testing.T) {
+func TestChartFillIsNeutralWhileLatestValueRetainsThresholdColor(t *testing.T) {
 	profile := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
@@ -72,14 +73,52 @@ func TestChartColorsFollowEveryThresholdAndKeepUnmonitoredMetricsNeutral(t *test
 			text := m.renderChart(spec, HistorySeries{Available: true, Points: []HistoryPoint{{At: fixedNow, Value: tc.value}}}, 30)
 			found := false
 			for _, cell := range "▁▂▃▄▅▆▇█" {
-				if strings.Contains(text, severityStyle(tc.severity).Render(string(cell))) {
+				if strings.Contains(text, chartStyle.Render(string(cell))) {
 					found = true
 				}
 			}
 			if !found {
-				t.Errorf("%s value %g lacks %v plot color", spec.Metric, tc.value, tc.severity)
+				t.Errorf("%s value %g lacks neutral plot color", spec.Metric, tc.value)
+			}
+			for _, line := range strings.Split(text, "\n") {
+				if strings.Contains(ansi.Strip(line), " │") && tc.severity != SeverityCareful {
+					for _, cell := range "▁▂▃▄▅▆▇█" {
+						if strings.Contains(line, severityStyle(tc.severity).Render(string(cell))) {
+							t.Errorf("%s plotted a severity color", spec.Metric)
+						}
+					}
+				}
+			}
+			wantContains(t, text, m.thresholdValue(spec.Metric, reading(tc.value), func(Reading) string {
+				return fmt.Sprintf("%.1f%s", tc.value, spec.Unit)
+			}))
+		}
+	}
+}
+
+func TestSolidPlotColorDoesNotChangeAcrossRoundedThresholdBoundary(t *testing.T) {
+	profile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
+	m := testModel(nil)
+	spec := fixedChart("gpu.temperatureC", "GPU temperature", "C", 0, 110)
+	var previous string
+	for _, value := range []float64{59, 61} {
+		text := m.renderChart(spec, HistorySeries{Available: true, Points: []HistoryPoint{{At: fixedNow, Value: value}}}, 30)
+		var rows []string
+		for _, line := range strings.Split(text, "\n") {
+			if strings.Contains(ansi.Strip(line), " │") {
+				rows = append(rows, line)
 			}
 		}
+		if len(rows) != m.chartsConfig.ChartHeight {
+			t.Fatal("fixture did not render a plot")
+		}
+		plot := strings.Join(rows, "\n")
+		if previous != "" && plot != previous {
+			t.Fatal("equal-height columns changed color at the GPU careful threshold")
+		}
+		previous = plot
 	}
 }
 
@@ -96,7 +135,8 @@ func TestChartModesPreserveMeasuredZeroGapsPeaksAndWidths(t *testing.T) {
 			{At: fixedNow.Add(-5 * time.Minute), Value: 100},
 			{At: fixedNow, Value: 0},
 		}}
-		text := ansi.Strip(m.renderChart(spec, series, 18))
+		rendered := m.renderChart(spec, series, 18)
+		text := ansi.Strip(rendered)
 		axis, peak, zero := " │", '█', '▁'
 		if mode == "ascii" {
 			axis, peak, zero = " |", '#', '_'
@@ -105,6 +145,8 @@ func TestChartModesPreserveMeasuredZeroGapsPeaksAndWidths(t *testing.T) {
 					t.Fatalf("ASCII plot contains non-ASCII rune %q", r)
 				}
 			}
+			wantContains(t, rendered, chartStyle.Render(string(peak)))
+			wantContains(t, rendered, chartStyle.Render(string(zero)))
 		}
 		var grid [][]rune
 		for _, line := range strings.Split(text, "\n") {
