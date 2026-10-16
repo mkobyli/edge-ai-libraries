@@ -53,6 +53,7 @@ func TestProcessSampleAgeSharedByTableAlertsAndDiagnostics(t *testing.T) {
 			}
 			m := NewModelWithConfig(nil, config)
 			m.now = func() time.Time { return fixedNow }
+			m.dash.Platform.LogicalCPUs = reading(1)
 			m.dash.Processes = []Process{
 				{PID: "1", Command: "older", CPUPercent: reading(99), CPUAt: fixedNow.Add(-5 * time.Second)},
 				{PID: "2", Command: "fresh", CPUPercent: reading(10), CPUAt: fixedNow},
@@ -89,6 +90,7 @@ func TestProcessSampleAgeExpiresOnClockWithoutNewScrape(t *testing.T) {
 		m := NewModelWithConfig(nil, config)
 		now := fixedNow
 		m.now = func() time.Time { return now }
+		m.dash.Platform.LogicalCPUs = reading(1)
 		m.dash.Processes = []Process{{PID: "1", Command: "worker", CPUPercent: reading(99), CPUAt: fixedNow}}
 		for _, delta := range []time.Duration{maxAge - time.Nanosecond, maxAge, maxAge + time.Nanosecond} {
 			now = fixedNow.Add(delta)

@@ -20,29 +20,43 @@ func usableCPUCount(count Reading) bool {
 	return finiteReading(count) && count.Value >= 1 && math.Trunc(count.Value) == count.Value
 }
 
-func (m Model) processCPULabel() string {
-	if m.config.Processes.CPUMode != "total" {
-		return "CPU: per-core | c toggle (100% = 1 CPU)"
-	}
-	count := m.dash.Platform.LogicalCPUs
+func processTotalCPU(value, count Reading) Reading {
 	if !usableCPUCount(count) {
-		return "CPU: total | c toggle\nCPU total unavailable: logical CPU count missing or invalid."
+		return Reading{}
 	}
-	return fmt.Sprintf("CPU: total | c toggle (100%% = %.0f CPUs)\nColors/alerts: per-core (h help)", count.Value)
+	return Reading{Value: value.Value / count.Value, OK: value.OK}
+}
+
+func (m Model) processCPULabel() string {
+	count := m.dash.Platform.LogicalCPUs
+	if m.config.Processes.CPUMode != "total" {
+		label := "CPU: per-core | c toggle (100% = 1 CPU)"
+		if !usableCPUCount(count) {
+			return label + "\nColors/alerts unavailable: logical CPU count missing or invalid."
+		}
+		return label + "\nColors/alerts: total host CPU (h help)"
+	}
+	if !usableCPUCount(count) {
+		return "CPU: total | c toggle\nCPU total unavailable: logical CPU count missing or invalid.\nColors/alerts unavailable."
+	}
+	return fmt.Sprintf("CPU: total | c toggle (100%% = %.0f CPUs)", count.Value)
 }
 
 func (m Model) processCPUPercent(value Reading) string {
-	if m.config.Processes.CPUMode != "total" {
-		return m.thresholdPercent("process.cpuPercent", value)
-	}
 	count := m.dash.Platform.LogicalCPUs
 	if !usableCPUCount(count) {
+		if m.config.Processes.CPUMode == "per-core" {
+			return formatPercent(value)
+		}
 		return unavailable
 	}
-	// Only the displayed number changes scale; colors and alerts share the
-	// original per-core thresholds, even when a busy thread is a small host share.
-	return m.thresholdValue("process.cpuPercent", value, func(r Reading) string {
-		r.Value /= count.Value
-		return formatPercent(r)
+	total := processTotalCPU(value, count)
+	if m.config.Processes.CPUMode == "total" {
+		return m.thresholdPercent("process.cpuPercent", total)
+	}
+	// Per-core is only a presentation choice; health uses the same total
+	// value as alerts, independent of the selected view.
+	return m.thresholdValue("process.cpuPercent", total, func(Reading) string {
+		return formatPercent(value)
 	})
 }

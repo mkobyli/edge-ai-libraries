@@ -74,7 +74,7 @@ func (m Model) alertDetails(width int) string {
 	var b strings.Builder
 	b.WriteString(headingStyle.Render("Alerts") + "\n")
 	b.WriteString("High utilization may be expected during inference; thresholds are diagnostic, not safety limits.\n\n")
-	b.WriteString("History shows ended episodes, not current load. Process CPU alerts always use one logical CPU as 100%, regardless of the Overview CPU display mode; host charts show aggregate CPU.\n\n")
+	b.WriteString("History shows ended episodes, not current load. Process CPU alerts always use total host CPU capacity as 100%, regardless of the Overview CPU display mode.\n\n")
 	if m.err != nil || (!m.updatedAt.IsZero() && m.now().Sub(m.updatedAt) > m.staleAfter()) {
 		b.WriteString("Data is stale: these are last known events, not confirmed current conditions.\n\n")
 	}
@@ -99,7 +99,7 @@ func (m Model) alertDetails(width int) string {
 					issue.process.CPUAt.Format(time.RFC3339Nano), m.now().Format(time.RFC3339Nano)))
 			}
 		}
-		b.WriteString("Check process_cpu_percent timestamps, export_timestamp=true, collector cadence and clock synchronization.\n")
+		b.WriteString("Check platform_logical_cpus, process_cpu_percent timestamps, export_timestamp=true, collector cadence and clock synchronization.\n")
 	}
 	if m.processSourceMissing() {
 		b.WriteString("\n" + headingStyle.Render("Process CPU data unavailable") + "\n")
@@ -157,11 +157,13 @@ func (m Model) processAlertIssues() []processAlertIssue {
 		reason := processTimestampIssue(process.CPUAt, now, m.alerts.processMaxAge)
 		if !finiteReading(process.CPUPercent) {
 			reason = "CPU measurement missing or non-finite"
+		} else if reason == "" && !usableCPUCount(m.dash.Platform.LogicalCPUs) {
+			reason = "total CPU unavailable: logical CPU count missing or invalid"
 		} else if reason == "" {
 			if state := m.alerts.states["process."+process.PID]; state != nil {
 				if process.CPUAt.Before(state.observedAt) {
 					reason = "out-of-order measurement timestamp"
-				} else if process.CPUAt.Equal(state.observedAt) && process.CPUPercent.Value != state.observedValue {
+				} else if process.CPUAt.Equal(state.observedAt) && processTotalCPU(process.CPUPercent, m.dash.Platform.LogicalCPUs).Value != state.observedValue {
 					reason = "conflicting CPU values at one timestamp"
 				}
 			}

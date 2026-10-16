@@ -521,20 +521,21 @@ reported through the existing CPU alert-coverage diagnostics.
 
 Press `c` in Overview to toggle the CPU column in Processes:
 
-- `per-core` (default): 100% means one logical CPU. CPU time includes all
-  threads of the process, so a multithreaded process can exceed 100%.
-- `total`: the per-core reading divided by the monitored host's reported
+- `total` (default): the per-core reading divided by the monitored host's reported
   logical CPU count. For example, 140% per-core is 10% total on a 14-CPU host.
   This is the share of aggregate CPU time, not a frequency-weighted measure
   of compute performance or a percentage of the process's cgroup CPU quota.
+- `per-core`: a diagnostic view where 100% means one logical CPU. CPU time
+  includes all threads, so a multithreaded process can exceed 100%.
 
 The panel shows the current mode and its 100% reference. The shortcut affects
 only the CPU process table, not GPU process usage, host charts, sorting,
 collector output or alert state. It is inactive in other tabs and help.
-Colors, thresholds and alert evidence remain **per-core in both modes**.
-Consequently, a small total percentage can still be highlighted when a
-process is busy relative to one logical CPU; the total-mode panel reminds
-you of this distinction.
+Colors, thresholds and alert evidence always use **total host CPU in both modes**.
+Switching the view cannot raise or clear an alert. The per-core panel reminds
+you that its displayed numbers use a different scale from the health assessment.
+On a 14-CPU host, 95.2% per-core is 6.8% total and stays below the default
+50/70/90 careful/warning/critical thresholds.
 
 For a persistent startup preference, add `"cpuMode": "total"` (or
 `"per-core"`) to the existing `processes` object in
@@ -550,13 +551,22 @@ For a persistent startup preference, add `"cpuMode": "total"` (or
 ```
 
 Restart `mm-tui` after editing. Keyboard toggles are session-only and do not
-write configuration. Existing configurations without `cpuMode` retain
-`per-core`. No collector or Telegraf restart is needed.
+write configuration. Configurations without `cpuMode` now default to `total`.
+An explicit installed `"cpuMode": "per-core"` is preserved; change it to
+`"total"` for the new default view. No collector or Telegraf restart is needed.
+
+**Threshold migration:** `thresholds["process.cpuPercent"]` now describes
+total host CPU, regardless of an existing display preference. Custom threshold
+numbers are preserved but their scale changes; review them when upgrading.
+The exported `process_cpu_percent` metric remains per-core for existing clients.
 
 The denominator comes from `platform_logical_cpus` on the monitored endpoint,
 never from the machine running the TUI. Without a positive, finite, whole-number
 CPU count, total readings show `n/a` with an explanatory panel message; switch
-back to per-core to inspect the original values. On restricted deployments,
+back to per-core to inspect the original values without health coloring.
+Without that CPU count, process CPU alerts cannot be evaluated; Alerts shows
+limited coverage instead of guessing a denominator. Existing episodes lose
+observation rather than being reported as recovered. On restricted deployments,
 verify that the platform collector sees all host CPUs: a count limited by
 CPU affinity does not describe the whole host.
 
@@ -658,10 +668,12 @@ A failed poll keeps last-known events but marks the summary and details as disco
 History is not written to disk and is not a record of events before TUI startup.
 Evidence cannot be reconstructed for episodes from an earlier TUI session.
 
-Process CPU alerts include the PID and use **one logical CPU as 100%**.
-They are not directly comparable to the aggregate host CPU chart: 90% for
-one process corresponds to roughly 6.4% of total capacity on a 14-thread host.
-A multithreaded process can exceed 100%. There are no per-process history plots
+Process CPU alerts include the PID and use **the whole host as 100%**,
+including activation, peak, last-observed and recovery evidence. For example,
+90% total corresponds to 1260% per-core on a 14-CPU host. A process saturating
+one logical CPU uses roughly 7.1% total on that host: it can be a single-thread
+bottleneck without loading the whole machine. High CPU alone does not prove
+that an application is malfunctioning. There are no per-process history plots
 in Trends or Details. An alert naming `mm-tui` refers to the monitor's own
 process and is not suppressed; it should be investigated like any other process.
 `Recent history` entries are ended episodes, while `Active (0)` means no alert

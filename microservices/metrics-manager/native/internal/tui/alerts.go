@@ -368,11 +368,12 @@ func dashboardObservations(d Dashboard, processLimit int, at time.Time, processM
 		}
 	}
 	for _, process := range processAlertCandidates(d, processLimit, at, processMaxAge) {
-		if process.CPUPercent.OK {
+		total := processTotalCPU(process.CPUPercent, d.Platform.LogicalCPUs)
+		if total.OK {
 			observations = append(observations, observation{
 				key: "process." + process.PID, metric: "process.cpuPercent",
-				device: process.Command + " (PID " + process.PID + ")", value: process.CPUPercent.Value, at: process.CPUAt,
-				message: "Process CPU is relative to one logical CPU (100%), not the whole host; inspect the process workload.",
+				device: process.Command + " (PID " + process.PID + ")", value: total.Value, at: process.CPUAt,
+				message: "Process CPU is a share of total host CPU capacity (100%). High utilization may be expected; inspect the workload.",
 			})
 		}
 	}

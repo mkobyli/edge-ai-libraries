@@ -21,8 +21,8 @@ func TestProcessCPUModeConfiguration(t *testing.T) {
 	for _, tc := range []struct {
 		config, want string
 	}{
-		{`{}`, "per-core"},
-		{`{"processes":{"maxDisplayed":20}}`, "per-core"},
+		{`{}`, "total"},
+		{`{"processes":{"maxDisplayed":20}}`, "total"},
 		{`{"processes":{"cpuMode":"per-core"}}`, "per-core"},
 		{`{"processes":{"cpuMode":"total"}}`, "total"},
 	} {
@@ -104,9 +104,9 @@ func TestProcessCPUModeShortcutScopeAndPersistence(t *testing.T) {
 			m := testModel(nil)
 			m.activeTab, m.showHelp = tab, help
 			m, _ = update(t, m, key("c"))
-			want := "per-core"
+			want := "total"
 			if tab == OverviewTab && !help {
-				want = "total"
+				want = "per-core"
 			}
 			if m.config.Processes.CPUMode != want {
 				t.Fatalf("tab=%d help=%v: mode=%q, want %q", tab, help, m.config.Processes.CPUMode, want)
@@ -117,13 +117,13 @@ func TestProcessCPUModeShortcutScopeAndPersistence(t *testing.T) {
 	m, _ = update(t, m, key("c"))
 	for _, keyName := range []string{"2", "3", "4", "1", "h", "h"} {
 		m, _ = update(t, m, key(keyName))
-		if m.config.Processes.CPUMode != "total" {
+		if m.config.Processes.CPUMode != "per-core" {
 			t.Fatalf("%s reset the selected CPU mode", keyName)
 		}
 	}
 	m, _ = update(t, m, key("c"))
-	if m.config.Processes.CPUMode != "per-core" {
-		t.Fatal("second toggle did not restore per-core")
+	if m.config.Processes.CPUMode != "total" {
+		t.Fatal("second toggle did not restore total")
 	}
 	wantContains(t, m.helpBody(120), "c: toggle process CPU")
 	wantContains(t, CommandLineHelp(), "c CPU mode")
@@ -140,14 +140,21 @@ func TestProcessCPUModePreservesColorThresholds(t *testing.T) {
 		value    float64
 		severity Severity
 	}{
-		{49, SeverityOK}, {50, SeverityCareful}, {70, SeverityWarning},
-		{90, SeverityCritical}, {140, SeverityCritical},
+		{95.2, SeverityOK}, {49 * 14, SeverityOK}, {50 * 14, SeverityCareful},
+		{70 * 14, SeverityWarning}, {90 * 14, SeverityCritical}, {100 * 14, SeverityCritical},
 	} {
+		m.config.Processes.CPUMode = "total"
 		want := severityStyle(tc.severity).Render(formatPercent(reading(tc.value / 14)))
 		if got := m.processCPUPercent(reading(tc.value)); got != want {
 			t.Fatalf("%g: normalized CPU changed the threshold color: got %q, want %q", tc.value, got, want)
 		}
+		m.config.Processes.CPUMode = "per-core"
+		want = severityStyle(tc.severity).Render(formatPercent(reading(tc.value)))
+		if got := m.processCPUPercent(reading(tc.value)); got != want {
+			t.Fatalf("%g: per-core display did not preserve total CPU health: %q", tc.value, got)
+		}
 	}
+	m.config.Processes.CPUMode = "total"
 	delete(m.config.Thresholds, "process.cpuPercent")
 	if got := m.processCPUPercent(reading(140)); got != "10.0%" {
 		t.Fatalf("disabled threshold still colored CPU: %q", got)
@@ -159,22 +166,22 @@ func TestProcessCPUModePreservesMeasurementsSortingAndAlerts(t *testing.T) {
 	for i := range 3 {
 		at := fixedNow.Add(time.Duration(i-2) * time.Second)
 		m, _ = update(t, m, snapshotMsg(source.Snapshot{At: at, Samples: parseFixture(t,
-			fmt.Sprintf("platform_logical_cpus 14\nprocess_cpu_percent{pid=\"42\",process=\"worker\"} 140 %d\n"+
+			fmt.Sprintf("platform_logical_cpus 14\nprocess_cpu_percent{pid=\"42\",process=\"worker\"} 1330 %d\n"+
 				"process_cpu_percent{pid=\"43\",process=\"other\"} 40 %d\n"+
 				"process_memory_rss_bytes{pid=\"42\",process=\"worker\"} 1048576\n", at.UnixMilli(), at.UnixMilli()))}))
 	}
 	m.dash.GPUs = []GPU{{ID: "0", Processes: []GPUProcess{{PID: "42", UsagePct: reading(80)}}}}
 	alerts := m.alerts.Active()
-	if len(alerts) != 1 || alerts[0].Value != 140 {
-		t.Fatalf("fixture did not raise a per-core alert: %+v", alerts)
+	if len(alerts) != 1 || alerts[0].Value != 95 {
+		t.Fatalf("fixture did not raise a total CPU alert: %+v", alerts)
 	}
 	observations := dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow, m.alerts.processMaxAge)
 	processes := m.sortedProcesses()
 	gpu := m.gpuProcessTable(m.dash.GPUs[0].Processes, 80)
 	host := m.cpuSection()
 	m, _ = update(t, m, key("c"))
-	wantContains(t, m.processSection(), "10.0%")
-	wantContains(t, m.processSection(), "Colors/alerts: per-core")
+	wantContains(t, m.processSection(), "1330.0%")
+	wantContains(t, m.processSection(), "Colors/alerts: total host CPU")
 	m.alerts.Update(m.dash, m.config.Thresholds, fixedNow)
 	if !reflect.DeepEqual(observations, dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow, m.alerts.processMaxAge)) ||
 		!reflect.DeepEqual(processes, m.sortedProcesses()) || !reflect.DeepEqual(alerts, m.alerts.Active()) {
@@ -184,6 +191,69 @@ func TestProcessCPUModePreservesMeasurementsSortingAndAlerts(t *testing.T) {
 		t.Fatal("CPU display mode changed GPU process usage or host CPU")
 	}
 	wantContains(t, strings.Join(strings.Fields(m.alertDetails(120)), " "), "regardless of the Overview CPU display mode")
+}
+
+func TestProcessTotalCPUDoesNotAlertForOneBusyCore(t *testing.T) {
+	m := testModel(nil)
+	m.dash.Platform.LogicalCPUs = reading(14)
+	for i := range 3 {
+		at := fixedNow.Add(time.Duration(i-2) * time.Second)
+		m.dash.Processes = []Process{{PID: "42", CPUPercent: reading(95.2), CPUAt: at}}
+		m.alerts.Update(m.dash, m.config.Thresholds, fixedNow)
+	}
+	if len(m.alerts.Active()) != 0 || m.processCoverageLimited() {
+		t.Fatal("6.8% total CPU raised an alert or a false timestamp conflict")
+	}
+	wantContains(t, m.processCPUPercent(reading(95.2)), "6.8%")
+	m, _ = update(t, m, key("c"))
+	wantContains(t, m.processCPUPercent(reading(95.2)), "95.2%")
+	if len(m.alerts.Active()) != 0 || m.processCoverageLimited() {
+		t.Fatal("per-core display changed total CPU alert evaluation")
+	}
+	m.config.Thresholds["process.cpuPercent"] = Threshold{Careful: 1, Warning: 5, Critical: 10}
+	for i := range 3 {
+		m.dash.Processes[0].CPUAt = fixedNow.Add(time.Duration(i+1) * time.Second)
+		m.alerts.Update(m.dash, m.config.Thresholds, m.dash.Processes[0].CPUAt)
+	}
+	alerts := m.alerts.Active()
+	if len(alerts) != 1 || alerts[0].Severity != SeverityWarning || math.Abs(alerts[0].Value-6.8) > 1e-9 {
+		t.Fatalf("custom total CPU thresholds were not respected: %+v", alerts)
+	}
+}
+
+func TestProcessCPUAlertsRequireUsableHostCPUCount(t *testing.T) {
+	profile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
+	for _, count := range []Reading{{}, reading(0), reading(-1), reading(1.5), reading(math.NaN()), reading(math.Inf(1))} {
+		config := DefaultDashboardConfig()
+		config.Alerts.SamplesToRaise = 1
+		m := NewModelWithConfig(nil, config)
+		m.now = func() time.Time { return fixedNow }
+		m.dash.Platform.LogicalCPUs = count
+		m.dash.Processes = []Process{{PID: "42", CPUPercent: reading(1330), CPUAt: fixedNow}}
+		m.alerts.Update(m.dash, config.Thresholds, fixedNow)
+		if len(m.alerts.Active()) != 0 || !m.processCoverageLimited() || m.processCPUPercent(reading(1330)) != unavailable {
+			t.Fatalf("unusable CPU count %+v produced a total or an alert", count)
+		}
+		wantContains(t, m.processAlertIssues()[0].reason, "logical CPU count missing or invalid")
+		m.toggleProcessCPUMode()
+		if got := m.processCPUPercent(reading(1330)); got != "1330.0%" {
+			t.Fatalf("per-core fallback was colored or lost the raw value: %q", got)
+		}
+		m.dash.Platform.LogicalCPUs = reading(14)
+		m.alerts.Update(m.dash, config.Thresholds, fixedNow)
+		if len(m.alerts.Active()) != 1 || m.processCoverageLimited() || m.alerts.Active()[0].Value != 95 {
+			t.Fatal("restoring the CPU count did not restore total CPU evaluation")
+		}
+		m.dash.Platform.LogicalCPUs = count
+		for range config.Alerts.SamplesToClear {
+			m.alerts.Update(m.dash, config.Thresholds, fixedNow)
+		}
+		if len(m.alerts.events) != 1 || m.alerts.events[0].Outcome != "no longer observed" || m.alerts.events[0].RecoveryValue.OK {
+			t.Fatal("loss of CPU count was reported as recovery")
+		}
+	}
 }
 
 func TestProcessCPUModesFitResponsivePanels(t *testing.T) {

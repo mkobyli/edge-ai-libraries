@@ -122,6 +122,7 @@ func TestCompactTablesKeepMeasurements(t *testing.T) {
 	m := testModel(nil)
 	m.width = 40
 	m.dash = Dashboard{
+		Platform: Platform{LogicalCPUs: reading(1)},
 		CPU: CPU{Classes: []CoreClass{{
 			Name: "P", Cores: reading(4), FrequencyKHz: reading(2300000),
 			UsageUser: reading(15), UsageSystem: reading(20), UsageIdle: reading(65), Source: "pmu",

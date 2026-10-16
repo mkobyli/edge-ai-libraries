@@ -93,7 +93,7 @@ var supportedThresholds = map[string]bool{
 
 func DefaultDashboardConfig() DashboardConfig {
 	return DashboardConfig{
-		Processes: ProcessConfig{MaxDisplayed: 10, SortBy: "usage", Descending: true, CPUMode: "per-core", MaxSampleAge: processSampleAge(3 * time.Second)},
+		Processes: ProcessConfig{MaxDisplayed: 10, SortBy: "usage", Descending: true, CPUMode: "total", MaxSampleAge: processSampleAge(3 * time.Second)},
 		Mouse:     true,
 		Network:   NetworkConfig{MaxInterfaces: 8, MaxSampleAge: "10s"},
 		Alerts: AlertConfig{

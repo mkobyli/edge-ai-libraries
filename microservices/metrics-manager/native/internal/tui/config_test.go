@@ -15,7 +15,7 @@ func TestLoadDashboardConfigDefaultsWhenAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Processes.MaxDisplayed != 10 || config.Processes.CPUMode != "per-core" || config.Alerts.SamplesToRaise != 3 ||
+	if config.Processes.MaxDisplayed != 10 || config.Processes.CPUMode != "total" || config.Alerts.SamplesToRaise != 3 ||
 		config.Alerts.MaxHistory != 50 || config.Alerts.ShowCareful {
 		t.Errorf("unexpected defaults: %+v", config)
 	}

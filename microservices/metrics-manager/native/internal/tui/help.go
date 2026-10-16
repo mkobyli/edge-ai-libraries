@@ -22,10 +22,11 @@ func (m Model) helpBody(width int) string {
 		"  s: cycle sort key: usage, memory, PID.\n" +
 		"  r: reverse sort direction. Current sorting is shown above each list.\n" +
 		"  c: toggle process CPU per-core / total; does not affect GPU usage.\n" +
-		"  per-core: 100% = one logical CPU; multithreaded processes can exceed 100%.\n" +
-		"  total: divide by the monitored host's reported logical CPU count.\n" +
+		"  total (default): 100% = the monitored host's total logical CPU capacity.\n" +
+		"  per-core: diagnostic view; 100% = one logical CPU, values can exceed 100%.\n" +
 		"  Missing/invalid CPU count: total is n/a, never guessed from the TUI machine.\n" +
-		"  Colors and alerts always use per-core thresholds, not the displayed total.\n" +
+		"  Colors and alerts always use total host CPU thresholds, even in per-core view.\n" +
+		"  Missing/invalid CPU count disables process CPU colors and alert evaluation.\n" +
 		"  Set processes.cpuMode in the dashboard config to persist the startup mode.\n" +
 		"  Sorting only covers processes published by the collectors.\n\n" +
 		"Scrolling - Overview, Trends, alerts and help\n" +
@@ -67,7 +68,7 @@ func (m Model) helpBody(width int) string {
 		"  no longer observed: observations stopped, not confirmed recovery.\n" +
 		"  Alert evidence: activation value, peak since activation and confirmed recovery.\n" +
 		"  A low last-observed value may be from the recovery-confirmation period.\n" +
-		"  Process CPU alert evidence: 100% means one logical CPU, regardless of display mode.\n" +
+		"  Process CPU alert evidence: 100% means total host CPU, regardless of display mode.\n" +
 		"  Process CPU alerts need distinct timestamps within processes.maxSampleAge (default 3s).\n" +
 		"  [4/a] Open alerts shows events and per-process data-quality diagnostics.\n" +
 		"  Process CPU alerts: limited (CPU! on narrow screens) means incomplete evaluation,\n" +

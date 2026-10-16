@@ -169,7 +169,7 @@ func TestAlertTrackerOnlyChecksDisplayedProcesses(t *testing.T) {
 	config := DefaultDashboardConfig()
 	config.Processes.MaxDisplayed = 1
 	tracker := NewAlertTracker(config.Alerts, config.Processes)
-	dashboard := Dashboard{Processes: []Process{
+	dashboard := Dashboard{Platform: Platform{LogicalCPUs: reading(1)}, Processes: []Process{
 		{PID: "1", Command: "visible", CPUPercent: reading(1)},
 		{PID: "2", Command: "hidden", CPUPercent: reading(99)},
 	}}

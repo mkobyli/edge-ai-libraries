@@ -643,6 +643,10 @@ RSS or thread measurements; unexpected metadata failures are logged.
 Thread count comes from field 20 of `/proc/<pid>/stat`. It includes sleeping
 threads and is not a core assignment, a Go goroutine count or a health score.
 CPU includes all threads and retains the scale 100% = one logical CPU.
+TUI defaults to displaying this value divided by `platform_logical_cpus`.
+Its process CPU colors and alerts always use that total-host percentage,
+even when the optional per-core display is selected; the exported metric
+itself is not rescaled.
 Only the process name is collected; command lines are deliberately never
 read, because arguments routinely carry credentials.
 

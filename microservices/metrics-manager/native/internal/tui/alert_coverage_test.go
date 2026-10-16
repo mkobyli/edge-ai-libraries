@@ -17,6 +17,7 @@ import (
 
 func TestProcessCoverageIdentifiesReasonsAndUsesActualAlertCandidates(t *testing.T) {
 	m := testModel(nil)
+	m.dash.Platform.LogicalCPUs = reading(1)
 	m.updatedAt = fixedNow
 	m.dash.Processes = []Process{
 		{PID: "1", Command: "fresh", CPUPercent: reading(10), CPUAt: fixedNow},
@@ -76,6 +77,7 @@ func TestProcessCoverageIdentifiesReasonsAndUsesActualAlertCandidates(t *testing
 
 func TestAlertShortcutsAndCoverageStayVisibleWithoutAddingFooterRows(t *testing.T) {
 	m := testModel(nil)
+	m.dash.Platform.LogicalCPUs = reading(1)
 	m.updatedAt = fixedNow
 	m.dash.Processes = []Process{{PID: "42", Command: "worker", CPUPercent: reading(10)}}
 	for _, width := range []int{40, 70, 80, 100, 140} {
@@ -137,7 +139,7 @@ func TestCachedProcessesDoNotCrowdOutCurrentProcessesOrRaiseLimitedStatus(t *tes
 	old := fixedNow.Add(-30 * time.Second)
 	for i := 0; i < 3; i++ {
 		now = fixedNow.Add(time.Duration(i) * time.Second)
-		text := fmt.Sprintf("process_cpu_percent{pid=\"1\",process=\"systemd\"} 999 %d\n"+
+		text := fmt.Sprintf("platform_logical_cpus 1\nprocess_cpu_percent{pid=\"1\",process=\"systemd\"} 999 %d\n"+
 			"process_memory_rss_bytes{pid=\"1\",process=\"systemd\"} 999999 %d\n"+
 			"process_cpu_percent{pid=\"42\",process=\"worker\"} 99 %d\n"+
 			"process_memory_rss_bytes{pid=\"42\",process=\"worker\"} 100 %d\n",
@@ -177,7 +179,7 @@ func TestCachedProcessesDoNotCrowdOutCurrentProcessesOrRaiseLimitedStatus(t *tes
 		t.Fatalf("disappearance was incorrectly treated as recovery: %+v", m.alerts.events)
 	}
 	now = now.Add(time.Second)
-	text := fmt.Sprintf("process_cpu_percent{pid=\"42\",process=\"worker\"} 0 %d", now.UnixMilli())
+	text := fmt.Sprintf("platform_logical_cpus 1\nprocess_cpu_percent{pid=\"42\",process=\"worker\"} 0 %d", now.UnixMilli())
 	model, _ := m.Update(snapshotMsg{Samples: parseFixture(t, text), At: now})
 	m = model.(Model)
 	if m.processCoverageLimited() {
