@@ -632,6 +632,9 @@ func (m Model) processSection() string {
 
 	b.WriteString(labelStyle.Render(m.processSortLabel()) + "\n")
 	processes := m.sortedProcesses()
+	if len(processes) == 0 && m.processSourceMissing() {
+		b.WriteString("No current process samples.\n")
+	}
 	rows := make([][]string, 0, len(processes))
 	for _, p := range processes {
 		rows = append(rows, []string{

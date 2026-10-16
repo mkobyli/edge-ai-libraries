@@ -41,7 +41,7 @@ func (m Model) alertSummary(width int) string {
 	case m.now().Sub(m.updatedAt) > m.staleAfter():
 		return labelStyle.Render("Alerts: stale data | " + hint)
 	}
-	if len(m.processAlertIssues()) > 0 {
+	if m.processCoverageLimited() {
 		if len(summary)+len(hint)+10 > width {
 			summary = fmt.Sprintf("Alerts C:%d W:%d", counts[SeverityCritical], counts[SeverityWarning])
 			if m.config.Alerts.ShowCareful {
@@ -89,7 +89,7 @@ func (m Model) alertDetails(width int) string {
 	}
 	if issues := m.processAlertIssues(); len(issues) > 0 {
 		b.WriteString("\n" + headingStyle.Render(fmt.Sprintf("Process CPU alert coverage (%d/%d limited)",
-			len(issues), len(processAlertCandidates(m.dash, m.alerts.processLimit)))) + "\n")
+			len(issues), len(processAlertCandidates(m.dash, m.alerts.processLimit, m.now())))) + "\n")
 		b.WriteString("These samples cannot confirm CPU alerts; this does not block process collection or display.\n")
 		for _, issue := range issues {
 			b.WriteString(fmt.Sprintf("  %s (PID %s): %s\n", sanitize(issue.process.Command, 60),
@@ -100,6 +100,25 @@ func (m Model) alertDetails(width int) string {
 			}
 		}
 		b.WriteString("Check process_cpu_percent timestamps, export_timestamp=true, collector cadence and clock synchronization.\n")
+	}
+	if m.processSourceMissing() {
+		b.WriteString("\n" + headingStyle.Render("Process CPU data unavailable") + "\n")
+		b.WriteString("No current process samples remain from a previously observed source. Check the process collector and its delivery to Telegraf.\n")
+	}
+	if retained := len(m.dash.Processes) - len(currentProcesses(m.dash, m.now())); retained > 0 {
+		b.WriteString("\n" + headingStyle.Render(fmt.Sprintf("Retained process samples (%d excluded)", retained)) + "\n")
+		b.WriteString("Samples older than 10s are excluded before ranking and alert evaluation. Top-list rotation or an exited process can leave cached samples; this alone does not mean collection failed.\n")
+		shown := 0
+		for _, process := range m.dash.Processes {
+			if expiredProcessCPU(process.CPUAt, m.now()) && shown < m.alerts.processLimit {
+				b.WriteString(fmt.Sprintf("  %s (PID %s): last sample %s\n",
+					sanitize(process.Command, 60), sanitize(process.PID, 20), process.CPUAt.Format(time.RFC3339Nano)))
+				shown++
+			}
+		}
+		if shown < retained {
+			b.WriteString(fmt.Sprintf("Showing %d of %d retained entries.\n", shown, retained))
+		}
 	}
 	b.WriteString("\n" + headingStyle.Render(fmt.Sprintf("Recent history (%d/%d)",
 		len(m.alerts.events), m.config.Alerts.MaxHistory)) + "\n")
@@ -117,13 +136,24 @@ type processAlertIssue struct {
 	reason  string
 }
 
+func (m Model) processSourceMissing() bool {
+	return (m.processDataSeen || len(m.dash.Processes) > 0) && len(currentProcesses(m.dash, m.now())) == 0
+}
+
+func (m Model) processCoverageLimited() bool {
+	if _, monitored := m.config.Thresholds["process.cpuPercent"]; !monitored {
+		return false
+	}
+	return m.processSourceMissing() || len(m.processAlertIssues()) > 0
+}
+
 func (m Model) processAlertIssues() []processAlertIssue {
 	if _, monitored := m.config.Thresholds["process.cpuPercent"]; !monitored {
 		return nil
 	}
 	var issues []processAlertIssue
 	now := m.now()
-	for _, process := range processAlertCandidates(m.dash, m.alerts.processLimit) {
+	for _, process := range processAlertCandidates(m.dash, m.alerts.processLimit, now) {
 		reason := processTimestampIssue(process.CPUAt, now)
 		if !finiteReading(process.CPUPercent) {
 			reason = "CPU measurement missing or non-finite"

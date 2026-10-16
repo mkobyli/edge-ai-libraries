@@ -5,6 +5,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -30,7 +31,7 @@ func TestProcessCoverageIdentifiesReasonsAndUsesActualAlertCandidates(t *testing
 	m.alerts.states["process.7"] = &alertState{observedAt: fixedNow, observedValue: 71}
 	issues := m.processAlertIssues()
 	wantReasons := []string{
-		"measurement timestamp missing", "measurement is older than 10s", "measurement timestamp is in the future",
+		"measurement timestamp missing", "measurement timestamp is in the future",
 		"CPU measurement missing or non-finite", "out-of-order measurement timestamp", "conflicting CPU values at one timestamp",
 	}
 	if len(issues) != len(wantReasons) {
@@ -43,7 +44,7 @@ func TestProcessCoverageIdentifiesReasonsAndUsesActualAlertCandidates(t *testing
 	}
 	view := m.alertDetails(140)
 	for _, want := range []string{
-		"Process CPU alert coverage (6/7 limited)", "missing (PID 2): measurement timestamp missing",
+		"Process CPU alert coverage (5/6 limited)", "missing (PID 2): measurement timestamp missing",
 		"source time", "checked", "export_timestamp=true",
 		"this does not block process collection or display",
 	} {
@@ -123,6 +124,87 @@ func TestProcessCoverageDiagnosticsSanitizeUntrustedLabels(t *testing.T) {
 	for _, unsafe := range []string{"\x1b[2J", "\u009b", "worker\n"} {
 		if strings.Contains(text, unsafe) {
 			t.Fatalf("diagnostic emitted terminal control %q", unsafe)
+		}
+	}
+}
+
+func TestCachedProcessesDoNotCrowdOutCurrentProcessesOrRaiseLimitedStatus(t *testing.T) {
+	m := testModel(nil)
+	m.config.Processes.MaxDisplayed = 1
+	m.alerts.processLimit = 1
+	now := fixedNow
+	m.now = func() time.Time { return now }
+	old := fixedNow.Add(-30 * time.Second)
+	for i := 0; i < 3; i++ {
+		now = fixedNow.Add(time.Duration(i) * time.Second)
+		text := fmt.Sprintf("process_cpu_percent{pid=\"1\",process=\"systemd\"} 999 %d\n"+
+			"process_memory_rss_bytes{pid=\"1\",process=\"systemd\"} 999999 %d\n"+
+			"process_cpu_percent{pid=\"42\",process=\"worker\"} 99 %d\n"+
+			"process_memory_rss_bytes{pid=\"42\",process=\"worker\"} 100 %d\n",
+			old.UnixMilli(), old.UnixMilli(), now.UnixMilli(), now.UnixMilli())
+		model, _ := m.Update(snapshotMsg{Samples: parseFixture(t, text), At: now})
+		m = model.(Model)
+	}
+	for _, sort := range []string{"usage", "memory", "pid"} {
+		m.config.Processes.SortBy = sort
+		if rows := m.sortedProcesses(); len(rows) != 1 || rows[0].PID != "42" {
+			t.Fatalf("%s let retained data crowd out current data: %+v", sort, rows)
+		}
+	}
+	if m.processCoverageLimited() || strings.Contains(m.alertSummary(140), "limited") {
+		t.Fatal("normal cache retention raised limited coverage")
+	}
+	wantContains(t, m.alertDetails(140), "Retained process samples (1 excluded)")
+	active := m.alerts.Active()
+	if len(active) != 1 || active[0].Key != "process.42" {
+		t.Fatalf("current process could not raise an alert: %+v", active)
+	}
+
+	now = now.Add(11 * time.Second)
+	if !m.processCoverageLimited() || len(m.sortedProcesses()) != 0 {
+		t.Fatal("loss of all fresh samples did not report unavailable process data")
+	}
+	wantContains(t, m.alertDetails(140), "Process CPU data unavailable")
+	// Telegraf eventually expires the cached series altogether.
+	for i := 0; i < 3; i++ {
+		model, _ := m.Update(snapshotMsg{At: now})
+		m = model.(Model)
+	}
+	if !m.processCoverageLimited() {
+		t.Fatal("cache expiration hid loss of the previously observed source")
+	}
+	if len(m.alerts.events) != 1 || m.alerts.events[0].Outcome != "no longer observed" {
+		t.Fatalf("disappearance was incorrectly treated as recovery: %+v", m.alerts.events)
+	}
+	now = now.Add(time.Second)
+	text := fmt.Sprintf("process_cpu_percent{pid=\"42\",process=\"worker\"} 0 %d", now.UnixMilli())
+	model, _ := m.Update(snapshotMsg{Samples: parseFixture(t, text), At: now})
+	m = model.(Model)
+	if m.processCoverageLimited() {
+		t.Fatal("fresh samples did not restore process coverage")
+	}
+}
+
+func TestProcessExpirationBoundaryAndOptionalSource(t *testing.T) {
+	m := testModel(nil)
+	if m.processCoverageLimited() {
+		t.Fatal("a source never observed should remain optional")
+	}
+	for _, tc := range []struct {
+		stamp   time.Time
+		expired bool
+	}{
+		{fixedNow.Add(-10 * time.Second), false},
+		{fixedNow.Add(-10*time.Second - time.Millisecond), true},
+		{time.Time{}, false},
+		{fixedNow.Add(time.Second), false},
+	} {
+		m.dash.Processes = []Process{{PID: "1", Command: "systemd", CPUPercent: reading(99), CPUAt: tc.stamp}}
+		if got := len(currentProcesses(m.dash, fixedNow)) == 0; got != tc.expired {
+			t.Fatalf("timestamp %v expired=%v, want %v", tc.stamp, got, tc.expired)
+		}
+		if !tc.expired && !freshProcessCPU(tc.stamp, fixedNow) && !m.processCoverageLimited() {
+			t.Fatal("missing/future timestamps were silently ignored as cached entries")
 		}
 	}
 }

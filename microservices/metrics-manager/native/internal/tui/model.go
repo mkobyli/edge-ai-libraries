@@ -47,7 +47,8 @@ type Model struct {
 	dash Dashboard
 
 	// updatedAt is when dash was collected, zero until the first success.
-	updatedAt time.Time
+	updatedAt       time.Time
+	processDataSeen bool
 
 	// err is the reason the most recent poll failed, or nil.
 	err error
@@ -189,6 +190,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.Err
 		if msg.Err == nil {
 			m.dash = BuildDashboard(msg.Samples)
+			m.processDataSeen = m.processDataSeen || len(m.dash.Processes) > 0
 			m.dash.Network, m.dash.NetworkLimited = m.network.update(msg.Samples, msg.At, m.config.Network)
 			m.updatedAt = msg.At
 			m.alerts.Update(m.dash, m.config.Thresholds, msg.At)

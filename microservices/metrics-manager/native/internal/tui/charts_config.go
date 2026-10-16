@@ -68,6 +68,22 @@ var supportedCharts = map[string]bool{
 	"network.txDropsPerSecond":   true,
 }
 
+func nonnegativeChart(metric string) bool {
+	switch metric {
+	case "cpu.totalPercent", "cpu.classPercent", "cpu.frequencyMHz", "cpu.powerW",
+		"memory.usedPercent", "memory.bandwidthMiBps",
+		"gpu.utilizationPercent", "gpu.enginePercent", "gpu.frequencyMHz", "gpu.powerW", "gpu.vramPercent",
+		"npu.utilizationPercent", "npu.frequencyMHz", "npu.powerW", "npu.memoryMiB",
+		"network.rxMiBps", "network.txMiBps", "network.rxPercent", "network.txPercent",
+		"network.rxPacketsPerSecond", "network.txPacketsPerSecond",
+		"network.rxErrorsPerSecond", "network.txErrorsPerSecond",
+		"network.rxDropsPerSecond", "network.txDropsPerSecond":
+		return true
+	default:
+		return false
+	}
+}
+
 func DefaultChartsConfig() ChartsConfig {
 	config := ChartsConfig{
 		HistoryDuration: "5m",
@@ -196,6 +212,14 @@ func validateChartSpecs(name string, specs []ChartSpec) error {
 		}
 		if chart.Min != nil && chart.Max != nil && *chart.Min >= *chart.Max {
 			return fmt.Errorf("%s[%d] must satisfy min < max", name, i)
+		}
+		if nonnegativeChart(chart.Metric) {
+			if chart.Min != nil && *chart.Min < 0 {
+				return fmt.Errorf("%s[%d].min must be nonnegative for %s", name, i, chart.Metric)
+			}
+			if chart.Max != nil && *chart.Max <= 0 {
+				return fmt.Errorf("%s[%d].max must be positive for %s", name, i, chart.Metric)
+			}
 		}
 	}
 

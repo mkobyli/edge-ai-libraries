@@ -477,13 +477,30 @@ break consecutive-sample runs; they do not count as recovery.
 For process CPU and Network, only distinct source measurement timestamps
 advance activation/recovery streaks. Repeated scrapes of a cached measurement
 do not count again. Process CPU samples without a timestamp, from the future,
-or older than 10 seconds cannot confirm alerts. Collection and the process table
-continue: this restriction applies to alert confirmation, not collection.
+or older than 10 seconds cannot confirm alerts.
+
+The process collector publishes the union of top CPU and top memory processes.
+When a process leaves that set or exits, Telegraf can retain its last series
+until the exporter cache expires (60 seconds by default). TUI excludes samples
+older than 10 seconds **before** applying the display or alert-evaluation limit,
+so cached values cannot crowd out current processes. Excluded entries are
+listed as neutral `Retained process samples` diagnostics in Alerts. Their
+presence alone does not produce `limited` while current process data remains.
+This is age-based filtering, not proof that a particular process exited or
+left the collector's top list; no process-name exclusions are used.
+
+Missing timestamps, future timestamps and inconsistent current samples still
+limit alert confirmation. Loss of all current process samples from a previously
+observed source is also reported, even after its cached entries disappear.
+A process source never observed in this session remains optional.
+Collection is not disabled by these diagnostics.
 The alert status shows `Process CPU alerts: limited` (shortened to
 `CPU alerts limited` or `CPU!` in narrow layouts). Open Alerts for the affected
 process names/PIDs, precise reasons and source/check timestamps. Diagnostics also
 identify missing/non-finite CPU readings, out-of-order timestamps and conflicting
-values at the same timestamp. Coverage uses the same process candidates as the
+values at the same timestamp. Expiration or disappearance of an active event's
+process ends the episode as `no longer observed`, never as confirmed recovery.
+Coverage uses the same current process candidates as the
 alert tracker, not the current display sort order. Keep Telegraf
 `export_timestamp = true`. Other metric families retain their existing
 successful-poll-based debounce behavior.
@@ -774,6 +791,16 @@ the configured metric thresholds (green OK, cyan careful, amber warning, red
 critical); readings without a health threshold remain neutral. Alert events
 still require the configured consecutive samples. `last` remains a
 historical reading with a displayed age when current data is unavailable.
+
+For nonnegative metrics (utilization, frequency, power, memory and Network
+rates), omitting `min` means a zero baseline. The upper bound is automatically
+scaled unless `max` is explicitly configured. With automatic bounds, all-zero
+data uses `0..1`, with only the bottom cell occupied rather than half the plot.
+This also applies to existing configurations without `min`;
+no configuration replacement is required. An explicit nonnegative `min` can
+still zoom the range; negative `min` or nonpositive `max` is rejected for these
+metrics. Celsius temperatures are not subject to that domain restriction.
+Missing samples remain gaps, not fabricated zero measurements.
 
 The top-level `graphMode` setting in `tui-charts.json` applies to both tabs:
 

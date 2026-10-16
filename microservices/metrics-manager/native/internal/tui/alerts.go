@@ -88,7 +88,7 @@ func NewAlertTracker(config AlertConfig, processLimit int) AlertTracker {
 
 func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Threshold, at time.Time) {
 	seen := make(map[string]bool)
-	for _, observation := range dashboardObservations(dashboard, t.processLimit) {
+	for _, observation := range dashboardObservations(dashboard, t.processLimit, at) {
 		threshold, enabled := thresholds[observation.metric]
 		if !enabled || math.IsNaN(observation.value) || math.IsInf(observation.value, 0) {
 			continue
@@ -306,7 +306,7 @@ func thresholdFor(threshold Threshold, severity Severity) float64 {
 	}
 }
 
-func dashboardObservations(d Dashboard, processLimit int) []observation {
+func dashboardObservations(d Dashboard, processLimit int, at time.Time) []observation {
 	var observations []observation
 	add := func(key, metric, device, message string, reading Reading) {
 		if reading.OK {
@@ -365,7 +365,7 @@ func dashboardObservations(d Dashboard, processLimit int) []observation {
 			}
 		}
 	}
-	for _, process := range processAlertCandidates(d, processLimit) {
+	for _, process := range processAlertCandidates(d, processLimit, at) {
 		if process.CPUPercent.OK {
 			observations = append(observations, observation{
 				key: "process." + process.PID, metric: "process.cpuPercent",
@@ -378,8 +378,23 @@ func dashboardObservations(d Dashboard, processLimit int) []observation {
 	return observations
 }
 
-func processAlertCandidates(d Dashboard, limit int) []Process {
-	return d.Processes[:min(len(d.Processes), max(0, limit))]
+func currentProcesses(d Dashboard, at time.Time) []Process {
+	processes := make([]Process, 0, len(d.Processes))
+	for _, process := range d.Processes {
+		if !expiredProcessCPU(process.CPUAt, at) {
+			processes = append(processes, process)
+		}
+	}
+	return processes
+}
+
+func processAlertCandidates(d Dashboard, limit int, at time.Time) []Process {
+	processes := currentProcesses(d, at)
+	return processes[:min(len(processes), max(0, limit))]
+}
+
+func expiredProcessCPU(measuredAt, now time.Time) bool {
+	return !measuredAt.IsZero() && now.Sub(measuredAt) > 10*time.Second
 }
 
 func processTimestampIssue(measuredAt, now time.Time) string {
@@ -388,7 +403,7 @@ func processTimestampIssue(measuredAt, now time.Time) string {
 		return "measurement timestamp missing"
 	case measuredAt.After(now):
 		return "measurement timestamp is in the future"
-	case now.Sub(measuredAt) > 10*time.Second:
+	case expiredProcessCPU(measuredAt, now):
 		return "measurement is older than 10s"
 	default:
 		return ""

@@ -193,6 +193,10 @@ func timeBuckets(points []HistoryPoint, width int, start, end time.Time) []Readi
 }
 
 func chartBounds(spec ChartSpec, points []HistoryPoint) (float64, float64) {
+	if spec.Min == nil && nonnegativeChart(spec.Metric) {
+		zero := 0.0
+		spec.Min = &zero
+	}
 	minValue, maxValue := 0.0, 1.0
 	if len(points) > 0 {
 		minValue, maxValue = points[0].Value, points[0].Value
