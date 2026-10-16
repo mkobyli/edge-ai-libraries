@@ -626,7 +626,7 @@ a machine typically has several and only some carry events.
 
 | Prometheus Name            | Field              | Description                             |
 | -------------------------- | ------------------ | --------------------------------------- |
-| `process_cpu_percent`      | `cpu_percent`      | CPU used over the interval              |
+| `process_cpu_percent`      | `cpu_percent`      | CPU used over the interval, normalized to all logical cores (100% = all cores busy) |
 | `process_memory_rss_bytes` | `memory_rss_bytes` | Resident set size                       |
 
 Tagged with `pid` and `process`. Only the process name is collected; command
