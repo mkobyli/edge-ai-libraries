@@ -109,7 +109,7 @@ func (m Model) View() string {
 	} else if m.activeTab == DetailsTab {
 		hint = "h help · a alerts · q quit · arrows select · 1/2/3/4 tabs"
 	} else if m.activeTab == OverviewTab {
-		hint += " · s sort · r reverse"
+		hint += " · s sort · r reverse · c CPU mode"
 	}
 	out = append(out, fitWidth(footerStyle.Render(hint), width))
 	return strings.Join(out, "\n")
@@ -669,6 +669,7 @@ func (m Model) processSection() string {
 	b.WriteString("\n")
 
 	b.WriteString(labelStyle.Render(m.processSortLabel()) + "\n")
+	b.WriteString(labelStyle.Render(m.processCPULabel()) + "\n")
 	processes := m.sortedProcesses()
 	if len(processes) == 0 && m.processSourceMissing() {
 		b.WriteString("No current process samples.\n")
@@ -681,7 +682,7 @@ func (m Model) processSection() string {
 			// external string that reaches the terminal.
 			sanitize(p.PID, 8),
 			sanitize(p.Command, 20),
-			m.thresholdPercent("process.cpuPercent", p.CPUPercent),
+			m.processCPUPercent(p.CPUPercent),
 			formatBytes(p.MemoryBytes),
 		})
 	}

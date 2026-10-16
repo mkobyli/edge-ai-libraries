@@ -15,7 +15,7 @@ func TestLoadDashboardConfigDefaultsWhenAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Processes.MaxDisplayed != 10 || config.Alerts.SamplesToRaise != 3 ||
+	if config.Processes.MaxDisplayed != 10 || config.Processes.CPUMode != "per-core" || config.Alerts.SamplesToRaise != 3 ||
 		config.Alerts.MaxHistory != 50 || config.Alerts.ShowCareful {
 		t.Errorf("unexpected defaults: %+v", config)
 	}
@@ -62,6 +62,8 @@ func TestLoadDashboardConfigRejectsInvalidInput(t *testing.T) {
 		{"unknown field", `{"unknown": true}`, "unknown field"},
 		{"unknown sort", `{"processes":{"sortBy":"command"}}`, "sortBy"},
 		{"empty sort", `{"processes":{"sortBy":""}}`, "sortBy"},
+		{"unknown CPU mode", `{"processes":{"cpuMode":"host"}}`, "cpuMode"},
+		{"empty CPU mode", `{"processes":{"cpuMode":""}}`, "cpuMode"},
 		{"multiple values", `{}` + "\n" + `{}`, "more than one"},
 		{"negative history", `{"alerts":{"maxHistory":-1}}`, "between 0 and 1000"},
 		{"unbounded history", `{"alerts":{"maxHistory":1001}}`, "between 0 and 1000"},

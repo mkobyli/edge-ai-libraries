@@ -11,7 +11,8 @@
   "processes": {
     "maxDisplayed": 10,
     "sortBy": "usage",
-    "descending": true
+    "descending": true,
+    "cpuMode": "per-core"
   },
   "alerts": {
     "samplesToRaise": 3,

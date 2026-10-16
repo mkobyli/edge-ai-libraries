@@ -162,6 +162,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == OverviewTab && !m.showHelp {
 				m.config.Processes.Descending = !m.config.Processes.Descending
 			}
+		case "c":
+			if m.activeTab == OverviewTab && !m.showHelp {
+				m.toggleProcessCPUMode()
+			}
 		case "up", "k":
 			m.setOffset(m.offset - 1)
 		case "down", "j":

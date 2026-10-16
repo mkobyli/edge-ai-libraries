@@ -189,6 +189,7 @@ mm-tui
 | `Tab`, `Shift+Tab` | Cycle through Overview, Trends, Details and Alerts |
 | `1`, `2`, `3`, `4` | Open Overview, Trends, Details or Alerts directly |
 | `s`, `r` | In Overview, cycle process sorting / reverse sort direction |
+| `c` | In Overview, toggle process CPU between per-core and whole-host percentage |
 | Click tab | Switch to that tab, including Alerts |
 | `↑` `↓`, `k` `j` | Scroll the current view a line |
 | `PgUp` `PgDn`, `Space` | Scroll a screen |
@@ -481,6 +482,61 @@ sudo systemctl restart 'metrics-manager-*.service'
 
 These files are marked as configuration, so an upgrade preserves your edits and
 leaves the new packaged version alongside as `.dpkg-dist`.
+
+### Process CPU display modes
+
+Press `c` in Overview to toggle the CPU column in Processes:
+
+- `per-core` (default): 100% means one logical CPU. CPU time includes all
+  threads of the process, so a multithreaded process can exceed 100%.
+- `total`: the per-core reading divided by the monitored host's reported
+  logical CPU count. For example, 140% per-core is 10% total on a 14-CPU host.
+  This is the share of aggregate CPU time, not a frequency-weighted measure
+  of compute performance or a percentage of the process's cgroup CPU quota.
+
+The panel shows the current mode and its 100% reference. The shortcut affects
+only the CPU process table, not GPU process usage, host charts, sorting,
+collector output or alert state. It is inactive in other tabs and help.
+Colors, thresholds and alert evidence remain **per-core in both modes**.
+Consequently, a small total percentage can still be highlighted when a
+process is busy relative to one logical CPU; the total-mode panel reminds
+you of this distinction.
+
+For a persistent startup preference, add `"cpuMode": "total"` (or
+`"per-core"`) to the existing `processes` object in
+`/etc/metrics-manager/tui-dashboard.json`, or the file selected by `-config`:
+
+```json
+"processes": {
+  "maxDisplayed": 10,
+  "sortBy": "usage",
+  "descending": true,
+  "cpuMode": "total"
+}
+```
+
+Restart `mm-tui` after editing. Keyboard toggles are session-only and do not
+write configuration. Existing configurations without `cpuMode` retain
+`per-core`. No collector or Telegraf restart is needed.
+
+The denominator comes from `platform_logical_cpus` on the monitored endpoint,
+never from the machine running the TUI. Without a positive, finite, whole-number
+CPU count, total readings show `n/a` with an explanatory panel message; switch
+back to per-core to inspect the original values. On restricted deployments,
+verify that the platform collector sees all host CPUs: a count limited by
+CPU affinity does not describe the whole host.
+
+For comparison with btop, enable its `per-core` option for our `per-core` mode,
+or disable it for our `total` mode. Sampling windows and rounding can still
+produce differences: our process collector defaults to 1 second, TUI polls
+every 500 ms, and btop's interval is independently configurable.
+
+Process CPU and RSS memory are read from `/proc/<pid>/stat` by
+`mm-plugin-proc`. In the native package it runs as a separate unprivileged
+service and sends samples to Telegraf's Unix socket. Telegraf exposes them
+through its Prometheus endpoint; TUI displays that data without rescanning
+local processes. The collector selects the union of the top CPU and top RSS
+processes, not the complete process list.
 
 ### Dashboard thresholds and warnings
 

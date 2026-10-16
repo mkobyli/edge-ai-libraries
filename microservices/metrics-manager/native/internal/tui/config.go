@@ -33,6 +33,7 @@ type ProcessConfig struct {
 	MaxDisplayed int    `json:"maxDisplayed"`
 	SortBy       string `json:"sortBy"`
 	Descending   bool   `json:"descending"`
+	CPUMode      string `json:"cpuMode"`
 }
 
 type AlertConfig struct {
@@ -70,7 +71,7 @@ var supportedThresholds = map[string]bool{
 
 func DefaultDashboardConfig() DashboardConfig {
 	return DashboardConfig{
-		Processes: ProcessConfig{MaxDisplayed: 10, SortBy: "usage", Descending: true},
+		Processes: ProcessConfig{MaxDisplayed: 10, SortBy: "usage", Descending: true, CPUMode: "per-core"},
 		Mouse:     true,
 		Network:   NetworkConfig{MaxInterfaces: 8, MaxSampleAge: "10s"},
 		Alerts: AlertConfig{
@@ -189,6 +190,11 @@ func (c DashboardConfig) Validate() error {
 	case "usage", "pid", "memory":
 	default:
 		return fmt.Errorf("processes.sortBy must be usage, pid or memory")
+	}
+	switch c.Processes.CPUMode {
+	case "per-core", "total":
+	default:
+		return fmt.Errorf("processes.cpuMode must be per-core or total")
 	}
 	if c.Processes.MaxDisplayed <= 0 || c.Processes.MaxDisplayed > 1000 {
 		return fmt.Errorf("processes.maxDisplayed must be between 1 and 1000")

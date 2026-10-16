@@ -74,7 +74,7 @@ func (m Model) alertDetails(width int) string {
 	var b strings.Builder
 	b.WriteString(headingStyle.Render("Alerts") + "\n")
 	b.WriteString("High utilization may be expected during inference; thresholds are diagnostic, not safety limits.\n\n")
-	b.WriteString("History shows ended episodes, not current load. Process CPU uses one logical CPU as 100%; host charts show aggregate CPU.\n\n")
+	b.WriteString("History shows ended episodes, not current load. Process CPU alerts always use one logical CPU as 100%, regardless of the Overview CPU display mode; host charts show aggregate CPU.\n\n")
 	if m.err != nil || (!m.updatedAt.IsZero() && m.now().Sub(m.updatedAt) > m.staleAfter()) {
 		b.WriteString("Data is stale: these are last known events, not confirmed current conditions.\n\n")
 	}
