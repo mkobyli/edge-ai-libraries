@@ -52,7 +52,7 @@ if [ "${SKIP_IMAGE_BUILD:-0}" = "1" ]; then
     fi
 else
     say "building $IMAGE"
-    make -C "$COMPONENT_DIR" build >/dev/null
+    COMPOSE_PROGRESS=plain make -C "$COMPONENT_DIR" build 
 fi
 
 # ---------------------------------------------------------------------------

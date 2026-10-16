@@ -49,8 +49,10 @@ RestartSec=5s
 # shows this host reads the registers through the device node rather than
 # through perf events. CAP_PERFMON is kept for the perf path, which is what
 # qmassa tries first and what a host with no msr module has to fall back on.
+# CAP_SYS_PTRACE passes the procfs ptrace check; CAP_DAC_READ_SEARCH permits
+# opening other users' /proc/<pid>/fdinfo files under the restricted bounding set.
 SupplementaryGroups=metrics-manager
-CapabilityBoundingSet=CAP_SYS_RAWIO CAP_PERFMON
+CapabilityBoundingSet=CAP_SYS_RAWIO CAP_PERFMON CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
 NoNewPrivileges=true
 #
 # The runtime directory is not root's: it belongs to the service user with mode
@@ -89,7 +91,8 @@ ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectControlGroups=true
 ProtectClock=true
-ProtectProc=invisible
+# qmassa must enumerate and read /proc/<pid>/fdinfo across user IDs to report
+# all GPU clients; ProtectProc=invisible would leave only qmassa itself visible.
 RestrictNamespaces=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
