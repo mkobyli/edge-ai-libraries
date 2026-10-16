@@ -38,7 +38,8 @@ func (m Model) helpBody(width int) string {
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
 		"  Filled plots preserve blank gaps where measurements are missing.\n" +
 		"  Plot colors follow metric thresholds; unmonitored metrics use a fixed color.\n" +
-		"  Missing block glyphs in xterm? Set graphMode=\"ascii\" in the charts config.\n" +
+		"  graphMode=\"solid\" (default) uses background spaces, not block glyphs.\n" +
+		"  Existing graphMode=\"unicode\" settings must be changed to use solid plots.\n" +
 		"  interval shows the configured TUI interval, not the collector cadence.\n" +
 		"  Set -interval at startup to change it (for example -interval 1s).\n" +
 		"  The fixed bottom alert preview can be disabled with alerts.bottomBar=false.\n" +
@@ -47,6 +48,10 @@ func (m Model) helpBody(width int) string {
 		"  Frequency, power and bandwidth stay neutral without a configured limit.\n" +
 		"  recovered: readings confirm the alert ended.\n" +
 		"  no longer observed: observations stopped, not confirmed recovery.\n" +
+		"  Alert evidence: activation value, peak since activation and confirmed recovery.\n" +
+		"  A low last-observed value may be from the recovery-confirmation period.\n" +
+		"  Process CPU: 100% means one logical CPU, not the whole host chart.\n" +
+		"  Process CPU alerts need distinct timestamps no older than 10s.\n" +
 		"  Collection and history continue while help is open.\n\n" +
 		"Network - optional Telegraf net input\n" +
 		"  RX/TX rates need two distinct, timestamped counter measurements.\n" +

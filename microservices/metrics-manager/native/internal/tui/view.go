@@ -195,7 +195,23 @@ func (m Model) panelGrid(width int) string {
 	for i := range panels {
 		panels[i] = framePanel(lipgloss.NewStyle().Width(panelWidth).Render(panels[i]), panelWidth+2)
 	}
-	return packPanels(panels, width, panelMinWidth, 3)
+	return packPanelColumns(panels, width, panelMinWidth, 3)
+}
+
+func packPanelColumns(panels []string, width, minWidth, maxColumns int) string {
+	columns := max(1, min(maxColumns, (width+panelGap)/(minWidth+panelGap)))
+	columnWidth := (width - panelGap*(columns-1)) / columns
+	stacks := make([][]string, columns)
+	for i, panel := range panels {
+		column := i % columns
+		stacks[column] = append(stacks[column], strings.TrimRight(panel, "\n"))
+	}
+	rendered := make([]string, columns)
+	for i, stack := range stacks {
+		rendered[i] = lipgloss.NewStyle().Width(columnWidth).MaxWidth(columnWidth).
+			Render(strings.Join(stack, "\n\n"))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithGap(rendered, panelGap)...)
 }
 
 func (m Model) panelWidth() int {
@@ -616,6 +632,12 @@ func (m Model) processSection() string {
 
 	b.WriteString(labelStyle.Render(m.processSortLabel()) + "\n")
 	processes := m.sortedProcesses()
+	for _, process := range processes {
+		if !freshProcessCPU(process.CPUAt, m.now()) {
+			b.WriteString("CPU alerts paused for rows without a timestamp from the last 10s.\n")
+			break
+		}
+	}
 	rows := make([][]string, 0, len(processes))
 	for _, p := range processes {
 		rows = append(rows, []string{

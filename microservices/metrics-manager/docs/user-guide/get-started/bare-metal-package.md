@@ -220,8 +220,12 @@ while help is open. Tab shortcuts leave help; `a` goes directly to alerts.
 
 Overview responds to the terminal width. It uses one column in a narrow window,
 two columns once each panel can remain readable, and up to three columns in a
-wide terminal. Scrolling remains available when the resulting rows do not fit
-the terminal height. The panels retain their hardware-first reading order.
+wide terminal. Scrolling remains available when the resulting columns do not fit
+the terminal height. Panels are assigned across columns in hardware-first order,
+then stacked independently with one blank line between panels. A short Memory
+panel no longer waits for a taller CPU panel before the next panel can begin.
+Changes to panel heights do not move panels between columns; resizing the
+terminal or adding/removing devices may reflow the layout.
 Tables that cannot fit switch to labelled rows, keeping measurements such as
 RSS, idle time and throttle reasons visible rather than clipping their columns.
 Long descriptive values wrap within their panel.
@@ -273,8 +277,9 @@ The time axis always spans the configured window ending at the current time.
 New samples appear near the right edge during startup; a short history is never
 stretched to look like five minutes of data. Each plot column represents an
 equal time interval and displays the highest observed value in that interval.
-Plots use filled eighth-cell blocks instead of isolated dots. Measured zero
-has a visible baseline mark, and a full-scale value fills the column.
+Plots use colored background cells by default, without special block glyphs.
+The vertical resolution is one terminal cell; measured zero has a visible
+one-cell baseline, and a full-scale value fills the column.
 Columns with no samples stay blank, including interruptions and the part of
 the window before TUI startup. There is no interpolation or zero-filling.
 Gaps shorter than a column's time interval may share a column with valid data.
@@ -469,6 +474,13 @@ It clears after three consecutive samples below the threshold exit,
 with a 5% hysteresis by default so a value close to a boundary does not make the
 alert repeatedly appear and disappear. Missing measurements and failed polls
 break consecutive-sample runs; they do not count as recovery.
+For process CPU and Network, only distinct source measurement timestamps
+advance activation/recovery streaks. Repeated scrapes of a cached measurement
+do not count again. Process CPU samples without a timestamp, from the future,
+or older than 10 seconds cannot confirm alerts; the Processes panel reports
+when timestamp freshness prevents evaluation. Keep Telegraf
+`export_timestamp = true`. Other metric families retain their existing
+successful-poll-based debounce behavior.
 
 Press `4`, click Alerts, or press `a` to open the fourth, scrollable tab. Each entry
 identifies the metric and device (including the GPU engine), its severity,
@@ -480,14 +492,30 @@ The details view retains up to `alerts.maxHistory=50` ended events, newest
 first, in memory for the current TUI session only. Set this to `0` to disable
 history or choose a limit up to `1000`. Recovery below the displayed severity
 ends an event; warning/critical transitions within one episode keep its start
-time. History values and severity describe the last active reading, not the
-recovery sample. After three missing samples, an event ends as
+time. Each episode retains the value and threshold at activation, the peak
+value and its timestamp since activation, and (for recovered episodes) the
+sample that confirmed recovery. The `last observed` reading is the final
+reading while the event was still active, which can already be below the
+threshold during recovery debounce. It is **not** the value that triggered
+the alert; use the activation and peak lines for that evidence. An episode
+that escalates can have an activation threshold below its last active threshold.
+After three missing samples, an event ends as
 `no longer observed`, not `recovered`. Earlier measurements still explain why
 the event was raised; the label means subsequent observations stopped. For a
 process, this can mean it exited or left the monitored top-N list, not
 necessarily a collector failure. Before then it is marked as waiting for data.
 A failed poll keeps last-known events but marks the summary and details as disconnected/stale.
 History is not written to disk and is not a record of events before TUI startup.
+Evidence cannot be reconstructed for episodes from an earlier TUI session.
+
+Process CPU alerts include the PID and use **one logical CPU as 100%**.
+They are not directly comparable to the aggregate host CPU chart: 90% for
+one process corresponds to roughly 6.4% of total capacity on a 14-thread host.
+A multithreaded process can exceed 100%. There are no per-process history plots
+in Trends or Details. An alert naming `mm-tui` refers to the monitor's own
+process and is not suppressed; it should be investigated like any other process.
+`Recent history` entries are ended episodes, while `Active (0)` means no alert
+is currently active. Current graphs need not show the same value as past events.
 
 The defaults and the maximum number of displayed processes are configured in
 `/etc/metrics-manager/tui-dashboard.json`. The installed file documents the
@@ -742,7 +770,12 @@ historical reading with a displayed age when current data is unavailable.
 
 The top-level `graphMode` setting in `tui-charts.json` applies to both tabs:
 
-- `"unicode"` (default): eighth-cell blocks for smooth filled plots.
+- `"solid"` (default): colored backgrounds on ordinary spaces, with full-cell
+  vertical resolution. No partial-block font glyphs are required. A measured
+  zero still fills one baseline cell, distinct from missing data. In monochrome
+  output, `#` is used so the plot does not disappear with the colors.
+- `"unicode"`: optional eighth-cell blocks for finer vertical resolution, requiring
+  a font that supports every partial-block character.
 - `"ascii"`: `#` for full cells, `+` for partial cells and `_` for the lowest
   partial cell/zero baseline, with ASCII plot axes. Colors and data are unchanged.
 
@@ -750,7 +783,7 @@ If xterm displays empty squares or broken glyphs along the tops of columns,
 its selected font may lack the partial-block characters. Set:
 
 ```json
-"graphMode": "ascii"
+"graphMode": "solid"
 ```
 
 Add this property at the top level of your existing charts configuration and
@@ -758,7 +791,11 @@ restart `mm-tui`. Alternatively use an xterm font with the required Unicode
 glyphs. Terminal name alone does not reliably identify font coverage, so the
 TUI does not guess a mode from `TERM`. This option changes the plot symbols,
 not all UI text or panel borders. Missing samples remain blank; measured zero
-keeps a visible baseline in both modes. Older configurations inherit `unicode`.
+keeps a visible baseline in every mode. Configurations omitting `graphMode`
+inherit `solid`. An explicit older `"graphMode": "unicode"` is preserved:
+change it to `"solid"` in the file actually loaded by `-charts-config`.
+Package upgrades preserve locally installed configuration; reinstalling alone
+does not override an explicit mode.
 
 The same file also configures Details through its `details` object:
 
@@ -779,6 +816,10 @@ Network metric cells show short titles such as `RX transfer` or `TX errors`.
 The host and interface remain in the group and selected-chart headings, rather
 than consuming each cell's label space. Device identity, selection and history
 are unchanged.
+Details reserves space for a closing edge below the visible metric rows.
+When a group continues outside the viewport, the edge says `more metrics below`;
+at the last metric it closes normally. That edge is separate from the fixed
+alert separator and cannot be clicked to select a hidden metric.
 The top-level `historyDuration` and `maxPoints` apply to both tabs; no additional
 configuration file is needed. Selecting an unsupported or currently absent
 hardware measurement cannot make its collector expose data.

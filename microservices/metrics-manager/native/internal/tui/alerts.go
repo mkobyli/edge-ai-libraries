@@ -33,15 +33,20 @@ func (s Severity) String() string {
 }
 
 type Alert struct {
-	Key         string
-	Metric      string
-	Device      string
-	Severity    Severity
-	Value       float64
-	Threshold   float64
-	Since       time.Time
-	Message     string
-	Unavailable bool
+	Key              string
+	Metric           string
+	Device           string
+	Severity         Severity
+	Value            float64
+	Threshold        float64
+	Since            time.Time
+	Message          string
+	Unavailable      bool
+	TriggerValue     Reading
+	TriggerThreshold float64
+	PeakValue        Reading
+	PeakAt           time.Time
+	RecoveryValue    Reading
 }
 
 type AlertEvent struct {
@@ -57,12 +62,13 @@ type observation struct {
 }
 
 type alertState struct {
-	observedAt   time.Time
-	active       Severity
-	pending      Severity
-	pendingCount int
-	missingCount int
-	alert        Alert
+	observedAt    time.Time
+	observedValue float64
+	active        Severity
+	pending       Severity
+	pendingCount  int
+	missingCount  int
+	alert         Alert
 }
 
 type AlertTracker struct {
@@ -87,6 +93,9 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 		if !enabled || math.IsNaN(observation.value) || math.IsInf(observation.value, 0) {
 			continue
 		}
+		if observation.metric == "process.cpuPercent" && !freshProcessCPU(observation.at, at) {
+			continue
+		}
 
 		seen[observation.key] = true
 		state := t.states[observation.key]
@@ -97,10 +106,22 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 		state.missingCount = 0
 		state.alert.Unavailable = false
 		if !observation.at.IsZero() {
-			if !observation.at.After(state.observedAt) {
+			if observation.at.Before(state.observedAt) {
+				state.pending = state.active
+				state.pendingCount = 0
+				state.alert.Unavailable = true
+				continue
+			}
+			if observation.at.Equal(state.observedAt) {
+				if observation.value != state.observedValue {
+					state.pending = state.active
+					state.pendingCount = 0
+					state.alert.Unavailable = true
+				}
 				continue
 			}
 			state.observedAt = observation.at
+			state.observedValue = observation.value
 		}
 
 		target := classifyWithHysteresis(observation.value, threshold, state.active,
@@ -138,13 +159,18 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 			state.active = state.pending
 			state.pendingCount = 0
 			if previous >= t.minimumSeverity() && state.active < t.minimumSeverity() {
-				t.archive(state.alert, at, "recovered")
+				ended := state.alert
+				ended.RecoveryValue = reading(observation.value)
+				t.archive(ended, at, "recovered")
 			}
 			if state.active == SeverityOK {
 				state.alert = Alert{}
 			} else if previous == SeverityOK ||
 				(previous < t.minimumSeverity() && state.active >= t.minimumSeverity()) {
-				state.alert.Since = at
+				state.alert = Alert{
+					Since: at, TriggerValue: reading(observation.value),
+					TriggerThreshold: thresholdFor(threshold, state.active),
+				}
 			}
 		}
 		if state.active != SeverityOK {
@@ -155,6 +181,13 @@ func (t *AlertTracker) Update(dashboard Dashboard, thresholds map[string]Thresho
 			state.alert.Value = observation.value
 			state.alert.Threshold = thresholdFor(threshold, state.active)
 			state.alert.Message = observation.message
+			if !state.alert.PeakValue.OK || observation.value > state.alert.PeakValue.Value {
+				state.alert.PeakValue = reading(observation.value)
+				state.alert.PeakAt = at
+				if !observation.at.IsZero() {
+					state.alert.PeakAt = observation.at
+				}
+			}
 		}
 	}
 
@@ -337,11 +370,20 @@ func dashboardObservations(d Dashboard, processLimit int) []observation {
 		processes = processes[:processLimit]
 	}
 	for _, process := range processes {
-		add("process."+process.PID, "process.cpuPercent", process.Command,
-			"Process CPU utilization is sustained.", process.CPUPercent)
+		if process.CPUPercent.OK {
+			observations = append(observations, observation{
+				key: "process." + process.PID, metric: "process.cpuPercent",
+				device: process.Command + " (PID " + process.PID + ")", value: process.CPUPercent.Value, at: process.CPUAt,
+				message: "Process CPU is relative to one logical CPU (100%), not the whole host; inspect the process workload.",
+			})
+		}
 	}
 
 	return observations
+}
+
+func freshProcessCPU(measuredAt, now time.Time) bool {
+	return !measuredAt.IsZero() && !measuredAt.After(now) && now.Sub(measuredAt) <= 10*time.Second
 }
 
 func totalCPUUsage(cpu CPU) Reading {

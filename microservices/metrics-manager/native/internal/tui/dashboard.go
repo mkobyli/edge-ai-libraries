@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/open-edge-platform/edge-ai-libraries/microservices/metrics-manager/native/internal/promtext"
 )
@@ -57,13 +58,18 @@ func (i *Index) All(name string) []promtext.Sample {
 // Labels beyond those in match are ignored, so a caller can select on the one
 // label it cares about without having to know that Telegraf also stamps host.
 func (i *Index) Value(name string, match map[string]string) Reading {
+	sample, ok := i.Sample(name, match)
+	return Reading{Value: sample.Value, OK: ok}
+}
+
+func (i *Index) Sample(name string, match map[string]string) (promtext.Sample, bool) {
 	for _, s := range i.byName[name] {
 		if matches(s.Labels, match) {
-			return reading(s.Value)
+			return s, true
 		}
 	}
 
-	return Reading{}
+	return promtext.Sample{}, false
 }
 
 func matches(labels, match map[string]string) bool {
@@ -341,6 +347,7 @@ type Process struct {
 	Command string
 
 	CPUPercent  Reading
+	CPUAt       time.Time
 	MemoryBytes Reading
 }
 
@@ -406,11 +413,17 @@ func buildProcesses(idx *Index) []Process {
 	processes := make([]Process, 0, len(pids))
 	for _, pid := range pids {
 		match := map[string]string{"pid": pid}
+		cpu, cpuOK := idx.Sample("process_cpu_percent", match)
+		var cpuAt time.Time
+		if cpu.TimestampMS > 0 {
+			cpuAt = time.UnixMilli(cpu.TimestampMS)
+		}
 
 		processes = append(processes, Process{
 			PID:         pid,
 			Command:     soleValue(idx.LabelValues("process_", "process", match)),
-			CPUPercent:  idx.Value("process_cpu_percent", match),
+			CPUPercent:  Reading{Value: cpu.Value, OK: cpuOK},
+			CPUAt:       cpuAt,
 			MemoryBytes: idx.Value("process_memory_rss_bytes", match),
 		})
 	}

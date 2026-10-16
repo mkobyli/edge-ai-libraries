@@ -50,6 +50,7 @@ func TestChartColorsFollowEveryThresholdAndKeepUnmonitoredMetricsNeutral(t *test
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
 	m := testModel(nil)
+	m.chartsConfig.GraphMode = "unicode"
 	for _, spec := range m.chartsConfig.Details.Metrics {
 		threshold, monitored := m.config.Thresholds[thresholdMetric(spec.Metric)]
 		if !monitored {
@@ -209,7 +210,7 @@ func TestIntervalActiveTabsAndBottomSeparatorAcrossViews(t *testing.T) {
 }
 
 func TestGraphModeValidationInheritanceAndPackagedDefault(t *testing.T) {
-	for _, mode := range []string{"unicode", "ascii"} {
+	for _, mode := range []string{"solid", "unicode", "ascii"} {
 		config, err := LoadChartsConfig(writeConfig(t, `{"graphMode":"`+mode+`"}`))
 		if err != nil || config.GraphMode != mode {
 			t.Fatalf("mode %s: %+v, %v", mode, config, err)
@@ -219,8 +220,8 @@ func TestGraphModeValidationInheritanceAndPackagedDefault(t *testing.T) {
 		t.Fatal("unsupported graph mode was accepted")
 	}
 	old, err := LoadChartsConfig(writeConfig(t, `{}`))
-	if err != nil || old.GraphMode != "unicode" {
-		t.Fatalf("old configuration lost the Unicode default: %+v, %v", old, err)
+	if err != nil || old.GraphMode != "solid" {
+		t.Fatalf("old configuration lost the solid default: %+v, %v", old, err)
 	}
 	packaged, err := LoadChartsConfig("../../packaging/etc/tui-charts.json")
 	if err != nil || packaged.GraphMode != DefaultChartsConfig().GraphMode {

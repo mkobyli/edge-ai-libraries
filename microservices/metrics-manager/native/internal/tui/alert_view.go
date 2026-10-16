@@ -49,6 +49,7 @@ func (m Model) alertDetails(width int) string {
 	var b strings.Builder
 	b.WriteString(headingStyle.Render("Alerts") + "\n")
 	b.WriteString("High utilization may be expected during inference; thresholds are diagnostic, not safety limits.\n\n")
+	b.WriteString("History shows ended episodes, not current load. Process CPU uses one logical CPU as 100%; host charts show aggregate CPU.\n\n")
 	if m.err != nil || (!m.updatedAt.IsZero() && m.now().Sub(m.updatedAt) > m.staleAfter()) {
 		b.WriteString("Data is stale: these are last known events, not confirmed current conditions.\n\n")
 	}
@@ -116,9 +117,25 @@ func renderAlert(alert Alert, end time.Time, outcome string) string {
 		}
 	}
 	duration := max(time.Duration(0), end.Sub(alert.Since)).Truncate(time.Second)
+	evidence := ""
+	if alert.TriggerValue.OK {
+		evidence += fmt.Sprintf("  activated at %.1f%s | activation threshold %.1f%s\n",
+			alert.TriggerValue.Value, unit, alert.TriggerThreshold, unit)
+	}
+	if alert.PeakValue.OK {
+		evidence += fmt.Sprintf("  peak since activation %.1f%s at %s\n",
+			alert.PeakValue.Value, unit, alert.PeakAt.Format("2006-01-02 15:04:05"))
+	}
+	if alert.RecoveryValue.OK {
+		evidence += fmt.Sprintf("  confirmed recovery at %.1f%s\n", alert.RecoveryValue.Value, unit)
+	}
+	if outcome == "active" && alert.Value < alert.Threshold {
+		evidence += "  Value is below the event threshold; recovery is not yet confirmed.\n"
+	}
 	return severityStyle(alert.Severity).Render(
 		fmt.Sprintf("%s %s [%s]", alert.Severity, sanitize(label, 180), outcome)) + "\n" +
 		fmt.Sprintf("  %s %.1f%s | threshold %.1f%s\n", valueLabel, alert.Value, unit, alert.Threshold, unit) +
+		evidence +
 		fmt.Sprintf("  since %s | through %s | duration %s\n",
 			alert.Since.Format("2006-01-02 15:04:05"), end.Format("15:04:05"), duration) +
 		"  " + sanitize(alert.Message, 200) + "\n\n"

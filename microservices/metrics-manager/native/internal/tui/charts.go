@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 const chartMinWidth = 52
@@ -93,6 +94,9 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 		fraction = math.Max(0, math.Min(1, fraction))
 		level := int(math.Round(fraction * float64(height*8)))
 		level = max(1, min(height*8, level))
+		if m.chartsConfig.GraphMode == "solid" {
+			level = max(1, int(math.Ceil(fraction*float64(height)))) * 8
+		}
 		blocks := []rune(" ▁▂▃▄▅▆▇█")
 		for row := height - 1; row >= 0 && level > 0; row-- {
 			fill := min(8, level)
@@ -135,6 +139,12 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 				style := chartStyle
 				if monitored {
 					style = severityStyle(severities[start])
+				}
+				if m.chartsConfig.GraphMode == "solid" && lipgloss.ColorProfile() != termenv.Ascii {
+					style = lipgloss.NewStyle().Background(style.GetForeground())
+					text = strings.Repeat(" ", end-start)
+				} else if m.chartsConfig.GraphMode == "solid" {
+					text = strings.Repeat("#", end-start)
 				}
 				text = style.Render(text)
 			}

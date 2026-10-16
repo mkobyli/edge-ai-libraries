@@ -243,22 +243,22 @@ func (m Model) detailsLayout(width int) detailsFrame {
 	frame.chart = render()
 	available := m.visibleRows()
 	if m.height > 0 {
-		for len(frame.chart)+3 > available && chartModel.chartsConfig.ChartHeight > 3 {
+		for len(frame.chart)+6 > available && chartModel.chartsConfig.ChartHeight > 3 {
 			chartModel.chartsConfig.ChartHeight--
 			frame.chart = render()
 		}
-		if len(frame.chart)+2 > available {
+		if len(frame.chart)+3 > available {
 			frame.chart = []string{
 				fitWidth(headingStyle.Render(sanitize(detailTitle(item), width)), width),
 				"Taller terminal needed for plot.",
 			}
-			frame.chart = frame.chart[:min(len(frame.chart), max(0, available-2))]
+			frame.chart = frame.chart[:min(len(frame.chart), max(0, available-3))]
 		}
 	}
 	totalRows := len(frame.rows)
 	frame.visibleRows = totalRows
 	if m.height > 0 {
-		frame.visibleRows = min(totalRows, max(0, available-len(frame.chart)-1))
+		frame.visibleRows = min(totalRows, max(0, available-len(frame.chart)-2))
 	}
 	frame.firstRow = min(m.detailTop, max(0, totalRows-frame.visibleRows))
 	selectedRow := frame.itemRows[frame.selected]
@@ -316,6 +316,16 @@ func (m Model) detailsBody(width int) string {
 			cells = append(cells, cell)
 		}
 		lines = append(lines, panelRow(strings.Join(cells, strings.Repeat(" ", panelGap)), width))
+	}
+	if frame.visibleRows > 0 {
+		last := frame.firstRow + frame.visibleRows - 1
+		if !frame.rows[last].bottom {
+			title := ""
+			if last < len(frame.rows)-2 {
+				title = "more metrics below"
+			}
+			lines = append(lines, panelEdge(title, width, true))
+		}
 	}
 	return strings.Join(lines, "\n")
 }

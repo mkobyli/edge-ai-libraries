@@ -73,7 +73,7 @@ func DefaultChartsConfig() ChartsConfig {
 		HistoryDuration: "5m",
 		MaxPoints:       600,
 		ChartHeight:     6,
-		GraphMode:       "unicode",
+		GraphMode:       "solid",
 		Details: DetailsConfig{
 			DefaultMetric: "cpu.totalPercent",
 			ChartHeight:   10,
@@ -136,8 +136,8 @@ func LoadChartsConfig(path string) (ChartsConfig, error) {
 }
 
 func (c ChartsConfig) Validate() error {
-	if c.GraphMode != "unicode" && c.GraphMode != "ascii" {
-		return fmt.Errorf("graphMode must be unicode or ascii")
+	if c.GraphMode != "solid" && c.GraphMode != "unicode" && c.GraphMode != "ascii" {
+		return fmt.Errorf("graphMode must be solid, unicode or ascii")
 	}
 	duration, err := time.ParseDuration(c.HistoryDuration)
 	if err != nil {

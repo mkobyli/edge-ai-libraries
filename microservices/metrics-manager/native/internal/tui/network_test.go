@@ -428,6 +428,7 @@ func TestNetworkStalenessHistoryExpiryAndRetainedSelection(t *testing.T) {
 func TestNetworkUtilizationBeyondChartRangeFillsRatherThanOverflows(t *testing.T) {
 	at := time.Unix(1000, 0)
 	m := NewModel(nil)
+	m.chartsConfig.GraphMode = "unicode"
 	m.now = func() time.Time { return at }
 	m.chartsConfig.ChartHeight = 3
 	series := HistorySeries{Available: true, Points: []HistoryPoint{{At: at, Value: 1e100}}}

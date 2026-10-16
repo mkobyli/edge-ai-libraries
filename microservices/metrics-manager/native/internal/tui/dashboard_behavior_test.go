@@ -192,6 +192,7 @@ func TestThresholdColorsMatchAcrossOverviewAndDetails(t *testing.T) {
 
 func TestFilledChartRendersAreaWithExactBoundsAndMissingColumns(t *testing.T) {
 	m := testModel(nil)
+	m.chartsConfig.GraphMode = "unicode"
 	m.chartsConfig.ChartHeight = 3
 	spec := fixedChart("cpu.totalPercent", "CPU", "%", 0, 100)
 	series := HistorySeries{Available: true, Points: []HistoryPoint{
