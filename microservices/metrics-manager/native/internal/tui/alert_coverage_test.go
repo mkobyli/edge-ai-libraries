@@ -194,16 +194,16 @@ func TestProcessExpirationBoundaryAndOptionalSource(t *testing.T) {
 		stamp   time.Time
 		expired bool
 	}{
-		{fixedNow.Add(-10 * time.Second), false},
-		{fixedNow.Add(-10*time.Second - time.Millisecond), true},
+		{fixedNow.Add(-3 * time.Second), false},
+		{fixedNow.Add(-3*time.Second - time.Nanosecond), true},
 		{time.Time{}, false},
 		{fixedNow.Add(time.Second), false},
 	} {
 		m.dash.Processes = []Process{{PID: "1", Command: "systemd", CPUPercent: reading(99), CPUAt: tc.stamp}}
-		if got := len(currentProcesses(m.dash, fixedNow)) == 0; got != tc.expired {
+		if got := len(currentProcesses(m.dash, fixedNow, m.alerts.processMaxAge)) == 0; got != tc.expired {
 			t.Fatalf("timestamp %v expired=%v, want %v", tc.stamp, got, tc.expired)
 		}
-		if !tc.expired && !freshProcessCPU(tc.stamp, fixedNow) && !m.processCoverageLimited() {
+		if !tc.expired && !freshProcessCPU(tc.stamp, fixedNow, m.alerts.processMaxAge) && !m.processCoverageLimited() {
 			t.Fatal("missing/future timestamps were silently ignored as cached entries")
 		}
 	}

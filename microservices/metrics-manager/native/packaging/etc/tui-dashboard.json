@@ -12,7 +12,8 @@
     "maxDisplayed": 10,
     "sortBy": "usage",
     "descending": true,
-    "cpuMode": "per-core"
+    "cpuMode": "per-core",
+    "maxSampleAge": "3s"
   },
   "alerts": {
     "samplesToRaise": 3,

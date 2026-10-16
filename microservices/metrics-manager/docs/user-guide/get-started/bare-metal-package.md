@@ -587,17 +587,32 @@ break consecutive-sample runs; they do not count as recovery.
 For process CPU and Network, only distinct source measurement timestamps
 advance activation/recovery streaks. Repeated scrapes of a cached measurement
 do not count again. Process CPU samples without a timestamp, from the future,
-or older than 10 seconds cannot confirm alerts.
+or older than `processes.maxSampleAge` (3 seconds by default) cannot confirm alerts.
 
 The process collector publishes the union of top CPU and top memory processes.
 When a process leaves that set or exits, Telegraf can retain its last series
 until the exporter cache expires (60 seconds by default). TUI excludes samples
-older than 10 seconds **before** applying the display or alert-evaluation limit,
+older than `processes.maxSampleAge` **before** applying the display or alert-evaluation limit,
 so cached values cannot crowd out current processes. Excluded entries are
 listed as neutral `Retained process samples` diagnostics in Alerts. Their
 presence alone does not produce `limited` while current process data remains.
 This is age-based filtering, not proof that a particular process exited or
 left the collector's top list; no process-name exclusions are used.
+
+Set `"maxSampleAge": "3s"` inside the existing `processes` object in
+`/etc/metrics-manager/tui-dashboard.json` (or the file selected by `-config`).
+Accepted durations range from `1s` to `5m`; use `"10s"` to retain the previous
+timeout. Existing configurations without this field inherit the new `3s`
+default. Restart TUI after editing; the collector and Telegraf do not need
+restarting for this setting.
+
+The limit measures time since the last source sample, not since process exit.
+A sample exactly at the limit is still accepted; it is hidden on the next
+render after exceeding the limit, even without a new successful scrape.
+Choose a value above the collector interval plus delivery delay to avoid
+hiding live processes during normal delays. Missing timestamps are diagnosed
+but cannot be age-filtered; they remain subject to Telegraf's exporter expiry.
+This option does not change Network sample age or Telegraf's cache lifetime.
 
 Missing timestamps, future timestamps and inconsistent current samples still
 limit alert confirmation. Loss of all current process samples from a previously

@@ -72,7 +72,7 @@ func TestProcessAlertStreakBreaksOnMissingInvalidAndOldTimestamps(t *testing.T) 
 func TestProcessAlertMissingDataKeepsEvidenceWithoutClaimingRecovery(t *testing.T) {
 	config := DefaultDashboardConfig()
 	config.Alerts.SamplesToRaise = 1
-	tracker := NewAlertTracker(config.Alerts, 10)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	tracker.Update(Dashboard{Processes: []Process{{PID: "1", CPUPercent: reading(99), CPUAt: fixedNow}}},
 		config.Thresholds, fixedNow)
 	for i := 1; i <= config.Alerts.SamplesToClear; i++ {
@@ -91,7 +91,7 @@ func TestProcessAlertMissingDataKeepsEvidenceWithoutClaimingRecovery(t *testing.
 func TestAlertEvidenceSurvivesEscalationAndRecoveryDebounce(t *testing.T) {
 	config := DefaultDashboardConfig()
 	config.Alerts.SamplesToRaise = 1
-	tracker := NewAlertTracker(config.Alerts, 10)
+	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	for i, value := range []float64{75, 95, 4, 3, 2} {
 		tracker.Update(Dashboard{Memory: Memory{UsedPercent: reading(value)}}, config.Thresholds,
 			fixedNow.Add(time.Duration(i)*time.Second))
@@ -126,7 +126,7 @@ func TestMissingProcessTimestampsAreExplainedInAlertsNotTheProcessTable(t *testi
 func TestProcessAlertStreakBreaksOnConflictingOrRewoundMeasurements(t *testing.T) {
 	for _, rewind := range []bool{false, true} {
 		config := DefaultDashboardConfig()
-		tracker := NewAlertTracker(config.Alerts, 10)
+		tracker := NewAlertTracker(config.Alerts, config.Processes)
 		send := func(stamp, now time.Time, value float64) {
 			tracker.Update(Dashboard{Processes: []Process{{PID: "42", CPUPercent: reading(value), CPUAt: stamp}}},
 				config.Thresholds, now)

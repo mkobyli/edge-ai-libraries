@@ -30,10 +30,32 @@ type DashboardConfig struct {
 }
 
 type ProcessConfig struct {
-	MaxDisplayed int    `json:"maxDisplayed"`
-	SortBy       string `json:"sortBy"`
-	Descending   bool   `json:"descending"`
-	CPUMode      string `json:"cpuMode"`
+	MaxDisplayed int              `json:"maxDisplayed"`
+	SortBy       string           `json:"sortBy"`
+	Descending   bool             `json:"descending"`
+	CPUMode      string           `json:"cpuMode"`
+	MaxSampleAge processSampleAge `json:"maxSampleAge"`
+}
+
+// processSampleAge keeps the JSON duration string while parsing it at the
+// configuration boundary, so display and alert paths share a typed duration.
+type processSampleAge time.Duration
+
+func (age processSampleAge) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(age).String())
+}
+
+func (age *processSampleAge) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err != nil {
+		return fmt.Errorf("processes.maxSampleAge must be a duration string: %w", err)
+	}
+	value, err := time.ParseDuration(text)
+	if err != nil {
+		return fmt.Errorf("processes.maxSampleAge must be a duration: %w", err)
+	}
+	*age = processSampleAge(value)
+	return nil
 }
 
 type AlertConfig struct {
@@ -71,7 +93,7 @@ var supportedThresholds = map[string]bool{
 
 func DefaultDashboardConfig() DashboardConfig {
 	return DashboardConfig{
-		Processes: ProcessConfig{MaxDisplayed: 10, SortBy: "usage", Descending: true, CPUMode: "per-core"},
+		Processes: ProcessConfig{MaxDisplayed: 10, SortBy: "usage", Descending: true, CPUMode: "per-core", MaxSampleAge: processSampleAge(3 * time.Second)},
 		Mouse:     true,
 		Network:   NetworkConfig{MaxInterfaces: 8, MaxSampleAge: "10s"},
 		Alerts: AlertConfig{
@@ -198,6 +220,9 @@ func (c DashboardConfig) Validate() error {
 	}
 	if c.Processes.MaxDisplayed <= 0 || c.Processes.MaxDisplayed > 1000 {
 		return fmt.Errorf("processes.maxDisplayed must be between 1 and 1000")
+	}
+	if time.Duration(c.Processes.MaxSampleAge) < time.Second || time.Duration(c.Processes.MaxSampleAge) > 5*time.Minute {
+		return fmt.Errorf("processes.maxSampleAge must be between 1s and 5m")
 	}
 	if c.Alerts.SamplesToRaise <= 0 || c.Alerts.SamplesToRaise > 1000 {
 		return fmt.Errorf("alerts.samplesToRaise must be between 1 and 1000")

@@ -68,11 +68,12 @@ func (m Model) helpBody(width int) string {
 		"  Alert evidence: activation value, peak since activation and confirmed recovery.\n" +
 		"  A low last-observed value may be from the recovery-confirmation period.\n" +
 		"  Process CPU alert evidence: 100% means one logical CPU, regardless of display mode.\n" +
-		"  Process CPU alerts need distinct timestamps no older than 10s.\n" +
+		"  Process CPU alerts need distinct timestamps within processes.maxSampleAge (default 3s).\n" +
 		"  [4/a] Open alerts shows events and per-process data-quality diagnostics.\n" +
 		"  Process CPU alerts: limited (CPU! on narrow screens) means incomplete evaluation,\n" +
 		"  not stopped collection. The process table remains available.\n" +
-		"  Cached process samples older than 10s are excluded before ranking.\n" +
+		"  Cached process samples older than processes.maxSampleAge are excluded before ranking.\n" +
+		"  Set this duration above the collector interval plus delivery delay; range 1s to 5m.\n" +
 		"  Their retention alone is informational; loss of all current process data is flagged.\n" +
 		"  Collection and history continue while help is open.\n\n" +
 		"Network - optional Telegraf net input\n" +

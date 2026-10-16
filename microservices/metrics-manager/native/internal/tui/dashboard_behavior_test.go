@@ -30,7 +30,7 @@ func TestProcessSortingBeforeLimitWithoutMutatingObservations(t *testing.T) {
 			PID: p.PID, UsagePct: p.CPUPercent, MemoryBytes: p.MemoryBytes,
 		})
 	}
-	before := dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow)
+	before := dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow, m.alerts.processMaxAge)
 	for _, tc := range []struct {
 		sort string
 		desc bool
@@ -54,7 +54,7 @@ func TestProcessSortingBeforeLimitWithoutMutatingObservations(t *testing.T) {
 		if strings.Join(cpu, ",") != tc.pids || strings.Join(gpu, ",") != tc.pids {
 			t.Fatalf("%s desc=%v: CPU %v GPU %v, want %s", tc.sort, tc.desc, cpu, gpu, tc.pids)
 		}
-		if !reflect.DeepEqual(before, dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow)) {
+		if !reflect.DeepEqual(before, dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow, m.alerts.processMaxAge)) {
 			t.Fatal("display sorting changed the alert population")
 		}
 	}

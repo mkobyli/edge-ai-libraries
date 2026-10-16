@@ -89,7 +89,7 @@ func (m Model) alertDetails(width int) string {
 	}
 	if issues := m.processAlertIssues(); len(issues) > 0 {
 		b.WriteString("\n" + headingStyle.Render(fmt.Sprintf("Process CPU alert coverage (%d/%d limited)",
-			len(issues), len(processAlertCandidates(m.dash, m.alerts.processLimit, m.now())))) + "\n")
+			len(issues), len(processAlertCandidates(m.dash, m.alerts.processLimit, m.now(), m.alerts.processMaxAge)))) + "\n")
 		b.WriteString("These samples cannot confirm CPU alerts; this does not block process collection or display.\n")
 		for _, issue := range issues {
 			b.WriteString(fmt.Sprintf("  %s (PID %s): %s\n", sanitize(issue.process.Command, 60),
@@ -105,12 +105,12 @@ func (m Model) alertDetails(width int) string {
 		b.WriteString("\n" + headingStyle.Render("Process CPU data unavailable") + "\n")
 		b.WriteString("No current process samples remain from a previously observed source. Check the process collector and its delivery to Telegraf.\n")
 	}
-	if retained := len(m.dash.Processes) - len(currentProcesses(m.dash, m.now())); retained > 0 {
+	if retained := len(m.dash.Processes) - len(currentProcesses(m.dash, m.now(), m.alerts.processMaxAge)); retained > 0 {
 		b.WriteString("\n" + headingStyle.Render(fmt.Sprintf("Retained process samples (%d excluded)", retained)) + "\n")
-		b.WriteString("Samples older than 10s are excluded before ranking and alert evaluation. Top-list rotation or an exited process can leave cached samples; this alone does not mean collection failed.\n")
+		b.WriteString(fmt.Sprintf("Samples older than %s are excluded before ranking and alert evaluation (processes.maxSampleAge). Top-list rotation or an exited process can leave cached samples; this alone does not mean collection failed.\n", m.alerts.processMaxAge))
 		shown := 0
 		for _, process := range m.dash.Processes {
-			if expiredProcessCPU(process.CPUAt, m.now()) && shown < m.alerts.processLimit {
+			if expiredProcessCPU(process.CPUAt, m.now(), m.alerts.processMaxAge) && shown < m.alerts.processLimit {
 				b.WriteString(fmt.Sprintf("  %s (PID %s): last sample %s\n",
 					sanitize(process.Command, 60), sanitize(process.PID, 20), process.CPUAt.Format(time.RFC3339Nano)))
 				shown++
@@ -137,7 +137,7 @@ type processAlertIssue struct {
 }
 
 func (m Model) processSourceMissing() bool {
-	return (m.processDataSeen || len(m.dash.Processes) > 0) && len(currentProcesses(m.dash, m.now())) == 0
+	return (m.processDataSeen || len(m.dash.Processes) > 0) && len(currentProcesses(m.dash, m.now(), m.alerts.processMaxAge)) == 0
 }
 
 func (m Model) processCoverageLimited() bool {
@@ -153,8 +153,8 @@ func (m Model) processAlertIssues() []processAlertIssue {
 	}
 	var issues []processAlertIssue
 	now := m.now()
-	for _, process := range processAlertCandidates(m.dash, m.alerts.processLimit, now) {
-		reason := processTimestampIssue(process.CPUAt, now)
+	for _, process := range processAlertCandidates(m.dash, m.alerts.processLimit, now, m.alerts.processMaxAge) {
+		reason := processTimestampIssue(process.CPUAt, now, m.alerts.processMaxAge)
 		if !finiteReading(process.CPUPercent) {
 			reason = "CPU measurement missing or non-finite"
 		} else if reason == "" {

@@ -97,7 +97,7 @@ func NewModelWithConfigs(
 		snapshots:       ch,
 		config:          config,
 		chartsConfig:    chartsConfig,
-		alerts:          NewAlertTracker(config.Alerts, config.Processes.MaxDisplayed),
+		alerts:          NewAlertTracker(config.Alerts, config.Processes),
 		history:         NewHistory(chartsConfig),
 		detailSelection: detailChoice{metric: chartsConfig.Details.DefaultMetric},
 		now:             time.Now,

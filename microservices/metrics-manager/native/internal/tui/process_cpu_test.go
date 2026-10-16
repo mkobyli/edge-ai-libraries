@@ -168,7 +168,7 @@ func TestProcessCPUModePreservesMeasurementsSortingAndAlerts(t *testing.T) {
 	if len(alerts) != 1 || alerts[0].Value != 140 {
 		t.Fatalf("fixture did not raise a per-core alert: %+v", alerts)
 	}
-	observations := dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow)
+	observations := dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow, m.alerts.processMaxAge)
 	processes := m.sortedProcesses()
 	gpu := m.gpuProcessTable(m.dash.GPUs[0].Processes, 80)
 	host := m.cpuSection()
@@ -176,7 +176,7 @@ func TestProcessCPUModePreservesMeasurementsSortingAndAlerts(t *testing.T) {
 	wantContains(t, m.processSection(), "10.0%")
 	wantContains(t, m.processSection(), "Colors/alerts: per-core")
 	m.alerts.Update(m.dash, m.config.Thresholds, fixedNow)
-	if !reflect.DeepEqual(observations, dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow)) ||
+	if !reflect.DeepEqual(observations, dashboardObservations(m.dash, m.config.Processes.MaxDisplayed, fixedNow, m.alerts.processMaxAge)) ||
 		!reflect.DeepEqual(processes, m.sortedProcesses()) || !reflect.DeepEqual(alerts, m.alerts.Active()) {
 		t.Fatal("CPU display mode changed measurements, sorting or alert evidence")
 	}
