@@ -14,7 +14,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-func TestOverviewGroupsDoNotInterleave(t *testing.T) {
+func TestOverviewKeepsProcessesAndAcceleratorsAboveIO(t *testing.T) {
 	rowOf := func(text, marker string) int {
 		t.Helper()
 		for i, line := range strings.Split(text, "\n") {
@@ -26,52 +26,69 @@ func TestOverviewGroupsDoNotInterleave(t *testing.T) {
 		return -1
 	}
 	m := testModel(nil)
-	m.dash.GPUs = []GPU{{ID: "0", Processes: []GPUProcess{{PID: "300", Command: "gpu-worker"}}}, {ID: "1"}}
+	m.dash = BuildDashboard(parseFixture(t, hostExposition+acceleratorExposition))
+	m.dash.GPUs[0].Processes = []GPUProcess{{PID: "300", Command: "gpu-worker"}}
+	m.dash.GPUs = append(m.dash.GPUs, GPU{ID: "1", Processes: []GPUProcess{{PID: "301", Command: "other-gpu"}}})
 	m.dash.NPU.Present = true
 	m.dash.Processes = []Process{{PID: "200", Command: "cpu-worker"}}
 	var network networkTracker
 	m.dash.Network, _ = network.update(networkSamples(fixedNow, 0, "eth0", "host"), fixedNow, m.config.Network)
 	var storage storageTracker
 	m.dash.Storage, _ = storage.update(storageSamples(fixedNow, 0, 50), fixedNow, m.config.Storage)
-	for _, width := range []int{100, 160, 240} {
+	for _, width := range []int{80, 152, 153, 200, 223, 224, 240, 300} {
 		m.width = width
 		view := ansi.Strip(m.panelGrid(width))
-		previous := -1
-		for _, marker := range []string{"┌ CPU", "┌ GPU 0 ", "┌ Network eth0", "┌ Filesystem /data", "┌ Processes", "┌ GPU 0 Processes"} {
-			row := rowOf(view, marker)
-			if row <= previous {
-				t.Fatalf("groups interleaved at width %d:\n%s", width, view)
+		networkRow := rowOf(view, "┌ Network eth0")
+		for _, marker := range []string{"┌ CPU", "┌ Memory", "┌ NPU", "┌ GPU 0 ", "┌ GPU 1", "┌ Processes", "gpu-worker", "other-gpu", "cpu-worker"} {
+			if rowOf(view, marker) >= networkRow {
+				t.Fatalf("Network displaced %s at width %d:\n%s", marker, width, view)
 			}
-			previous = row
 		}
-		wantContains(t, view, "cpu-worker")
-		wantContains(t, view, "gpu-worker")
-		if strings.Count(view, "gpu-worker") != 1 {
-			t.Fatal("GPU process list was duplicated")
+		if rowOf(view, "┌ Filesystem /data") <= networkRow {
+			t.Fatal("Storage displaced Network")
 		}
+		widths := m.overviewColumnWidths(width)
+		expectedColumns := 1
+		if width >= 153 {
+			expectedColumns = 2
+		}
+		if width >= 224 {
+			expectedColumns = 3
+		}
+		if len(widths) != expectedColumns {
+			t.Fatalf("width %d: got %d columns, want %d", width, len(widths), expectedColumns)
+		}
+		if len(widths) > 1 {
+			if rowOf(view, "┌ Processes") != 0 {
+				t.Fatalf("CPU processes not at top at width %d", width)
+			}
+			start := width - widths[len(widths)-1]
+			if !strings.HasPrefix(ansi.Cut(strings.Split(view, "\n")[0], start, width), "┌ Processes") {
+				t.Fatalf("CPU processes not on the right at width %d", width)
+			}
+		}
+		if len(widths) == 3 && rowOf(view, "┌ GPU 0 ") != 0 {
+			t.Fatal("GPU not at top of middle column")
+		}
+		gpuStart, gpuWidth := 0, widths[0]
+		if len(widths) == 3 {
+			gpuStart, gpuWidth = widths[0]+panelGap, widths[1]
+		}
+		var gpuLines []string
 		for _, line := range strings.Split(view, "\n") {
-			if strings.Contains(line, "┌ Processes") || strings.Contains(line, "┌ GPU 0 Processes") {
-				if lipgloss.Width(line) != width {
-					t.Fatalf("process frame is not full width: %q", line)
-				}
+			if lipgloss.Width(line) > width {
+				t.Fatalf("width %d overflow: %q", width, line)
 			}
+			gpuLines = append(gpuLines, ansi.Cut(line, gpuStart, gpuStart+gpuWidth))
 		}
-		if width == 240 && !lineContainsAll(strings.Split(view, "\n"), "GPU 0", "GPU 1", "NPU") {
-			t.Fatal("wide accelerator group did not use three columns")
-		}
-		if strings.Contains(m.gpuSection(m.dash.GPUs[0]), "gpu-worker") {
-			t.Fatal("processes remained mixed into GPU hardware panel")
-		}
-	}
-	m.width = 160
-	for _, height := range []int{6, 20} {
-		view := m.overviewGroup(160, []func(Model) string{
-			func(Model) string { return "CPU\n" + strings.Repeat("cpu row\n", height) },
-			func(Model) string { return "Memory\nmemory row" },
-			func(Model) string { return "GPU\ngpu row" },
-		})
-		if rowOf(view, "GPU") <= rowOf(view, "cpu row")+height-1 {
-			t.Fatal("next row started before preceding row completed")
+		gpuColumn := strings.Join(gpuLines, "\n")
+		for _, pair := range [][2]string{{"┌ GPU 0 ", "gpu-worker"}, {"┌ GPU 1", "other-gpu"}} {
+			start := strings.Index(gpuColumn, pair[0])
+			frame, _, _ := strings.Cut(gpuColumn[start:], "└")
+			wantContains(t, frame, pair[1])
+			if strings.Count(view, pair[1]) != 1 {
+				t.Fatal("GPU process list was duplicated")
+			}
 		}
 	}
 }

@@ -129,6 +129,41 @@ func TestProcessHorizontalScrollScopeBoundsAndResize(t *testing.T) {
 	}
 }
 
+func TestProcessScrollUsesActualOverviewColumnWidth(t *testing.T) {
+	m := testModel(nil)
+	m.dash.Platform.LogicalCPUs = reading(1)
+	m.dash.Processes = []Process{{
+		PID: "123456", Command: strings.Repeat("p", 20), User: strings.Repeat("u", 16),
+		Threads: reading(123456789012), MemoryBytes: reading(1 << 30), CPUPercent: reading(97),
+	}}
+	m.dash.GPUs = []GPU{{ID: "0"}}
+	for _, width := range []int{153, 224} {
+		m.width = width
+		widths := m.overviewColumnWidths(width)
+		columnWidth := widths[len(widths)-1] - 2
+		total := lipgloss.Width(fittedProcessTable(processColumns, m.processRows(m.sortedProcesses()), columnWidth))
+		if total <= columnWidth {
+			t.Fatal("fixture must overflow the process column, not the terminal")
+		}
+		m.processColumnOffset = 0
+		m, _ = update(t, m, key("right"))
+		if m.processColumnOffset != min(8, total-columnWidth) {
+			t.Fatal("scroll was clamped to terminal width instead of panel width")
+		}
+		m.moveProcessColumns(10000)
+		wantContains(t, m.panelGrid(width), "97.0%")
+	}
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 400, Height: 18})
+	if m.processColumnOffset != 0 {
+		t.Fatal("resize did not reset the now-unnecessary horizontal offset")
+	}
+	wantContains(t, m.View(), "┌ Processes")
+	m, _ = update(t, m, key("down"))
+	if m.offset == 0 || strings.Contains(m.View(), "┌ Processes") {
+		t.Fatal("CPU process frame was pinned rather than scrolling with Overview")
+	}
+}
+
 func TestProcessTableScrollPreservesANSIAndWideText(t *testing.T) {
 	profile := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.ANSI256)

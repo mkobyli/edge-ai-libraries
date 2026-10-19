@@ -13,6 +13,9 @@ import (
 )
 
 func (m Model) processViewportWidth() int {
+	if m.panelContentWidth > 0 {
+		return m.panelContentWidth
+	}
 	return max(1, m.renderWidth()-2)
 }
 
@@ -65,15 +68,21 @@ func (m *Model) moveProcessColumns(delta int) {
 	if m.processColumnOffset == 0 && delta <= 0 {
 		return
 	}
-	width := m.processViewportWidth()
-	total := width
+	widths := m.overviewColumnWidths(m.renderWidth())
+	width := max(1, widths[len(widths)-1]-2)
+	limit := 0
 	if len(m.dash.Processes) > 0 {
-		total = max(total, lipgloss.Width(fittedProcessTable(processColumns, m.processRows(m.sortedProcesses()), width)))
+		limit = max(limit, lipgloss.Width(fittedProcessTable(processColumns, m.processRows(m.sortedProcesses()), width))-width)
 	}
+	gpuColumn := 0
+	if len(widths) == 3 {
+		gpuColumn = 1
+	}
+	width = max(1, widths[gpuColumn]-2)
 	for _, gpu := range m.dash.GPUs {
 		if len(gpu.Processes) > 0 {
-			total = max(total, lipgloss.Width(fittedProcessTable(gpuProcessColumns, m.gpuProcessRows(m.sortedGPUProcesses(gpu.Processes)), width)))
+			limit = max(limit, lipgloss.Width(fittedProcessTable(gpuProcessColumns, m.gpuProcessRows(m.sortedGPUProcesses(gpu.Processes)), width))-width)
 		}
 	}
-	m.processColumnOffset = max(0, min(m.processColumnOffset+delta, total-width))
+	m.processColumnOffset = max(0, min(m.processColumnOffset+delta, limit))
 }

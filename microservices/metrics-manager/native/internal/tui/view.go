@@ -200,20 +200,8 @@ func (m Model) bodyLines(width int) []string {
 	return lines
 }
 
-// Groups finish their rows before the next group starts. Process tables use
-// the full terminal width independently of the hardware panel grid.
 func (m Model) panelGrid(width int) string {
-	groups := []string{m.overviewGroup(width, []func(Model) string{Model.cpuSection, Model.memorySection})}
-	var accelerators []func(Model) string
-	for _, gpu := range m.dash.GPUs {
-		accelerators = append(accelerators, func(m Model) string { return m.gpuSection(gpu) })
-	}
-	if m.dash.NPU.Present {
-		accelerators = append(accelerators, Model.npuSection)
-	}
-	if len(accelerators) > 0 {
-		groups = append(groups, m.overviewGroup(width, accelerators))
-	}
+	groups := []string{m.overviewPrimary(width)}
 	var networks []func(Model) string
 	for _, network := range m.dash.Network {
 		networks = append(networks, func(m Model) string { return m.networkSection(network) })
@@ -238,19 +226,66 @@ func (m Model) panelGrid(width int) string {
 	if len(disks) > 0 {
 		groups = append(groups, m.overviewGroup(width, disks))
 	}
-	m.width = width
+	return strings.Join(groups, "\n\n")
+}
+
+// Reserve more space for the six-column CPU process table than for hardware.
+// Layout depends on terminal width, not changing process names or readings.
+func (m Model) overviewColumnWidths(width int) []int {
+	const processPanelMinWidth = 82
+	columns := 1
+	if width >= panelMinWidth+panelGap+processPanelMinWidth {
+		columns = 2
+	}
+	if len(m.dash.GPUs) > 0 && width >= 2*panelMinWidth+2*panelGap+processPanelMinWidth {
+		columns = 3
+	}
+	if columns == 1 {
+		return []int{width}
+	}
+	extra := width - (columns-1)*(panelMinWidth+panelGap) - processPanelMinWidth
+	widths := make([]int, columns)
+	for i := range widths {
+		widths[i] = panelMinWidth + extra/columns
+	}
+	widths[columns-1] = processPanelMinWidth + extra/columns + extra%columns
+	return widths
+}
+
+func (m Model) overviewPrimary(width int) string {
+	widths := m.overviewColumnWidths(width)
+	stacks := make([][]func(Model) string, len(widths))
+	stacks[0] = append(stacks[0], Model.cpuSection)
 	if len(m.dash.Processes) > 0 {
-		groups = append(groups, framePanel(m.processSection(), width))
+		last := len(stacks) - 1
+		stacks[last] = append(stacks[last], Model.processSection)
+	}
+	stacks[0] = append(stacks[0], Model.memorySection)
+	gpuColumn := 0
+	if len(stacks) == 3 {
+		gpuColumn = 1
 	}
 	for _, gpu := range m.dash.GPUs {
-		if len(gpu.Processes) > 0 {
-			content := "GPU " + sanitize(gpu.ID, 8) + " Processes\n" +
-				labelStyle.Render(m.processSortLabel()) + "\n" +
-				m.gpuProcessTable(m.sortedGPUProcesses(gpu.Processes), m.processViewportWidth())
-			groups = append(groups, framePanel(content, width))
-		}
+		stacks[gpuColumn] = append(stacks[gpuColumn], func(m Model) string { return m.gpuSection(gpu) })
 	}
-	return strings.Join(groups, "\n\n")
+	if m.dash.NPU.Present {
+		npuColumn := 0
+		if len(stacks) == 2 {
+			npuColumn = 1
+		}
+		stacks[npuColumn] = append(stacks[npuColumn], Model.npuSection)
+	}
+	rendered := make([]string, len(stacks))
+	for i, stack := range stacks {
+		column := m
+		column.panelContentWidth = max(1, widths[i]-2)
+		panels := make([]string, 0, len(stack))
+		for _, render := range stack {
+			panels = append(panels, framePanel(render(column), widths[i]))
+		}
+		rendered[i] = lipgloss.NewStyle().Width(widths[i]).Render(strings.Join(panels, "\n\n"))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithGap(rendered, panelGap)...)
 }
 
 func (m Model) overviewGroup(width int, renderers []func(Model) string) string {
@@ -623,6 +658,11 @@ func (m Model) gpuSection(g GPU) string {
 	if len(g.Tiles) > 0 {
 		b.WriteString("\n")
 		b.WriteString(tileTable(g.Tiles, m.panelWidth()))
+	}
+	if len(g.Processes) > 0 {
+		b.WriteString("\n" + headingStyle.Render("Processes") + "\n")
+		b.WriteString(labelStyle.Render(m.processSortLabel()) + "\n")
+		b.WriteString(m.gpuProcessTable(m.sortedGPUProcesses(g.Processes), m.panelWidth()))
 	}
 	return b.String()
 }

@@ -219,20 +219,26 @@ while help is open. Tab shortcuts leave help; `a` goes directly to alerts.
 
 ### Dashboard layout and history
 
-Overview responds to the terminal width and keeps related panels in fixed groups:
-**CPU + Memory → GPU + NPU → Network → Storage → Processes**.
-Absent optional devices are omitted. Within each hardware group, panels use one
-column in a narrow window and up to three columns when space permits. A group
-finishes its rows before the next group starts, so unrelated panels do not appear
-beside each other. Scrolling remains available when the content exceeds the
-terminal height. Resizing or adding/removing devices may reflow each group.
+Overview responds to terminal width while prioritizing CPU/GPU diagnostics:
 
-CPU processes and each GPU's clients have separate **full-width tables** below
-the hardware groups, with **one process per row**. Column padding contracts when
+- **Wide (224 columns or more, with a GPU):** CPU, Memory and NPU on the left;
+  GPUs in the middle; general CPU processes starting at the top right.
+- **Medium (153 columns or more):** CPU, Memory and GPUs on the left;
+  general CPU processes starting at the top right, followed by NPU.
+- **Narrow:** CPU, CPU processes, Memory, GPUs and NPU in a single column.
+
+Each column stacks its panels independently. **Every GPU's metrics and process
+table share one frame**, keeping device activity and its clients together.
+Absent optional devices are omitted. **Network and Storage appear below the
+entire main area**, so they cannot push processes down. All columns scroll
+vertically together; the CPU process table is not pinned to the screen.
+
+Process tables keep **one process per row** and use their column's width, with
+more space reserved for the six-column CPU process table. Padding contracts when
 needed; tables never switch to vertical process cards. If columns still do not
 fit, use **Left/Right** in Overview to scroll horizontally. Tables share the scroll
 position, each clamped to its own right edge. A column-range hint identifies
-partially visible tables; widening the window restores all columns when they fit.
+partially visible tables; resizing recalculates the available width and scroll bounds.
 In `-once` output, use a wider terminal to see columns hidden at a narrow width.
 Other hardware tables can still switch to labelled rows, preserving idle time,
 throttle reasons and similar measurements. Long descriptive values wrap within
@@ -515,9 +521,9 @@ leaves the new packaged version alongside as `.dpkg-dist`.
 
 The CPU process table follows this order:
 **PID, Process, Threads, User, Memory, CPU**.
-Each process stays on one row. Left/Right scrolls the columns if the full-width
-table cannot fit the terminal. GPU client tables follow the same behavior and
-show **PID, Process, Usage, Memory**, separately for each GPU below the CPU list.
+Each process stays on one row. Left/Right scrolls the columns if the table cannot
+fit its panel. GPU client tables follow the same behavior and show
+**PID, Process, Usage, Memory** inside their respective GPU frames.
 
 With native defaults, CPU process collection and qmassa GPU sampling run every
 **1 second**, while the TUI polls every **500 ms**. The CPU

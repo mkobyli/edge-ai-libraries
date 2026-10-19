@@ -15,8 +15,9 @@ func (m Model) helpBody(width int) string {
 		"  1 / 2 / 3 / 4: Overview / Trends / Details / Alerts.\n" +
 		"  Tab / Shift+Tab or click a tab: change tab.\n\n" +
 		"Processes - Overview (CPU and GPU lists)\n" +
-		"  Full-width tables below hardware groups: one row per process, including GPU clients.\n" +
-		"  Left / Right: scroll process columns together when a table is wider than the window.\n" +
+		"  CPU processes start at the top right in multi-column layouts; one process per row.\n" +
+		"  GPU processes stay inside their GPU's frame, immediately below its hardware metrics.\n" +
+		"  Left / Right: scroll process columns together when a table is wider than its panel.\n" +
 		"  CPU columns: PID, Process, Threads, User, Memory (RSS), CPU.\n" +
 		"  Threads counts OS threads, not busy CPUs or Go goroutines; no health threshold.\n" +
 		"  16 Threads on 14 logical CPUs is normal: threads may sleep or wait for CPU time.\n" +
@@ -58,7 +59,10 @@ func (m Model) helpBody(width int) string {
 		"  CPU, Memory, GPUs, NPU, Network and Storage resources have separate sections.\n\n" +
 		"Reading the display\n" +
 		"  Overview: current readings. Trends: multiple history charts.\n" +
-		"  Overview groups: CPU + Memory, GPU + NPU, Network, Storage, then Processes.\n" +
+		"  Overview: 3 columns on wide windows, 2 on medium, 1 on narrow windows.\n" +
+		"  Wide: CPU/Memory/NPU left, GPUs with clients middle, CPU processes right.\n" +
+		"  Medium: CPU/Memory/GPUs left, CPU processes then NPU right.\n" +
+		"  Network and Storage follow the main area. All columns scroll together, not pinned.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
 		"  Filled plots preserve blank gaps where measurements are missing.\n" +
 		"  Time buckets are anchored: closed columns move together, not regrouped per poll.\n" +
