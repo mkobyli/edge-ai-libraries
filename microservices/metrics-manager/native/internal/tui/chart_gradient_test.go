@@ -4,6 +4,8 @@
 package tui
 
 import (
+	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,9 +27,9 @@ func TestBlueGradientUsesRowShadesInEveryChartModeAndTheme(t *testing.T) {
 		lipgloss.SetHasDarkBackground(dark)
 		for _, profile := range []termenv.Profile{termenv.TrueColor, termenv.ANSI256, termenv.ANSI} {
 			lipgloss.SetColorProfile(profile)
-			colors := []string{"#2d6eb4", "#1e518c", "#0f3464"}
+			colors := []string{"#2d6eb4", "#245d9d", "#0f3464"}
 			if dark {
-				colors = []string{"#9bd7ff", "#5a9bd7", "#195faf"}
+				colors = []string{"#b4e6ff", "#87bee8", "#195faf"}
 			}
 			if profile == termenv.ANSI {
 				colors = []string{"12", "12", "4"}
@@ -118,6 +120,85 @@ func TestBlueGradientBrightensMonotonicallyAcrossSupportedHeights(t *testing.T) 
 			}
 		}
 	}
+}
+
+func TestLowRangeBrailleHasVisibleBrightnessContrast(t *testing.T) {
+	profile, dark := lipgloss.ColorProfile(), lipgloss.HasDarkBackground()
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(profile)
+		lipgloss.SetHasDarkBackground(dark)
+	})
+	lipgloss.SetHasDarkBackground(true)
+	for _, profile := range []termenv.Profile{termenv.TrueColor, termenv.ANSI256} {
+		lipgloss.SetColorProfile(profile)
+		m := testModel(nil)
+		m.chartsConfig.GraphMode, m.chartsConfig.ChartHeight = "braille", 8
+		series := HistorySeries{Available: true, Points: []HistoryPoint{
+			{At: fixedNow.Add(-10 * time.Second), Value: 664},
+			{At: fixedNow, Value: 2111},
+		}}
+		text := m.renderChart(fixedChart("cpu.frequencyMHz", "CPU", "MHz", 0, 5000), series, 40)
+		var filled []string
+		row, first := 0, -1
+		for _, line := range strings.Split(text, "\n") {
+			_, plot, ok := strings.Cut(ansi.Strip(line), " │")
+			if !ok {
+				continue
+			}
+			if strings.TrimSpace(plot) != "" {
+				if first < 0 {
+					first = row
+				}
+				filled = append(filled, line)
+			}
+			row++
+		}
+		if row != 8 || first != 4 || len(filled) != 4 {
+			t.Fatalf("profile %v: gradient changed the plot geometry", profile)
+		}
+		bottom := plotLuminance(t, filled[len(filled)-1])
+		top := plotLuminance(t, filled[0])
+		if top-bottom < 0.20 {
+			t.Fatalf("profile %v: lower-range luminance difference %.3f is below 0.20", profile, top-bottom)
+		}
+		shades := make(map[string]bool)
+		for row := 6; row < 10; row++ {
+			shades[chartRowStyle(row, 10).Render("x")] = true
+		}
+		if len(shades) < 3 {
+			t.Fatalf("profile %v: lower rows collapsed into only %d shades", profile, len(shades))
+		}
+	}
+}
+
+func plotLuminance(t *testing.T, line string) float64 {
+	t.Helper()
+	colors := regexp.MustCompile(`38;(2;(\d+);(\d+);(\d+)|5;(\d+))`).FindAllStringSubmatch(line, -1)
+	if len(colors) == 0 {
+		t.Fatal("plot has no RGB or 256-color foreground")
+	}
+	last := colors[len(colors)-1]
+	number := func(s string) int {
+		value, err := strconv.Atoi(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	var color termenv.Color
+	if last[5] != "" {
+		color = termenv.ANSI256Color(number(last[5]))
+	} else {
+		color = termenv.RGBColor(fmt.Sprintf("#%02x%02x%02x", number(last[2]), number(last[3]), number(last[4])))
+	}
+	rgb := termenv.ConvertToRGB(color)
+	linear := func(v float64) float64 {
+		if v <= 0.04045 {
+			return v / 12.92
+		}
+		return math.Pow((v+0.055)/1.055, 2.4)
+	}
+	return 0.2126*linear(rgb.R) + 0.7152*linear(rgb.G) + 0.0722*linear(rgb.B)
 }
 
 func TestGradientRetainsMonochromeFallbackAndBlankGaps(t *testing.T) {

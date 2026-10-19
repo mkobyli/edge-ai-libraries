@@ -69,6 +69,7 @@ func (m Model) helpBody(width int) string {
 		"  Time buckets are anchored: closed columns move together, not regrouped per poll.\n" +
 		"  Auto scales expand in steps; halving the range needs 30s before shrinking.\n" +
 		"  Plots fade from dark blue at the baseline to light blue at the top of the axis.\n" +
+		"  Shades brighten faster near the baseline so short bars remain distinguishable.\n" +
 		"  Shades depend on height, not health or trend direction; values keep threshold colors.\n" +
 		"  Nonnegative metrics default to a zero baseline, including all-zero samples.\n" +
 		"  graphMode=\"braille\" (default) uses 2x4 dots per cell; requires font support.\n" +

@@ -1181,6 +1181,9 @@ axis. The shade depends only on the row's position within the plot, not on
 thresholds, trend direction or each column's individual peak. At the same
 scale and size, equal-height columns therefore have identical shading and a
 tall column contains the gradient from its base upward.
+Brightness increases faster near the baseline, giving shorter columns a more
+visible gradient even when readings occupy less than half the axis range.
+This affects colors only, not the scale or plotted heights.
 There is no extra color-mode setting: `solid` uses background shades, while
 `unicode`, `ascii` and `braille` use foreground shades. Light terminal themes
 use a darker palette for legibility. True-color terminals display the full
