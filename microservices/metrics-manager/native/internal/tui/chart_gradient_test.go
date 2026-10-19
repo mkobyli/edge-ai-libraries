@@ -29,7 +29,7 @@ func TestBlueGradientUsesRowShadesInEveryChartModeAndTheme(t *testing.T) {
 			lipgloss.SetColorProfile(profile)
 			colors := []string{"#2d6eb4", "#245d9d", "#0f3464"}
 			if dark {
-				colors = []string{"#b4e6ff", "#87bee8", "#195faf"}
+				colors = []string{"#b4e6ff", "#85b4d7", "#123b78"}
 			}
 			if profile == termenv.ANSI {
 				colors = []string{"12", "12", "4"}
@@ -167,6 +167,27 @@ func TestLowRangeBrailleHasVisibleBrightnessContrast(t *testing.T) {
 		}
 		if len(shades) < 3 {
 			t.Fatalf("profile %v: lower rows collapsed into only %d shades", profile, len(shades))
+		}
+	}
+}
+
+func TestDarkGradientBaselineIsDarkerAfterPaletteConversion(t *testing.T) {
+	profile, dark := lipgloss.ColorProfile(), lipgloss.HasDarkBackground()
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(profile)
+		lipgloss.SetHasDarkBackground(dark)
+	})
+	lipgloss.SetHasDarkBackground(true)
+	for _, profile := range []termenv.Profile{termenv.TrueColor, termenv.ANSI256} {
+		lipgloss.SetColorProfile(profile)
+		old := plotLuminance(t, lipgloss.NewStyle().Foreground(lipgloss.Color("#195faf")).Render("x"))
+		bottom := plotLuminance(t, chartRowStyle(7, 8).Render("x"))
+		if bottom > 0.9*old || bottom < 0.025 {
+			t.Fatalf("profile %v: baseline luminance %.3f must be darker than %.3f but remain visible", profile, bottom, old)
+		}
+		want := lipgloss.NewStyle().Foreground(lipgloss.Color("#b4e6ff")).Render("x")
+		if chartRowStyle(0, 8).Render("x") != want {
+			t.Fatal("darkening the baseline changed the bright peak")
 		}
 	}
 }

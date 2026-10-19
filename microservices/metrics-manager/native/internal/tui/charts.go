@@ -200,7 +200,7 @@ func chartRowStyle(row, height int) lipgloss.Style {
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
 		Light: fmt.Sprintf("#%02x%02x%02x", mix(15, 45), mix(52, 110), mix(100, 180)),
-		Dark:  fmt.Sprintf("#%02x%02x%02x", mix(25, 180), mix(95, 230), mix(175, 255)),
+		Dark:  fmt.Sprintf("#%02x%02x%02x", mix(18, 180), mix(59, 230), mix(120, 255)),
 	})
 }
 

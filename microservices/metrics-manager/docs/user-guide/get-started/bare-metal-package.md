@@ -1184,6 +1184,8 @@ tall column contains the gradient from its base upward.
 Brightness increases faster near the baseline, giving shorter columns a more
 visible gradient even when readings occupy less than half the axis range.
 This affects colors only, not the scale or plotted heights.
+On dark terminal themes, the baseline uses a deeper navy blue (`#123b78`),
+while the top remains light blue (`#b4e6ff`) for stronger contrast.
 There is no extra color-mode setting: `solid` uses background shades, while
 `unicode`, `ascii` and `braille` use foreground shades. Light terminal themes
 use a darker palette for legibility. True-color terminals display the full
