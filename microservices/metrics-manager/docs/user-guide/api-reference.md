@@ -626,7 +626,7 @@ a machine typically has several and only some carry events.
 
 | Prometheus Name            | Field              | Description                             |
 | -------------------------- | ------------------ | --------------------------------------- |
-| `process_cpu_percent`      | `cpu_percent`      | CPU used over the interval              |
+| `process_cpu_percent`      | `cpu_percent`      | Interval CPU usage; 100% = one logical CPU |
 | `process_memory_rss_bytes` | `memory_rss_bytes` | Resident set size                       |
 | `process_threads`         | `threads`         | Number of OS threads, not active CPUs   |
 
@@ -647,6 +647,14 @@ TUI defaults to displaying this value divided by `platform_logical_cpus`.
 Its process CPU colors and alerts always use that total-host percentage,
 even when the optional per-core display is selected; the exported metric
 itself is not rescaled.
+For example, 1500% means about 15 CPU-seconds per elapsed second across the
+process's threads; on 16 logical CPUs that is 93.75% total. A thread count of
+16 on 14 logical CPUs is valid because not all threads have to run at once.
+It does not make sustained 1500% CPU usage expected on a fixed 14-CPU host.
+See [interpreting process threads](./get-started/bare-metal-package.md#why-can-threads-exceed-the-cpu-count)
+and [process CPU percentages](./get-started/bare-metal-package.md#why-can-cpu-show-1500)
+for scheduling, logical-versus-physical CPU terminology and examples.
+
 Only the process name is collected; command lines are deliberately never
 read, because arguments routinely carry credentials.
 
