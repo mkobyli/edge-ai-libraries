@@ -195,12 +195,25 @@ func chartRowStyle(row, height int) lipgloss.Style {
 		}
 		return lipgloss.NewStyle().Foreground(color)
 	}
-	mix := func(low, high int) int {
-		return low + int(math.Round(float64(high-low)*brightness))
+	mix := func(low, high [3]int, amount float64) string {
+		var rgb [3]int
+		for channel := range rgb {
+			rgb[channel] = low[channel] + int(math.Round(float64(high[channel]-low[channel])*amount))
+		}
+		return fmt.Sprintf("#%02x%02x%02x", rgb[0], rgb[1], rgb[2])
+	}
+	low, high := [3]int{0, 74, 134}, [3]int{0, 104, 181}
+	amount := brightness / 0.25
+	if brightness >= 0.65 {
+		low, high = [3]int{0, 199, 253}, [3]int{180, 241, 255}
+		amount = (brightness - 0.65) / 0.35
+	} else if brightness >= 0.25 {
+		low, high = [3]int{0, 104, 181}, [3]int{0, 199, 253}
+		amount = (brightness - 0.25) / 0.4
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-		Light: fmt.Sprintf("#%02x%02x%02x", mix(15, 45), mix(52, 110), mix(100, 180)),
-		Dark:  fmt.Sprintf("#%02x%02x%02x", mix(18, 180), mix(59, 230), mix(120, 255)),
+		Light: mix([3]int{15, 52, 100}, [3]int{45, 110, 180}, brightness),
+		Dark:  mix(low, high, amount),
 	})
 }
 

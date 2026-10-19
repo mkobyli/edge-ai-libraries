@@ -1184,13 +1184,36 @@ tall column contains the gradient from its base upward.
 Brightness increases faster near the baseline, giving shorter columns a more
 visible gradient even when readings occupy less than half the axis range.
 This affects colors only, not the scale or plotted heights.
-On dark terminal themes, the baseline uses a deeper navy blue (`#123b78`),
-while the top remains light blue (`#b4e6ff`) for stronger contrast.
+On dark terminal themes, the palette progresses from deep blue (`#004a86`)
+through saturated blue (`#0068b5`) and cyan (`#00c7fd`) to light cyan
+(`#b4f1ff`), making both hue and brightness changes visible.
 There is no extra color-mode setting: `solid` uses background shades, while
 `unicode`, `ascii` and `braille` use foreground shades. Light terminal themes
 use a darker palette for legibility. True-color terminals display the full
 gradient, 256-color terminals approximate it, 16-color terminals use two blue
 shades, and monochrome output retains its visible glyph fallback.
+
+If a new palette still looks unchanged, check the environment in the same shell
+that launches `mm-tui`:
+
+```bash
+printf 'TERM=%s\nCOLORTERM=%s\n' "$TERM" "$COLORTERM"
+```
+
+`TERM=xterm` with an empty `COLORTERM` normally selects the 16-color fallback,
+so changes to the full RGB palette cannot appear. If your terminal emulator
+actually supports 256 colors, try this per-command setting:
+
+```bash
+TERM=xterm-256color mm-tui
+```
+
+For an emulator with confirmed true-color support, `COLORTERM=truecolor mm-tui`
+enables RGB color detection. These settings affect only that invocation; they
+do not add color capabilities to the terminal. Do not persist an inaccurate
+terminal type, particularly through `tmux` or `screen`. Restart `mm-tui` after
+installing an updated binary.
+
 Numeric readings in Overview and Details and the `last` statistic still use
 the configured metric thresholds (green OK, cyan careful, amber warning, red
 critical); readings without a health threshold remain neutral. Alert events

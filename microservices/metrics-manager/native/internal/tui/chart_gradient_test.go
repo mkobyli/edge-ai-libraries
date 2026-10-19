@@ -29,7 +29,7 @@ func TestBlueGradientUsesRowShadesInEveryChartModeAndTheme(t *testing.T) {
 			lipgloss.SetColorProfile(profile)
 			colors := []string{"#2d6eb4", "#245d9d", "#0f3464"}
 			if dark {
-				colors = []string{"#b4e6ff", "#85b4d7", "#123b78"}
+				colors = []string{"#b4f1ff", "#1dcefd", "#004a86"}
 			}
 			if profile == termenv.ANSI {
 				colors = []string{"12", "12", "4"}
@@ -185,10 +185,42 @@ func TestDarkGradientBaselineIsDarkerAfterPaletteConversion(t *testing.T) {
 		if bottom > 0.9*old || bottom < 0.025 {
 			t.Fatalf("profile %v: baseline luminance %.3f must be darker than %.3f but remain visible", profile, bottom, old)
 		}
-		want := lipgloss.NewStyle().Foreground(lipgloss.Color("#b4e6ff")).Render("x")
+		want := lipgloss.NewStyle().Foreground(lipgloss.Color("#b4f1ff")).Render("x")
 		if chartRowStyle(0, 8).Render("x") != want {
-			t.Fatal("darkening the baseline changed the bright peak")
+			t.Fatal("gradient lost the light cyan peak")
 		}
+	}
+}
+
+func TestGradientColorResolutionMatchesTerminalProfile(t *testing.T) {
+	profile, dark := lipgloss.ColorProfile(), lipgloss.HasDarkBackground()
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(profile)
+		lipgloss.SetHasDarkBackground(dark)
+	})
+	lipgloss.SetHasDarkBackground(true)
+	for _, tc := range []struct {
+		profile termenv.Profile
+		minimum int
+		maximum int
+	}{
+		{termenv.TrueColor, 20, 20},
+		{termenv.ANSI256, 6, 20},
+		{termenv.ANSI, 2, 2},
+	} {
+		lipgloss.SetColorProfile(tc.profile)
+		shades := make(map[string]bool)
+		for row := 0; row < 20; row++ {
+			shades[chartRowStyle(row, 20).Render("x")] = true
+		}
+		if len(shades) < tc.minimum || len(shades) > tc.maximum {
+			t.Fatalf("profile %v: got %d shades, want %d-%d", tc.profile, len(shades), tc.minimum, tc.maximum)
+		}
+	}
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	want := lipgloss.NewStyle().Foreground(lipgloss.Color("#0068b5")).Render("x")
+	if chartRowStyle(15, 17).Render("x") != want {
+		t.Fatal("gradient skipped its saturated blue stop")
 	}
 }
 
