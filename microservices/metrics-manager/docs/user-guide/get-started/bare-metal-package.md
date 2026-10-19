@@ -417,7 +417,7 @@ more.
 | `metrics-manager-npu` | `metrics-manager` + `CAP_DAC_READ_SEARCH` | NPU telemetry is `0440 root:root` in sysfs |
 | `metrics-manager-membw` | `metrics-manager` + `CAP_PERFMON` | Memory controller counters are read through perf |
 | `metrics-manager-powerstat` | `metrics-manager` + `CAP_SYS_RAWIO`, `CAP_DAC_READ_SEARCH` | Package power, TDP and idle states come from MSRs and RAPL |
-| `metrics-manager-qmassa` | `root` | GPU power and temperature come from model-specific registers |
+| `metrics-manager-qmassa` | `root` + `CAP_SYS_RAWIO`, `CAP_PERFMON`, `CAP_SYS_PTRACE`, `CAP_DAC_READ_SEARCH` | GPU power and temperature come from model-specific registers; client usage requires reading other users' DRM `fdinfo` |
 
 Telegraf is the component with an attack surface: it listens on two loopback
 sockets, parses whatever arrives on them, and executes the scripts in
@@ -438,13 +438,19 @@ user instead was measured to leave the power and temperature arrays empty even
 though the MSR device itself opened successfully.
 
 Being root is necessary but not sufficient, which matters if you harden the
-unit further. Two settings in `metrics-manager-qmassa.service` are load-bearing,
-and both fail silently — the readings disappear, nothing reports an error:
+unit further. These settings in `metrics-manager-qmassa.service` are
+load-bearing and fail silently when removed:
 
 - `CapabilityBoundingSet` has to retain `CAP_SYS_RAWIO`. Uid 0 confers
   capabilities only up to that bound, so emptying it takes the MSR access away
   from root as surely as it would from anyone else. `CAP_PERFMON` alone is not
   enough on a host that reads the registers through the device node.
+- GPU client usage comes from `/proc/<pid>/fdinfo` across user IDs. The unit
+  needs both `CAP_SYS_PTRACE` for the procfs access check and
+  `CAP_DAC_READ_SEARCH` to open other users' fdinfo files under its restricted
+  bounding set. It must not set `ProtectProc=invisible`, or qmassa may report
+  only its own process. These capabilities are granted only to the isolated
+  qmassa service, not Telegraf.
 - `DeviceAllow` has to name the driver as `/proc/devices` does, which is
   `cpu/msr` and not `msr`. Under `DevicePolicy=closed` a rule that matches
   nothing is indistinguishable from no rule at all.
