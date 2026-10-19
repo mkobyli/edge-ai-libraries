@@ -265,9 +265,10 @@ func TestProcessCPUModesFitResponsivePanels(t *testing.T) {
 			m.dash.Platform.LogicalCPUs = count
 			for _, mode := range []string{"per-core", "total"} {
 				m.config.Processes.CPUMode = mode
-				panel := framePanel(m.processSection(), m.panelWidth()+2)
+				m.moveProcessColumns(10000)
+				panel := framePanel(m.processSection(), width)
 				for _, line := range strings.Split(panel, "\n") {
-					if lipgloss.Width(line) > m.panelWidth()+2 {
+					if lipgloss.Width(line) > width {
 						t.Fatalf("width=%d mode=%s: panel overflow %q", width, mode, line)
 					}
 				}

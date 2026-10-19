@@ -15,6 +15,8 @@ func (m Model) helpBody(width int) string {
 		"  1 / 2 / 3 / 4: Overview / Trends / Details / Alerts.\n" +
 		"  Tab / Shift+Tab or click a tab: change tab.\n\n" +
 		"Processes - Overview (CPU and GPU lists)\n" +
+		"  Full-width tables below hardware groups: one row per process, including GPU clients.\n" +
+		"  Left / Right: scroll process columns together when a table is wider than the window.\n" +
 		"  CPU columns: PID, Process, Threads, User, Memory (RSS), CPU.\n" +
 		"  Threads counts OS threads, not busy CPUs or Go goroutines; no health threshold.\n" +
 		"  16 Threads on 14 logical CPUs is normal: threads may sleep or wait for CPU time.\n" +
@@ -56,6 +58,7 @@ func (m Model) helpBody(width int) string {
 		"  CPU, Memory, GPUs, NPU, Network and Storage resources have separate sections.\n\n" +
 		"Reading the display\n" +
 		"  Overview: current readings. Trends: multiple history charts.\n" +
+		"  Overview groups: CPU + Memory, GPU + NPU, Network, Storage, then Processes.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
 		"  Filled plots preserve blank gaps where measurements are missing.\n" +
 		"  Time buckets are anchored: closed columns move together, not regrouped per poll.\n" +
@@ -81,9 +84,11 @@ func (m Model) helpBody(width int) string {
 		"  [4/a] Open alerts shows events and per-process data-quality diagnostics.\n" +
 		"  Process CPU alerts: limited (CPU! on narrow screens) means incomplete evaluation,\n" +
 		"  not stopped collection. The process table remains available.\n" +
-		"  Cached process samples older than processes.maxSampleAge are excluded before ranking.\n" +
+		"  Cached CPU process samples older than processes.maxSampleAge are excluded before ranking.\n" +
 		"  Set this duration above the collector interval plus delivery delay; range 1s to 5m.\n" +
-		"  Their retention alone is informational; loss of all current process data is flagged.\n" +
+		"  Their retention alone is informational; loss of all current CPU process data is flagged.\n" +
+		"  Native CPU/GPU collection defaults to 1s; the CPU 3s age limit is not a refresh interval.\n" +
+		"  GPU clients have no equivalent age cutoff; cached entries may remain for about 60s.\n" +
 		"  Collection and history continue while help is open.\n\n" +
 		"Network - optional Telegraf net input\n" +
 		"  RX/TX rates need two distinct, timestamped counter measurements.\n" +

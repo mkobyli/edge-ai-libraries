@@ -67,5 +67,6 @@ func CommandLineHelp() string {
 		"Use -config for layout, alerts, process limits/CPU mode and network/storage settings;\n" +
 		"use -charts-config for chart history and Details selection.\n" +
 		"Configuration changes take effect after restarting mm-tui.\n" +
-		"In the TUI: h help, a alerts, 1/2/3/4 tabs, s sort, r reverse, c CPU mode, q quit.\n"
+		"In the TUI: h help, a alerts, 1/2/3/4 tabs, s sort, r reverse, c CPU mode, q quit.\n" +
+		"In Overview: Left/Right scroll narrow process tables horizontally.\n"
 }

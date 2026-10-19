@@ -109,7 +109,7 @@ func (m Model) View() string {
 	} else if m.activeTab == DetailsTab {
 		hint = "h help · a alerts · q quit · arrows select · 1/2/3/4 tabs"
 	} else if m.activeTab == OverviewTab {
-		hint += " · s sort · r reverse · c CPU mode"
+		hint += " · s sort · r reverse · c CPU mode · Left/Right columns"
 	}
 	out = append(out, fitWidth(footerStyle.Render(hint), width))
 	return strings.Join(out, "\n")
@@ -200,65 +200,74 @@ func (m Model) bodyLines(width int) []string {
 	return lines
 }
 
-// panelGrid packs independent panels into as many columns as can fit without
-// squeezing their tables. The source order remains the reading order: left to
-// right, then top to bottom.
+// Groups finish their rows before the next group starts. Process tables use
+// the full terminal width independently of the hardware panel grid.
 func (m Model) panelGrid(width int) string {
-	panels := []string{m.cpuSection(), m.memorySection()}
+	groups := []string{m.overviewGroup(width, []func(Model) string{Model.cpuSection, Model.memorySection})}
+	var accelerators []func(Model) string
 	for _, gpu := range m.dash.GPUs {
-		panels = append(panels, m.gpuSection(gpu))
+		accelerators = append(accelerators, func(m Model) string { return m.gpuSection(gpu) })
 	}
-
-	// A machine without an NPU publishes no npu_ series at all, and a panel
-	// of dashes would suggest a broken sensor rather than absent hardware.
 	if m.dash.NPU.Present {
-		panels = append(panels, m.npuSection())
+		accelerators = append(accelerators, Model.npuSection)
 	}
+	if len(accelerators) > 0 {
+		groups = append(groups, m.overviewGroup(width, accelerators))
+	}
+	var networks []func(Model) string
 	for _, network := range m.dash.Network {
-		panels = append(panels, m.networkSection(network))
+		networks = append(networks, func(m Model) string { return m.networkSection(network) })
 	}
 	if m.dash.NetworkLimited {
-		panels = append(panels, "Network\nInterface limit reached; adjust network.interfaces or network.maxInterfaces.")
+		networks = append(networks, func(Model) string {
+			return "Network\nInterface limit reached; adjust network.interfaces or network.maxInterfaces."
+		})
 	}
+	if len(networks) > 0 {
+		groups = append(groups, m.overviewGroup(width, networks))
+	}
+	var disks []func(Model) string
 	for _, storage := range m.dash.Storage {
-		panels = append(panels, m.storageSection(storage))
+		disks = append(disks, func(m Model) string { return m.storageSection(storage) })
 	}
 	if m.dash.StorageLimited {
-		panels = append(panels, "Storage\nResource limit reached; adjust storage.mountPoints/devices or storage.maxFilesystems/maxDevices.")
+		disks = append(disks, func(Model) string {
+			return "Storage\nResource limit reached; adjust storage.mountPoints/devices or storage.maxFilesystems/maxDevices."
+		})
 	}
-
-	// Processes go last because the hardware panels are what the dashboard
-	// is for, but on a wide terminal they can use otherwise idle space.
+	if len(disks) > 0 {
+		groups = append(groups, m.overviewGroup(width, disks))
+	}
+	m.width = width
 	if len(m.dash.Processes) > 0 {
-		panels = append(panels, m.processSection())
+		groups = append(groups, framePanel(m.processSection(), width))
 	}
-
-	// Wrap descriptive values rather than silently discarding their right
-	// edge. Tables switch to labelled rows when they do not fit.
-	panelWidth := m.panelWidth()
-	for i := range panels {
-		panels[i] = framePanel(lipgloss.NewStyle().Width(panelWidth).Render(panels[i]), panelWidth+2)
+	for _, gpu := range m.dash.GPUs {
+		if len(gpu.Processes) > 0 {
+			content := "GPU " + sanitize(gpu.ID, 8) + " Processes\n" +
+				labelStyle.Render(m.processSortLabel()) + "\n" +
+				m.gpuProcessTable(m.sortedGPUProcesses(gpu.Processes), m.processViewportWidth())
+			groups = append(groups, framePanel(content, width))
+		}
 	}
-	return packPanelColumns(panels, width, panelMinWidth, 3)
+	return strings.Join(groups, "\n\n")
 }
 
-func packPanelColumns(panels []string, width, minWidth, maxColumns int) string {
-	columns := max(1, min(maxColumns, (width+panelGap)/(minWidth+panelGap)))
+func (m Model) overviewGroup(width int, renderers []func(Model) string) string {
+	columns := max(1, min(3, len(renderers), (width+panelGap)/(panelMinWidth+panelGap)))
 	columnWidth := (width - panelGap*(columns-1)) / columns
-	stacks := make([][]string, columns)
-	for i, panel := range panels {
-		column := i % columns
-		stacks[column] = append(stacks[column], strings.TrimRight(panel, "\n"))
+	m.panelContentWidth = max(1, columnWidth-2)
+	panels := make([]string, 0, len(renderers))
+	for _, render := range renderers {
+		panels = append(panels, framePanel(render(m), columnWidth))
 	}
-	rendered := make([]string, columns)
-	for i, stack := range stacks {
-		rendered[i] = lipgloss.NewStyle().Width(columnWidth).MaxWidth(columnWidth).
-			Render(strings.Join(stack, "\n\n"))
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithGap(rendered, panelGap)...)
+	return packPanels(panels, width, panelMinWidth, columns)
 }
 
 func (m Model) panelWidth() int {
+	if m.panelContentWidth > 0 {
+		return m.panelContentWidth
+	}
 	width := m.renderWidth()
 	columns := max(1, min(3, (width+panelGap)/(panelMinWidth+panelGap)))
 	return max(1, (width-panelGap*(columns-1))/columns-2)
@@ -615,12 +624,6 @@ func (m Model) gpuSection(g GPU) string {
 		b.WriteString("\n")
 		b.WriteString(tileTable(g.Tiles, m.panelWidth()))
 	}
-	if len(g.Processes) > 0 {
-		b.WriteString("\n")
-		b.WriteString(labelStyle.Render(m.processSortLabel()) + "\n")
-		b.WriteString(m.gpuProcessTable(m.sortedGPUProcesses(g.Processes), m.panelWidth()))
-	}
-
 	return b.String()
 }
 
@@ -633,6 +636,10 @@ var gpuProcessColumns = []column{
 }
 
 func (m Model) gpuProcessTable(processes []GPUProcess, width int) string {
+	return m.scrollingProcessTable(gpuProcessColumns, m.gpuProcessRows(processes), width)
+}
+
+func (m Model) gpuProcessRows(processes []GPUProcess) [][]string {
 	rows := make([][]string, 0, len(processes))
 	for _, p := range processes {
 		rows = append(rows, []string{
@@ -645,7 +652,7 @@ func (m Model) gpuProcessTable(processes []GPUProcess, width int) string {
 		})
 	}
 
-	return responsiveTable(gpuProcessColumns, rows, width)
+	return rows
 }
 
 // npuFrequency shows the current clock against the driver's ceiling, because
@@ -682,6 +689,11 @@ func (m Model) processSection() string {
 	if len(processes) == 0 && m.processSourceMissing() {
 		b.WriteString("No current process samples.\n")
 	}
+	b.WriteString(m.scrollingProcessTable(processColumns, m.processRows(processes), m.processViewportWidth()))
+	return b.String()
+}
+
+func (m Model) processRows(processes []Process) [][]string {
 	rows := make([][]string, 0, len(processes))
 	for _, p := range processes {
 		rows = append(rows, []string{
@@ -697,9 +709,7 @@ func (m Model) processSection() string {
 		})
 	}
 
-	b.WriteString(responsiveTable(processColumns, rows, m.panelWidth()))
-
-	return b.String()
+	return rows
 }
 
 // memoryPair renders "used of total", still saying what it can when only one

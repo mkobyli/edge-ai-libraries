@@ -204,9 +204,10 @@ func TestViewPacksPanelsAcrossWideWindows(t *testing.T) {
 			sameLine: []string{"CPU", "Memory"},
 		},
 		{
-			name:     "three columns",
-			width:    210,
-			sameLine: []string{"CPU", "Memory", "GPU 0"},
+			name:        "wide grouped rows",
+			width:       210,
+			sameLine:    []string{"CPU", "Memory"},
+			notSameLine: []string{"CPU", "GPU 0"},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

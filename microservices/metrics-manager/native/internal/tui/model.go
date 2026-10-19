@@ -54,20 +54,22 @@ type Model struct {
 	// err is the reason the most recent poll failed, or nil.
 	err error
 
-	config          DashboardConfig
-	chartsConfig    ChartsConfig
-	alerts          AlertTracker
-	history         History
-	network         networkTracker
-	storage         storageTracker
-	activeTab       Tab
-	tabOffsets      [tabCount]int
-	detailSelection detailChoice
-	detailTop       int
-	alertReturnTab  Tab
-	pollInterval    time.Duration
-	showHelp        bool
-	helpOffset      int
+	config              DashboardConfig
+	chartsConfig        ChartsConfig
+	alerts              AlertTracker
+	history             History
+	network             networkTracker
+	storage             storageTracker
+	activeTab           Tab
+	tabOffsets          [tabCount]int
+	detailSelection     detailChoice
+	detailTop           int
+	alertReturnTab      Tab
+	pollInterval        time.Duration
+	showHelp            bool
+	helpOffset          int
+	processColumnOffset int
+	panelContentWidth   int
 
 	width  int
 	height int
@@ -169,6 +171,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == OverviewTab && !m.showHelp {
 				m.toggleProcessCPUMode()
 			}
+		case "left", "right":
+			if m.activeTab == OverviewTab && !m.showHelp {
+				delta := 8
+				if msg.String() == "left" {
+					delta = -delta
+				}
+				m.moveProcessColumns(delta)
+			}
 		case "up", "k":
 			m.setOffset(m.offset - 1)
 		case "down", "j":
@@ -189,6 +199,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.moveProcessColumns(0)
 		// A window that just grew can leave the view scrolled past the
 		// end, which would show a screen of blank lines.
 		m.setOffset(m.offset)
@@ -204,6 +215,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updatedAt = msg.At
 			m.alerts.Update(m.dash, m.config.Thresholds, msg.At)
 			m.history.Update(m.dash, msg.At)
+			m.moveProcessColumns(0)
 		} else {
 			m.network = networkTracker{}
 			m.storage = storageTracker{}

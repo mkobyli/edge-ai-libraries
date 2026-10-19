@@ -219,17 +219,24 @@ while help is open. Tab shortcuts leave help; `a` goes directly to alerts.
 
 ### Dashboard layout and history
 
-Overview responds to the terminal width. It uses one column in a narrow window,
-two columns once each panel can remain readable, and up to three columns in a
-wide terminal. Scrolling remains available when the resulting columns do not fit
-the terminal height. Panels are assigned across columns in hardware-first order,
-then stacked independently with one blank line between panels. A short Memory
-panel no longer waits for a taller CPU panel before the next panel can begin.
-Changes to panel heights do not move panels between columns; resizing the
-terminal or adding/removing devices may reflow the layout.
-Tables that cannot fit switch to labelled rows, keeping measurements such as
-RSS, idle time and throttle reasons visible rather than clipping their columns.
-Long descriptive values wrap within their panel.
+Overview responds to the terminal width and keeps related panels in fixed groups:
+**CPU + Memory → GPU + NPU → Network → Storage → Processes**.
+Absent optional devices are omitted. Within each hardware group, panels use one
+column in a narrow window and up to three columns when space permits. A group
+finishes its rows before the next group starts, so unrelated panels do not appear
+beside each other. Scrolling remains available when the content exceeds the
+terminal height. Resizing or adding/removing devices may reflow each group.
+
+CPU processes and each GPU's clients have separate **full-width tables** below
+the hardware groups, with **one process per row**. Column padding contracts when
+needed; tables never switch to vertical process cards. If columns still do not
+fit, use **Left/Right** in Overview to scroll horizontally. Tables share the scroll
+position, each clamped to its own right edge. A column-range hint identifies
+partially visible tables; widening the window restores all columns when they fit.
+In `-once` output, use a wider terminal to see columns hidden at a narrow width.
+Other hardware tables can still switch to labelled rows, preserving idle time,
+throttle reasons and similar measurements. Long descriptive values wrap within
+their panel.
 
 Device and metric-group panels have borders, including Trends plots and
 Details sections. Borders are included in the responsive width calculation.
@@ -508,8 +515,18 @@ leaves the new packaged version alongside as `.dpkg-dist`.
 
 The CPU process table follows this order:
 **PID, Process, Threads, User, Memory, CPU**.
-If it does not fit, the same fields appear as labelled rows in the same order.
-The GPU process table is unchanged.
+Each process stays on one row. Left/Right scrolls the columns if the full-width
+table cannot fit the terminal. GPU client tables follow the same behavior and
+show **PID, Process, Usage, Memory**, separately for each GPU below the CPU list.
+
+With native defaults, CPU process collection and qmassa GPU sampling run every
+**1 second**, while the TUI polls every **500 ms**. The CPU
+`processes.maxSampleAge` default of **3 seconds** is a freshness cutoff, not the
+refresh interval. GPU client rows currently have no equivalent cutoff: a client
+that stops publishing can remain visible until Telegraf's Prometheus cache
+expires its series (by default about **60 seconds** after the last sample).
+Idle processes holding GPU clients can also appear; presence does not imply
+active GPU work.
 
 - **Threads** is the number of OS threads from `/proc/<pid>/stat`, including
   sleeping threads. It is not the number of busy CPUs or Go goroutines.

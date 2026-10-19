@@ -14,7 +14,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-func TestOverviewColumnsDoNotWaitForAdjacentTallPanels(t *testing.T) {
+func TestOverviewGroupsDoNotInterleave(t *testing.T) {
 	rowOf := func(text, marker string) int {
 		t.Helper()
 		for i, line := range strings.Split(text, "\n") {
@@ -25,21 +25,53 @@ func TestOverviewColumnsDoNotWaitForAdjacentTallPanels(t *testing.T) {
 		t.Fatalf("missing panel %s", marker)
 		return -1
 	}
-	for _, height := range []int{6, 20} {
-		panels := []string{
-			"CPU\n" + strings.Repeat("cpu row\n", height),
-			"Memory\nmemory row",
-			"GPU\ngpu row",
-			"NPU\nnpu row",
+	m := testModel(nil)
+	m.dash.GPUs = []GPU{{ID: "0", Processes: []GPUProcess{{PID: "300", Command: "gpu-worker"}}}, {ID: "1"}}
+	m.dash.NPU.Present = true
+	m.dash.Processes = []Process{{PID: "200", Command: "cpu-worker"}}
+	var network networkTracker
+	m.dash.Network, _ = network.update(networkSamples(fixedNow, 0, "eth0", "host"), fixedNow, m.config.Network)
+	var storage storageTracker
+	m.dash.Storage, _ = storage.update(storageSamples(fixedNow, 0, 50), fixedNow, m.config.Storage)
+	for _, width := range []int{100, 160, 240} {
+		m.width = width
+		view := ansi.Strip(m.panelGrid(width))
+		previous := -1
+		for _, marker := range []string{"┌ CPU", "┌ GPU 0 ", "┌ Network eth0", "┌ Filesystem /data", "┌ Processes", "┌ GPU 0 Processes"} {
+			row := rowOf(view, marker)
+			if row <= previous {
+				t.Fatalf("groups interleaved at width %d:\n%s", width, view)
+			}
+			previous = row
 		}
-		view := packPanelColumns(panels, 139, panelMinWidth, 3)
-		if rowOf(view, "NPU") != 3 || rowOf(view, "GPU") != height+2 {
-			t.Fatalf("independent columns contain row-grid whitespace:\n%s", view)
+		wantContains(t, view, "cpu-worker")
+		wantContains(t, view, "gpu-worker")
+		if strings.Count(view, "gpu-worker") != 1 {
+			t.Fatal("GPU process list was duplicated")
 		}
 		for _, line := range strings.Split(view, "\n") {
-			if lipgloss.Width(line) != 139 {
-				t.Fatalf("column alignment changed: %d", lipgloss.Width(line))
+			if strings.Contains(line, "┌ Processes") || strings.Contains(line, "┌ GPU 0 Processes") {
+				if lipgloss.Width(line) != width {
+					t.Fatalf("process frame is not full width: %q", line)
+				}
 			}
+		}
+		if width == 240 && !lineContainsAll(strings.Split(view, "\n"), "GPU 0", "GPU 1", "NPU") {
+			t.Fatal("wide accelerator group did not use three columns")
+		}
+		if strings.Contains(m.gpuSection(m.dash.GPUs[0]), "gpu-worker") {
+			t.Fatal("processes remained mixed into GPU hardware panel")
+		}
+	}
+	m.width = 160
+	for _, height := range []int{6, 20} {
+		view := m.overviewGroup(160, []func(Model) string{
+			func(Model) string { return "CPU\n" + strings.Repeat("cpu row\n", height) },
+			func(Model) string { return "Memory\nmemory row" },
+			func(Model) string { return "GPU\ngpu row" },
+		})
+		if rowOf(view, "GPU") <= rowOf(view, "cpu row")+height-1 {
+			t.Fatal("next row started before preceding row completed")
 		}
 	}
 }
