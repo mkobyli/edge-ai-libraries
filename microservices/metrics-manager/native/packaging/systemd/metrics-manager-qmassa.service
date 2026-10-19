@@ -38,8 +38,9 @@ RestartSec=5s
 # opened successfully for both read and write.
 #
 # This is the only service in the package that runs as root. It reads hardware
-# counters and writes one FIFO; it accepts no input from anywhere, which is
-# what makes the exposure tolerable.
+# counters and process metadata and writes one FIFO; it exposes no listening
+# API. The filesystem, device, syscall and network restrictions below still
+# matter because its capabilities permit access beyond GPU telemetry.
 #
 # Being root is necessary but not sufficient: the bounding set still has to
 # retain the capability that opening the MSR device needs. An empty
@@ -55,10 +56,10 @@ SupplementaryGroups=metrics-manager
 CapabilityBoundingSet=CAP_SYS_RAWIO CAP_PERFMON CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
 NoNewPrivileges=true
 #
-# The runtime directory is not root's: it belongs to the service user with mode
-# 0750, so a root process without CAP_DAC_OVERRIDE cannot traverse it. Joining
-# the group above is the narrow way in; the alternative would be handing this
-# service a permission override over the entire filesystem.
+# The runtime directory belongs to the service user with mode 0750.
+# SupplementaryGroups grants ordinary group access to it independently of
+# CAP_DAC_READ_SEARCH, which is retained for cross-user procfs reads and can
+# also bypass read/search permission checks elsewhere.
 
 # --- Filesystem -------------------------------------------------------------
 ProtectSystem=strict
@@ -91,8 +92,10 @@ ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectControlGroups=true
 ProtectClock=true
-# qmassa must enumerate and read /proc/<pid>/fdinfo across user IDs to report
-# all GPU clients; ProtectProc=invisible would leave only qmassa itself visible.
+# ProtectProc is left at its default because qmassa reads cross-user fdinfo.
+# ProtectProc=invisible hides other users' processes, not all other processes;
+# CAP_SYS_PTRACE can bypass that restriction, so it would not isolate this
+# service from those processes with the current capability set.
 RestrictNamespaces=true
 RestrictRealtime=true
 RestrictSUIDSGID=true

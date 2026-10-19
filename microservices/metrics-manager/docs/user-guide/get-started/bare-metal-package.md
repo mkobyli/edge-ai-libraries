@@ -438,8 +438,9 @@ user instead was measured to leave the power and temperature arrays empty even
 though the MSR device itself opened successfully.
 
 Being root is necessary but not sufficient, which matters if you harden the
-unit further. These settings in `metrics-manager-qmassa.service` are
-load-bearing and fail silently when removed:
+unit further. Restricting the following settings in
+`metrics-manager-qmassa.service` can make telemetry disappear without an
+explicit error:
 
 - `CapabilityBoundingSet` has to retain `CAP_SYS_RAWIO`. Uid 0 confers
   capabilities only up to that bound, so emptying it takes the MSR access away
@@ -448,18 +449,32 @@ load-bearing and fail silently when removed:
 - GPU client usage comes from `/proc/<pid>/fdinfo` across user IDs. The unit
   needs both `CAP_SYS_PTRACE` for the procfs access check and
   `CAP_DAC_READ_SEARCH` to open other users' fdinfo files under its restricted
-  bounding set. It must not set `ProtectProc=invisible`, or qmassa may report
-  only its own process. These capabilities are granted only to the isolated
-  qmassa service, not Telegraf.
+  bounding set. This additional GPU-client access is granted to qmassa, not
+  Telegraf. The capabilities are not scoped to GPU files: `CAP_SYS_PTRACE`
+  permits cross-process access and `CAP_DAC_READ_SEARCH` bypasses filesystem
+  read/search permission checks. The service's remaining sandbox restrictions
+  therefore still matter.
 - `DeviceAllow` has to name the driver as `/proc/devices` does, which is
   `cpu/msr` and not `msr`. Under `DevicePolicy=closed` a rule that matches
   nothing is indistinguishable from no rule at all.
 
-After changing either one, check that the readings survived:
+`ProtectProc` is left at its default to support cross-user process discovery.
+`ProtectProc=invisible` hides processes owned by other users, not every process
+except qmassa. `CAP_SYS_PTRACE` can bypass that restriction, so enabling it
+with the current capability set would not provide cross-user process isolation.
+Removing `ProtectProc=invisible` alone is not a substitute for the capabilities
+needed to read DRM fdinfo.
+
+After changing these settings, check that power, temperature and GPU-client
+readings survived while a known GPU workload runs as a non-root user:
 
 ```bash
-curl -s http://127.0.0.1:9273/metrics | grep -E '^gpu_(power|temperature)'
+curl -s http://127.0.0.1:9273/metrics | grep -E '^gpu_(power|temperature|client_)'
 ```
+
+Confirm that the workload's PID appears in the client metrics, not just that
+some GPU metrics exist. Client export must be enabled; the native package uses
+`-clients -clients-limit 10`, so only the top ten processes per GPU are exported.
 
 ## Reachability
 
