@@ -184,18 +184,25 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 
 func chartRowStyle(row, height int) lipgloss.Style {
 	level, span := max(0, min(height-1, height-1-row)), max(1, height-1)
+	brightness := float64(level) / float64(span)
 	if lipgloss.ColorProfile() == termenv.ANSI {
 		// Keep limited palettes blue instead of quantizing pale shades to white.
 		color := lipgloss.Color("4")
-		if level*2 >= span {
+		if brightness >= 0.5 {
 			color = lipgloss.Color("12")
 		}
 		return lipgloss.NewStyle().Foreground(color)
 	}
-	mix := func(low, high int) int { return low + (high-low)*level/span }
+	mix := func(low, high [3]int, amount float64) string {
+		var rgb [3]int
+		for channel := range rgb {
+			rgb[channel] = low[channel] + int(math.Round(float64(high[channel]-low[channel])*amount))
+		}
+		return fmt.Sprintf("#%02x%02x%02x", rgb[0], rgb[1], rgb[2])
+	}
 	return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-		Light: fmt.Sprintf("#%02x%02x%02x", mix(15, 45), mix(52, 110), mix(100, 180)),
-		Dark:  fmt.Sprintf("#%02x%02x%02x", mix(25, 155), mix(95, 215), mix(175, 255)),
+		Light: mix([3]int{15, 52, 100}, [3]int{45, 110, 180}, brightness),
+		Dark:  mix([3]int{30, 90, 150}, [3]int{105, 169, 223}, brightness),
 	})
 }
 

@@ -195,18 +195,19 @@ func TestViewPacksPanelsAcrossWideWindows(t *testing.T) {
 	}{
 		{
 			name:        "single column",
-			width:       138,
+			width:       152,
 			notSameLine: []string{"CPU", "Memory"},
 		},
 		{
 			name:     "two columns",
-			width:    139,
-			sameLine: []string{"CPU", "Memory"},
+			width:    153,
+			sameLine: []string{"┌ CPU", "┌ Processes"},
 		},
 		{
-			name:     "three columns",
-			width:    210,
-			sameLine: []string{"CPU", "Memory", "GPU 0"},
+			name:        "three priority columns",
+			width:       224,
+			sameLine:    []string{"┌ CPU", "┌ GPU 0", "┌ Processes"},
+			notSameLine: []string{"┌ CPU", "┌ Memory"},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -214,6 +215,7 @@ func TestViewPacksPanelsAcrossWideWindows(t *testing.T) {
 				At:      fixedNow,
 				Samples: parseFixture(t, hostExposition+acceleratorExposition),
 			}))
+			m.dash.Processes = []Process{{PID: "42", Command: "worker"}}
 			m, _ = update(t, m, tea.WindowSizeMsg{Width: tt.width, Height: 200})
 
 			lines := strings.Split(m.View(), "\n")

@@ -135,8 +135,12 @@ func TestCompactTablesKeepMeasurements(t *testing.T) {
 	}
 	view := m.View()
 	for _, want := range []string{"system: 20.0%", "idle: 65.0%", "source: pmu",
-		"cpu: 87.0%", "memory: 1.0 GiB", "throttle: thermal"} {
+		"throttle: thermal"} {
 		wantContains(t, view, want)
+	}
+	m.moveProcessColumns(10000)
+	for _, want := range []string{"87.0%", "1.0 GiB"} {
+		wantContains(t, m.View(), want)
 	}
 }
 

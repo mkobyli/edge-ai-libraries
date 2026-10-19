@@ -49,23 +49,27 @@ type Model struct {
 	// updatedAt is when dash was collected, zero until the first success.
 	updatedAt       time.Time
 	processDataSeen bool
+	storageDataSeen bool
 
 	// err is the reason the most recent poll failed, or nil.
 	err error
 
-	config          DashboardConfig
-	chartsConfig    ChartsConfig
-	alerts          AlertTracker
-	history         History
-	network         networkTracker
-	activeTab       Tab
-	tabOffsets      [tabCount]int
-	detailSelection detailChoice
-	detailTop       int
-	alertReturnTab  Tab
-	pollInterval    time.Duration
-	showHelp        bool
-	helpOffset      int
+	config              DashboardConfig
+	chartsConfig        ChartsConfig
+	alerts              AlertTracker
+	history             History
+	network             networkTracker
+	storage             storageTracker
+	activeTab           Tab
+	tabOffsets          [tabCount]int
+	detailSelection     detailChoice
+	detailTop           int
+	alertReturnTab      Tab
+	pollInterval        time.Duration
+	showHelp            bool
+	helpOffset          int
+	processColumnOffset int
+	panelContentWidth   int
 
 	width  int
 	height int
@@ -119,6 +123,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	mouseEnabled := m.mouseEnabled()
 	switch msg := msg.(type) {
 	case clockMsg:
+		m.expireStorage(m.now())
 		m.history.Prune(m.now())
 		m.setOffset(m.offset)
 		return m, clockTick()
@@ -166,6 +171,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == OverviewTab && !m.showHelp {
 				m.toggleProcessCPUMode()
 			}
+		case "left", "right":
+			if m.activeTab == OverviewTab && !m.showHelp {
+				delta := 8
+				if msg.String() == "left" {
+					delta = -delta
+				}
+				m.moveProcessColumns(delta)
+			}
 		case "up", "k":
 			m.setOffset(m.offset - 1)
 		case "down", "j":
@@ -186,6 +199,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.moveProcessColumns(0)
 		// A window that just grew can leave the view scrolled past the
 		// end, which would show a screen of blank lines.
 		m.setOffset(m.offset)
@@ -196,11 +210,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dash = BuildDashboard(msg.Samples)
 			m.processDataSeen = m.processDataSeen || len(m.dash.Processes) > 0
 			m.dash.Network, m.dash.NetworkLimited = m.network.update(msg.Samples, msg.At, m.config.Network)
+			m.dash.Storage, m.dash.StorageLimited = m.storage.update(msg.Samples, msg.At, m.config.Storage)
+			m.storageDataSeen = m.storageDataSeen || len(m.dash.Storage) > 0
 			m.updatedAt = msg.At
 			m.alerts.Update(m.dash, m.config.Thresholds, msg.At)
 			m.history.Update(m.dash, msg.At)
+			m.moveProcessColumns(0)
 		} else {
 			m.network = networkTracker{}
+			m.storage = storageTracker{}
+			m.expireStorage(msg.At)
 			m.alerts.Interrupt()
 			m.history.Update(Dashboard{}, msg.At)
 		}

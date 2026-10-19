@@ -677,6 +677,39 @@ or forwarding metrics.
 
 ---
 
+### Optional Storage (`disk`, `diskio`) via Telegraf
+
+The native package supplies an opt-in example for Telegraf's `disk` and `diskio`
+inputs. They are not enabled by installing/upgrading the package. See
+[Storage setup, interpretation and thresholds](./get-started/bare-metal-package.md#optional-storage-monitoring).
+
+With Prometheus `metric_version = 1`:
+
+| Exported fields | Meaning |
+|---|---|
+| `disk_total`, `disk_used`, `disk_free` | Filesystem bytes |
+| `disk_used_percent` | Used / (used + free) * 100 |
+| `disk_inodes_total`, `disk_inodes_used_percent` | Inode capacity and utilization |
+| `diskio_read_bytes`, `diskio_write_bytes` | Cumulative transferred bytes |
+| `diskio_reads`, `diskio_writes` | Cumulative completed requests |
+| `diskio_read_time`, `diskio_write_time` | Cumulative I/O time in milliseconds, including queueing |
+| `diskio_io_time`, `diskio_weighted_io_time` | Cumulative busy and weighted I/O milliseconds |
+| `diskio_iops_in_progress` | Current outstanding requests |
+
+Filesystem series use `host`, `path`, `device` and `fstype`; device I/O series
+use `host` and `name`. The example omits serial/WWID tags. Mount paths can
+reveal application layout: consider this when exposing or forwarding telemetry.
+The TUI groups filesystems separately from devices without assuming a
+one-to-one relationship or summing nested block-device layers.
+
+Exported byte/count/time fields remain raw counters. TUI derives MiB/s, IOPS,
+read/write await, busy percentage and average queue depth from timestamped
+deltas; `export_timestamp = true` is required. It does not interpret a missing
+reading as zero or assume busy time measures maximum SSD/NVMe performance.
+SMART/NVMe device health and RAID/ZFS-specific metrics are outside this stage.
+
+---
+
 ### Platform (`platform`) via `mm-plugin-cpu`
 
 | Prometheus Name         | Labels                    | Description                        |

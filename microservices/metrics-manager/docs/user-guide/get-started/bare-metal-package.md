@@ -219,17 +219,36 @@ while help is open. Tab shortcuts leave help; `a` goes directly to alerts.
 
 ### Dashboard layout and history
 
-Overview responds to the terminal width. It uses one column in a narrow window,
-two columns once each panel can remain readable, and up to three columns in a
-wide terminal. Scrolling remains available when the resulting columns do not fit
-the terminal height. Panels are assigned across columns in hardware-first order,
-then stacked independently with one blank line between panels. A short Memory
-panel no longer waits for a taller CPU panel before the next panel can begin.
-Changes to panel heights do not move panels between columns; resizing the
-terminal or adding/removing devices may reflow the layout.
-Tables that cannot fit switch to labelled rows, keeping measurements such as
-RSS, idle time and throttle reasons visible rather than clipping their columns.
-Long descriptive values wrap within their panel.
+Overview responds to terminal width while prioritizing CPU/GPU diagnostics:
+
+- **Wide (224 columns or more, with a GPU):** CPU, Memory and NPU on the left;
+  GPUs in the middle; general CPU processes starting at the top right.
+- **Medium (153 columns or more):** CPU, Memory and GPUs on the left;
+  general CPU processes starting at the top right, followed by NPU.
+- **Narrow:** CPU, CPU processes, Memory, GPUs and NPU in a single column.
+
+Each column stacks its panels independently. **Every GPU's metrics and process
+table share one frame**, keeping device activity and its clients together.
+Absent optional devices are omitted. **Network and Storage fill the available
+space below the main panels in each column**, rather than waiting for the tallest
+column or occupying separate full-width rows. Each additional panel goes into
+the currently shortest column, without moving CPU, Memory, NPU, GPU or process
+panels. Network is placed first, followed by Storage; these panels may appear
+side by side. Their placement can change when panel heights change or the
+terminal is resized. In a single column they remain after the main panels.
+All columns scroll vertically together; the CPU process table is not pinned
+to the screen.
+
+Process tables keep **one process per row** and use their column's width, with
+more space reserved for the six-column CPU process table. Padding contracts when
+needed; tables never switch to vertical process cards. If columns still do not
+fit, use **Left/Right** in Overview to scroll horizontally. Tables share the scroll
+position, each clamped to its own right edge. A column-range hint identifies
+partially visible tables; resizing recalculates the available width and scroll bounds.
+In `-once` output, use a wider terminal to see columns hidden at a narrow width.
+Other hardware tables can still switch to labelled rows, preserving idle time,
+throttle reasons and similar measurements. Long descriptive values wrap within
+their panel.
 
 Device and metric-group panels have borders, including Trends plots and
 Details sections. Borders are included in the responsive width calculation.
@@ -508,8 +527,18 @@ leaves the new packaged version alongside as `.dpkg-dist`.
 
 The CPU process table follows this order:
 **PID, Process, Threads, User, Memory, CPU**.
-If it does not fit, the same fields appear as labelled rows in the same order.
-The GPU process table is unchanged.
+Each process stays on one row. Left/Right scrolls the columns if the table cannot
+fit its panel. GPU client tables follow the same behavior and show
+**PID, Process, Usage, Memory** inside their respective GPU frames.
+
+With native defaults, CPU process collection and qmassa GPU sampling run every
+**1 second**, while the TUI polls every **500 ms**. The CPU
+`processes.maxSampleAge` default of **3 seconds** is a freshness cutoff, not the
+refresh interval. GPU client rows currently have no equivalent cutoff: a client
+that stops publishing can remain visible until Telegraf's Prometheus cache
+expires its series (by default about **60 seconds** after the last sample).
+Idle processes holding GPU clients can also appear; presence does not imply
+active GPU work.
 
 - **Threads** is the number of OS threads from `/proc/<pid>/stat`, including
   sleeping threads. It is not the number of busy CPUs or Go goroutines.
@@ -961,18 +990,157 @@ Network entries from the new packaged `tui-charts.json` (or its `.dpkg-dist`
 upgrade copy). A fresh configuration contains RX/TX Trends and all ten Network
 Details metrics. No empty Network groups appear before an interface is observed.
 
-### Planned follow-up: Storage I/O
+### Optional Storage monitoring
 
-Storage remains a separate follow-up, not an implemented panel.
-Telegraf 1.39.3 provides
-[`diskio`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/diskio)
-for device read/write counters and timings, and
-[`disk`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/disk)
-for filesystem capacity and inode usage.
-The proposed scope is opt-in collection, per-device groups, read/write history
-and configurable filesystem/inode thresholds. Raw MB/s and NVMe active time alone
-must not be labelled as bottlenecks. Native sandbox filesystem visibility needs
-separate verification without blanket root/privileged changes.
+Storage is **opt-in**, like Network. This implementation uses the existing
+Telegraf 1.39.3 [`disk`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/disk)
+and [`diskio`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/diskio)
+inputs, not a new native collector or a scan of the TUI machine.
+No service capabilities, device permissions or container mounts are changed.
+
+These inputs are useful for edge video recording, model/dataset storage,
+application logs and cache: filesystem usage detects capacity pressure, while
+device I/O helps explain model loading or recording delays.
+
+#### Enable collection
+
+```bash
+sudo cp -i /usr/share/doc/metrics-manager/examples/telegraf-storage.conf \
+  /etc/metrics-manager/telegraf.d/storage.conf
+sudoedit /etc/metrics-manager/telegraf.d/storage.conf
+sudo systemctl restart metrics-manager-telegraf.service
+curl -fsS http://127.0.0.1:9273/metrics | grep -E '^disk(io)?_'
+```
+
+Choose `mount_points` for application filesystems and `devices` for the I/O layer
+you want to observe (for example `nvme0n1`). The example samples every second
+with per-input nanosecond precision (exported as millisecond timestamps), avoiding
+whole-second rounding into the future. It
+excludes virtual filesystems such as tmpfs/overlay/squashfs, filters loop/ram
+devices from export and omits serial/WWID tags. Existing main configuration must
+retain `metric_version = 1` and `export_timestamp = true`.
+Upgrading never activates the example automatically.
+
+To disable, move the drop-in out of the `*.conf` set and restart Telegraf:
+
+```bash
+sudo mv -i /etc/metrics-manager/telegraf.d/storage.conf \
+  /etc/metrics-manager/telegraf.d/storage.conf.disabled
+sudo systemctl restart metrics-manager-telegraf.service
+```
+
+**Visibility matters:** `disk` sees the collector's mount namespace, not
+necessarily every host mount. `ProtectHome`, `PrivateTmp`, inaccessible paths
+and container bind mounts can hide mounts or expose private equivalents.
+`ProtectSystem` can also make mounts look read-only inside the service; the TUI
+does not infer host filesystem failure from that mode. Verify that the expected
+paths are exported from the installed service. Do not broadly disable its
+sandbox or give the endpoint service root/privileged access. Monitoring protected
+mounts needs an operator-reviewed deployment configuration. Container/Helm host
+storage visibility is a separate deployment concern; running this input in an
+ordinary container does not validate host filesystem coverage.
+Disk I/O counters come from procfs/sysfs. Device-name metadata may be unavailable
+in a restricted container: Telegraf can log a warning and retain the kernel name
+while still exporting counters.
+
+#### Reading the TUI
+
+- **Overview:** separate Filesystem frames (path, device, filesystem type, total,
+  used/free GiB, space and inode percentages) and Storage I/O frames per device.
+- **Trends:** space-used percentage per filesystem, read and write MiB/s per
+  device; five minutes, Braille by default.
+- **Details:** space, inode and free-space charts, plus read/write transfer,
+  IOPS, await, busy time, average queue depth and instantaneous I/O in progress.
+- **Alerts:** capacity/inode warnings, optional operator-defined I/O thresholds,
+  and explicit data-quality/coverage diagnostics (`Storage!` in the summary).
+
+Filesystem paths and block devices are intentionally separate identities. A
+mount may sit above LVM, RAID or encryption, and several paths may share one
+device. No guessed path-to-device mapping, capacity total or I/O sum is made.
+Do not add a physical disk's I/O to its partitions or device-mapper layers:
+the same requests may appear at multiple levels.
+
+| Metric | Meaning |
+|---|---|
+| Space used | Telegraf `used_percent`: `used / (used + free) * 100`; reserved blocks can make this differ from `used / total` |
+| Free / used / total GiB | Filesystem byte readings divided by 2^30; free means available to an unprivileged user |
+| Inodes used | Filesystem object allocation; many small files can prevent new files even with free bytes |
+| Read/write MiB/s | Delta bytes / measurement interval / 2^20 |
+| Read/write IOPS | Delta completed read/write requests / measurement interval |
+| Read/write await (ms) | Delta accumulated read/write time / corresponding completed requests; includes queueing, not end-to-end application latency |
+| I/O busy time (%) | Delta `io_time` milliseconds / elapsed milliseconds * 100 |
+| Average queue depth | Delta `weighted_io_time` milliseconds / elapsed milliseconds |
+| I/O in progress | Instantaneous outstanding-I/O gauge, not an interval average |
+
+Rates require two valid, distinct **source timestamps**. Repeated scrapes do
+not fabricate zero rates, append duplicate points or advance alert streaks.
+Resets, missing/future/stale/out-of-order samples and conflicting values are
+diagnosed rather than replaced with zeros. Await requires matching start and
+end timestamps for both counters. An interval with no completed requests has
+unavailable await, not a measured zero latency. Missing/zero inode capacity
+produces unavailable inode usage. Missing/zero filesystem capacity cannot
+confirm space alerts. Samples expire on clock ticks even without a fresh scrape;
+history remains visible within the configured history window.
+
+Busy time is **not percent of maximum device throughput**. SSD/NVMe devices
+process requests in parallel, and kernel accounting is approximate. A busy
+device is not automatically saturated or unhealthy. The chart deliberately
+does not clamp busy time to 100% or diagnose an SSD fault from it.
+SMART health, temperature, endurance, NVMe media errors and Linux RAID/ZFS
+health are not collected by these two inputs. Telegraf's
+[`smart`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/smart)
+(including NVMe), `mdstat` and `zfs` are possible later stages; SMART requires
+additional tools and a separately reviewed privileged collection path.
+
+#### Storage configuration and thresholds
+
+The `storage` object in the dashboard configuration defaults to:
+
+```json
+"storage": {
+  "mountPoints": [],
+  "devices": [],
+  "ignoreFilesystems": ["tmpfs", "devtmpfs", "devfs", "iso9660", "overlay", "aufs", "squashfs"],
+  "maxFilesystems": 4,
+  "maxDevices": 4,
+  "maxSampleAge": "10s"
+}
+```
+
+`mountPoints` and `devices` are exact-name allowlists, not glob patterns, and
+accept at most 32 entries each. Mount paths must be absolute. Empty means
+automatic selection; loop/ram device names are excluded unless explicitly
+selected. `ignoreFilesystems` accepts at most 32 exact filesystem types.
+The limits accept 1-32 each, apply independently, and bound display, counter
+state and alert evaluation. Admission is deterministic by resource identity
+(including host); a limit indicator warns when resources were excluded.
+Use filters to prioritize application data mounts. `maxSampleAge` accepts
+1s-5m; choose it above collection cadence plus delivery delay.
+
+| Threshold key | Careful | Warning | Critical |
+|---|---:|---:|---:|
+| `storage.usedPercent` | 70 | 80 | 90 |
+| `storage.inodesPercent` | 70 | 80 | 90 |
+
+These are configurable starting points, not universal safety guarantees.
+Three distinct samples confirm activation/recovery by default, with the
+existing 5% hysteresis. Missing data never confirms recovery. `Storage!` warns
+about unavailable configured assessments, resource limits or a previously
+observed source disappearing; it does not mean the disk has failed.
+
+I/O metrics stay neutral unless you add a threshold for `storage.readMiBps`,
+`storage.writeMiBps`, `storage.readIOPS`, `storage.writeIOPS`,
+`storage.readAwaitMs`, `storage.writeAwaitMs`, `storage.busyPercent`,
+`storage.queueDepth` or `storage.inProgress`. Select those thresholds using
+your device and workload requirements rather than generic bandwidth numbers.
+
+Old dashboard files inherit omitted storage settings and capacity thresholds.
+Explicit `charts` and `details.metrics` arrays still replace defaults: copy
+the desired `storage.*` entries from the new packaged chart configuration
+(or `.dpkg-dist` file) to enable the new plots on upgrade. No empty Storage
+groups appear until data is observed. History shares the existing 128-series
+budget with other devices; reaching it is reported rather than allocating
+unbounded storage.
 
 ### Trend chart configuration
 
@@ -1013,11 +1181,37 @@ axis. The shade depends only on the row's position within the plot, not on
 thresholds, trend direction or each column's individual peak. At the same
 scale and size, equal-height columns therefore have identical shading and a
 tall column contains the gradient from its base upward.
+The palette uses a subtle linear RGB blend, without accelerated brightening or
+cyan color stops. On dark terminal themes it runs from muted blue (`#1e5a96`)
+to a moderately lighter blue (`#69a9df`), avoiding strongly contrasting bands.
+This affects colors only, not the scale or plotted heights.
 There is no extra color-mode setting: `solid` uses background shades, while
 `unicode`, `ascii` and `braille` use foreground shades. Light terminal themes
 use a darker palette for legibility. True-color terminals display the full
 gradient, 256-color terminals approximate it, 16-color terminals use two blue
 shades, and monochrome output retains its visible glyph fallback.
+
+If a new palette still looks unchanged, check the environment in the same shell
+that launches `mm-tui`:
+
+```bash
+printf 'TERM=%s\nCOLORTERM=%s\n' "$TERM" "$COLORTERM"
+```
+
+`TERM=xterm` with an empty `COLORTERM` normally selects the 16-color fallback,
+so changes to the full RGB palette cannot appear. If your terminal emulator
+actually supports 256 colors, try this per-command setting:
+
+```bash
+TERM=xterm-256color mm-tui
+```
+
+For an emulator with confirmed true-color support, `COLORTERM=truecolor mm-tui`
+enables RGB color detection. These settings affect only that invocation; they
+do not add color capabilities to the terminal. Do not persist an inaccurate
+terminal type, particularly through `tmux` or `screen`. Restart `mm-tui` after
+installing an updated binary.
+
 Numeric readings in Overview and Details and the `last` statistic still use
 the configured metric thresholds (green OK, cyan careful, amber warning, red
 critical); readings without a health threshold remain neutral. Alert events
@@ -1093,7 +1287,7 @@ The same file also configures Details through its `details` object:
 
 Each entry in `details.metrics` uses the same `metric`, `title`, `unit`, `min`
 and `max` fields as `charts`; a device-specific metric expands into individual
-devices, engines or tiles. Both lists accept 1–32 unique metric types. Old
+devices, engines or tiles. Both lists accept 1–64 unique metric types. Old
 configuration files without a `details` object use the built-in defaults.
 The configured metric order is preserved within each hardware section; the
 section order remains fixed even if the configuration interleaves device types.

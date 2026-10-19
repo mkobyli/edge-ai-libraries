@@ -37,7 +37,19 @@
       {"metric": "network.rxErrorsPerSecond", "title": "RX errors", "unit": "/s", "min": 0},
       {"metric": "network.txErrorsPerSecond", "title": "TX errors", "unit": "/s", "min": 0},
       {"metric": "network.rxDropsPerSecond", "title": "RX drops", "unit": "/s", "min": 0},
-      {"metric": "network.txDropsPerSecond", "title": "TX drops", "unit": "/s", "min": 0}
+      {"metric": "network.txDropsPerSecond", "title": "TX drops", "unit": "/s", "min": 0},
+      {"metric": "storage.usedPercent", "title": "Space used", "unit": "%", "min": 0, "max": 100},
+      {"metric": "storage.inodesPercent", "title": "Inodes used", "unit": "%", "min": 0, "max": 100},
+      {"metric": "storage.freeGiB", "title": "Free space", "unit": "GiB", "min": 0},
+      {"metric": "storage.readMiBps", "title": "Read transfer", "unit": "MiB/s", "min": 0},
+      {"metric": "storage.writeMiBps", "title": "Write transfer", "unit": "MiB/s", "min": 0},
+      {"metric": "storage.readIOPS", "title": "Read IOPS", "unit": "IOPS", "min": 0},
+      {"metric": "storage.writeIOPS", "title": "Write IOPS", "unit": "IOPS", "min": 0},
+      {"metric": "storage.readAwaitMs", "title": "Read await", "unit": "ms", "min": 0},
+      {"metric": "storage.writeAwaitMs", "title": "Write await", "unit": "ms", "min": 0},
+      {"metric": "storage.busyPercent", "title": "I/O busy time", "unit": "%", "min": 0},
+      {"metric": "storage.queueDepth", "title": "Average queue depth", "unit": "requests", "min": 0},
+      {"metric": "storage.inProgress", "title": "I/O in progress", "unit": "requests", "min": 0}
     ]
   },
   "charts": [
@@ -84,6 +96,9 @@
       "max": 100
     },
     {"metric": "network.rxMiBps", "title": "RX transfer", "unit": "MiB/s", "min": 0},
-    {"metric": "network.txMiBps", "title": "TX transfer", "unit": "MiB/s", "min": 0}
+    {"metric": "network.txMiBps", "title": "TX transfer", "unit": "MiB/s", "min": 0},
+    {"metric": "storage.usedPercent", "title": "Space used", "unit": "%", "min": 0, "max": 100},
+    {"metric": "storage.readMiBps", "title": "Read transfer", "unit": "MiB/s", "min": 0},
+    {"metric": "storage.writeMiBps", "title": "Write transfer", "unit": "MiB/s", "min": 0}
   ]
 }

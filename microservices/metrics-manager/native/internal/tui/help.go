@@ -15,6 +15,9 @@ func (m Model) helpBody(width int) string {
 		"  1 / 2 / 3 / 4: Overview / Trends / Details / Alerts.\n" +
 		"  Tab / Shift+Tab or click a tab: change tab.\n\n" +
 		"Processes - Overview (CPU and GPU lists)\n" +
+		"  CPU processes start at the top right in multi-column layouts; one process per row.\n" +
+		"  GPU processes stay inside their GPU's frame, immediately below its hardware metrics.\n" +
+		"  Left / Right: scroll process columns together when a table is wider than its panel.\n" +
 		"  CPU columns: PID, Process, Threads, User, Memory (RSS), CPU.\n" +
 		"  Threads counts OS threads, not busy CPUs or Go goroutines; no health threshold.\n" +
 		"  16 Threads on 14 logical CPUs is normal: threads may sleep or wait for CPU time.\n" +
@@ -53,14 +56,21 @@ func (m Model) helpBody(width int) string {
 		"  Mouse capture enables tab clicks and scrolling; help releases it.\n" +
 		"  Set mouse=false in the dashboard config to disable all capture.\n" +
 		"  details.mouse=false disables only metric click/wheel selection.\n" +
-		"  CPU, Memory, individual GPUs, NPU and network interfaces have separate sections.\n\n" +
+		"  CPU, Memory, GPUs, NPU, Network and Storage resources have separate sections.\n\n" +
 		"Reading the display\n" +
 		"  Overview: current readings. Trends: multiple history charts.\n" +
+		"  Overview: 3 columns on wide windows, 2 on medium, 1 on narrow windows.\n" +
+		"  Wide: CPU/Memory/NPU left, GPUs with clients middle, CPU processes right.\n" +
+		"  Medium: CPU/Memory/GPUs left, CPU processes then NPU right.\n" +
+		"  Network/Storage fill the shortest columns below their main panels, never above them.\n" +
+		"  All columns scroll together; CPU processes are not pinned to the screen.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
 		"  Filled plots preserve blank gaps where measurements are missing.\n" +
 		"  Time buckets are anchored: closed columns move together, not regrouped per poll.\n" +
 		"  Auto scales expand in steps; halving the range needs 30s before shrinking.\n" +
 		"  Plots fade from dark blue at the baseline to light blue at the top of the axis.\n" +
+		"  Plots use a subtle linear blue gradient, without cyan stops or accelerated brightening.\n" +
+		"  Only two blue shades? Check TERM/COLORTERM; 16-color terminals cannot show the full gradient.\n" +
 		"  Shades depend on height, not health or trend direction; values keep threshold colors.\n" +
 		"  Nonnegative metrics default to a zero baseline, including all-zero samples.\n" +
 		"  graphMode=\"braille\" (default) uses 2x4 dots per cell; requires font support.\n" +
@@ -81,9 +91,11 @@ func (m Model) helpBody(width int) string {
 		"  [4/a] Open alerts shows events and per-process data-quality diagnostics.\n" +
 		"  Process CPU alerts: limited (CPU! on narrow screens) means incomplete evaluation,\n" +
 		"  not stopped collection. The process table remains available.\n" +
-		"  Cached process samples older than processes.maxSampleAge are excluded before ranking.\n" +
+		"  Cached CPU process samples older than processes.maxSampleAge are excluded before ranking.\n" +
 		"  Set this duration above the collector interval plus delivery delay; range 1s to 5m.\n" +
-		"  Their retention alone is informational; loss of all current process data is flagged.\n" +
+		"  Their retention alone is informational; loss of all current CPU process data is flagged.\n" +
+		"  Native CPU/GPU collection defaults to 1s; the CPU 3s age limit is not a refresh interval.\n" +
+		"  GPU clients have no equivalent age cutoff; cached entries may remain for about 60s.\n" +
 		"  Collection and history continue while help is open.\n\n" +
 		"Network - optional Telegraf net input\n" +
 		"  RX/TX rates need two distinct, timestamped counter measurements.\n" +
@@ -93,6 +105,20 @@ func (m Model) helpBody(width int) string {
 		"  Errors/drops use events/s, not lifetime totals; rate colors share alert thresholds.\n" +
 		"  -once shows totals but cannot calculate a rate from one snapshot.\n" +
 		"  See the native package guide to enable the optional input.\n\n" +
+		"Storage - optional Telegraf disk and diskio inputs\n" +
+		"  Filesystems show space and inode usage; Storage I/O shows block-device activity.\n" +
+		"  Read/write MiB/s and IOPS need two timestamped counter samples, not two polls.\n" +
+		"  Await is average completed-I/O time (including queueing), not model-load latency.\n" +
+		"  No completed I/O means await is unavailable, not a measured zero.\n" +
+		"  Busy time is NOT percent of maximum SSD/NVMe performance; no default I/O alerts.\n" +
+		"  Space/inode thresholds default to 70/80/90%; small files can exhaust inodes.\n" +
+		"  Trends default to space used and read/write transfer, five minutes in Braille.\n" +
+		"  Details adds free GiB, inodes, IOPS, await, busy time and queue measurements.\n" +
+		"  storage.mountPoints/devices filter exact names; maxFilesystems/maxDevices default to 4.\n" +
+		"  storage.maxSampleAge defaults to 10s; stale/invalid samples cannot confirm alerts.\n" +
+		"  Storage! means limited alert coverage; press a for reasons, not an all-clear.\n" +
+		"  Filesystems and device layers are separate; never sum partitions and their disks.\n" +
+		"  Collection is opt-in; the native guide explains permissions and protected mounts.\n\n" +
 		"Startup reference - defaults, not the current session settings\n\n" +
 		CommandLineHelp()
 	return lipgloss.NewStyle().Width(width).Render(content)

@@ -6,6 +6,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -66,9 +67,24 @@ var supportedCharts = map[string]bool{
 	"network.txErrorsPerSecond":  true,
 	"network.rxDropsPerSecond":   true,
 	"network.txDropsPerSecond":   true,
+	"storage.usedPercent":        true,
+	"storage.inodesPercent":      true,
+	"storage.freeGiB":            true,
+	"storage.readMiBps":          true,
+	"storage.writeMiBps":         true,
+	"storage.readIOPS":           true,
+	"storage.writeIOPS":          true,
+	"storage.readAwaitMs":        true,
+	"storage.writeAwaitMs":       true,
+	"storage.busyPercent":        true,
+	"storage.queueDepth":         true,
+	"storage.inProgress":         true,
 }
 
 func nonnegativeChart(metric string) bool {
+	if strings.HasPrefix(metric, "storage.") && supportedCharts[metric] {
+		return true
+	}
 	switch metric {
 	case "cpu.totalPercent", "cpu.classPercent", "cpu.frequencyMHz", "cpu.powerW",
 		"memory.usedPercent", "memory.bandwidthMiBps",
@@ -126,6 +142,9 @@ func DefaultChartsConfig() ChartsConfig {
 	}
 	config.Details.Metrics = append(config.Details.Metrics, networkChartSpecs()...)
 	config.Charts = append(config.Charts, networkChartSpecs()[:2]...)
+	storage := storageChartSpecs()
+	config.Details.Metrics = append(config.Details.Metrics, storage...)
+	config.Charts = append(config.Charts, storage[0], storage[3], storage[4])
 	return config
 }
 
@@ -186,8 +205,8 @@ func (c ChartsConfig) Validate() error {
 }
 
 func validateChartSpecs(name string, specs []ChartSpec) error {
-	if len(specs) == 0 || len(specs) > 32 {
-		return fmt.Errorf("%s must contain between 1 and 32 entries", name)
+	if len(specs) == 0 || len(specs) > 64 {
+		return fmt.Errorf("%s must contain between 1 and 64 entries", name)
 	}
 	seen := make(map[string]bool, len(specs))
 	for i, chart := range specs {

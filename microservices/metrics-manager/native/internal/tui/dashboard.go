@@ -363,6 +363,8 @@ type Dashboard struct {
 	NPU            NPU
 	Network        []NetworkInterface
 	NetworkLimited bool
+	Storage        []StorageResource
+	StorageLimited bool
 
 	// Processes are the busiest on the machine, by CPU and by resident
 	// memory. The collector caps how many it publishes.

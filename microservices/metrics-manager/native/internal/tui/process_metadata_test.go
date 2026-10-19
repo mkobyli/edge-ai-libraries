@@ -130,11 +130,16 @@ func TestProcessColumnsFollowBtopOrderAcrossLayouts(t *testing.T) {
 		m.width = width
 		for _, mode := range []string{"per-core", "total"} {
 			m.config.Processes.CPUMode = mode
-			panel := framePanel(m.processSection(), m.panelWidth()+2)
+			m.processColumnOffset = 0
+			panel := framePanel(m.processSection(), width)
 			for _, line := range strings.Split(panel, "\n") {
-				if lipgloss.Width(line) > m.panelWidth()+2 {
+				if lipgloss.Width(line) > width {
 					t.Fatalf("panel at %d columns overflowed: %q", width, line)
 				}
+			}
+			for offset := 1; offset < 100; offset++ {
+				m.processColumnOffset = offset
+				panel += "\n" + framePanel(m.processSection(), width)
 			}
 			for _, want := range []string{"worker", "16", "remote-user", "1.0 MiB"} {
 				wantContains(t, panel, want)
@@ -144,7 +149,7 @@ func TestProcessColumnsFollowBtopOrderAcrossLayouts(t *testing.T) {
 				cpu = "10.0%"
 			}
 			wantContains(t, panel, cpu)
-			text := ansi.Strip(panel)
+			text := ansi.Strip(fittedProcessTable(processColumns, m.processRows(m.sortedProcesses()), width-2))
 			previous := -1
 			for _, title := range titles(processColumns) {
 				position := strings.Index(text, title)

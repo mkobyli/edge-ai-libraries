@@ -367,6 +367,24 @@ func dashboardObservations(d Dashboard, processLimit int, at time.Time, processM
 			}
 		}
 	}
+	for _, storage := range d.Storage {
+		for _, spec := range storage.specs() {
+			value := storage.Metrics[spec.Metric]
+			if value.OK {
+				message := "Filesystem capacity is running low; inspect data, logs and retention."
+				if spec.Metric == "storage.inodesPercent" {
+					message = "Inodes are running low; many small files can prevent writes despite free bytes."
+				} else if storage.Kind == "diskio" {
+					message = "Storage I/O exceeds a configured diagnostic threshold; compare with workload needs and device capabilities."
+				}
+				observations = append(observations, observation{
+					key: "storage." + storage.Key + "." + spec.Metric, metric: spec.Metric,
+					device:  storage.label() + " / " + spec.Title,
+					message: message, value: value.Value, at: value.At,
+				})
+			}
+		}
+	}
 	for _, process := range processAlertCandidates(d, processLimit, at, processMaxAge) {
 		total := processTotalCPU(process.CPUPercent, d.Platform.LogicalCPUs)
 		if total.OK {

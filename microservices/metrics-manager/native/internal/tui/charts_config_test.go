@@ -13,7 +13,7 @@ func TestLoadChartsConfigDefaultsWhenAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.HistoryDuration != "5m" || config.MaxPoints != 600 || len(config.Charts) != 8 || config.GraphMode != "braille" {
+	if config.HistoryDuration != "5m" || config.MaxPoints != 600 || len(config.Charts) != 11 || config.GraphMode != "braille" {
 		t.Errorf("unexpected chart defaults: %+v", config)
 	}
 }
