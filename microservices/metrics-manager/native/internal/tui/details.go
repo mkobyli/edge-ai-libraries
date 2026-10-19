@@ -55,8 +55,10 @@ func detailGroup(item detailItem) (rank int, device, title string) {
 		return 3, "", "NPU"
 	case strings.HasPrefix(item.spec.Metric, "network."):
 		return 4, item.choice.device, item.choice.label
+	case strings.HasPrefix(item.spec.Metric, "storage."):
+		return 5, item.choice.device, item.choice.label
 	default:
-		return 5, "", "Other"
+		return 6, "", "Other"
 	}
 }
 
@@ -87,7 +89,7 @@ func detailTitle(item detailItem) string {
 }
 
 func detailCellTitle(item detailItem) string {
-	if strings.HasPrefix(item.spec.Metric, "network.") {
+	if strings.HasPrefix(item.spec.Metric, "network.") || strings.HasPrefix(item.spec.Metric, "storage.") {
 		return item.spec.Title
 	}
 	return detailTitle(item)
@@ -149,7 +151,7 @@ func (m Model) detailItems() []detailItem {
 			items = append(items, instances[key])
 		}
 		if len(keys) == 0 {
-			if strings.HasPrefix(spec.Metric, "network.") && m.detailSelection.metric != spec.Metric {
+			if (strings.HasPrefix(spec.Metric, "network.") || strings.HasPrefix(spec.Metric, "storage.")) && m.detailSelection.metric != spec.Metric {
 				continue
 			}
 			items = append(items, detailItem{

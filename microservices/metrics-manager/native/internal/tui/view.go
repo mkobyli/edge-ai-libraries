@@ -220,6 +220,12 @@ func (m Model) panelGrid(width int) string {
 	if m.dash.NetworkLimited {
 		panels = append(panels, "Network\nInterface limit reached; adjust network.interfaces or network.maxInterfaces.")
 	}
+	for _, storage := range m.dash.Storage {
+		panels = append(panels, m.storageSection(storage))
+	}
+	if m.dash.StorageLimited {
+		panels = append(panels, "Storage\nResource limit reached; adjust storage.mountPoints/devices or storage.maxFilesystems/maxDevices.")
+	}
 
 	// Processes go last because the hardware panels are what the dashboard
 	// is for, but on a wide terminal they can use otherwise idle space.

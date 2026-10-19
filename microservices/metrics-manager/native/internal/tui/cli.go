@@ -50,7 +50,7 @@ func CommandLineHelp() string {
 	flags.SetOutput(&defaults)
 	RegisterStartupFlags(flags)
 	flags.PrintDefaults()
-	return "Metrics Manager: monitor Intel CPU, GPU, NPU and optional network telemetry.\n\n" +
+	return "Metrics Manager: monitor Intel CPU, GPU, NPU and optional network/storage telemetry.\n\n" +
 		"Usage: mm-tui [options]\n\n" +
 		"Options (one or two leading dashes):\n" +
 		"  -h, --help\n" +
@@ -64,7 +64,7 @@ func CommandLineHelp() string {
 		"  mm-tui -endpoint http://127.0.0.1:9273/metrics\n" +
 		"  mm-tui -config ./dashboard.json -charts-config ./charts.json\n\n" +
 		"Start the Metrics Manager collectors before monitoring.\n" +
-		"Use -config for layout, alerts, process limits/CPU mode and network settings;\n" +
+		"Use -config for layout, alerts, process limits/CPU mode and network/storage settings;\n" +
 		"use -charts-config for chart history and Details selection.\n" +
 		"Configuration changes take effect after restarting mm-tui.\n" +
 		"In the TUI: h help, a alerts, 1/2/3/4 tabs, s sort, r reverse, c CPU mode, q quit.\n"

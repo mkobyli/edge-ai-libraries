@@ -2,6 +2,14 @@
   "SPDX-FileCopyrightText": "(C) 2026 Intel Corporation",
   "SPDX-License-Identifier": "Apache-2.0",
   "mouse": true,
+  "storage": {
+    "mountPoints": [],
+    "devices": [],
+    "ignoreFilesystems": ["tmpfs", "devtmpfs", "devfs", "iso9660", "overlay", "aufs", "squashfs"],
+    "maxFilesystems": 4,
+    "maxDevices": 4,
+    "maxSampleAge": "10s"
+  },
   "network": {
     "interfaces": [],
     "maxInterfaces": 8,
@@ -24,6 +32,8 @@
     "bottomBar": true
   },
   "thresholds": {
+    "storage.usedPercent": {"careful": 70, "warning": 80, "critical": 90},
+    "storage.inodesPercent": {"careful": 70, "warning": 80, "critical": 90},
     "network.rxPercent": {"careful": 70, "warning": 80, "critical": 90},
     "network.txPercent": {"careful": 70, "warning": 80, "critical": 90},
     "network.errorsPerSecond": {"careful": 0.1, "warning": 1, "critical": 10},

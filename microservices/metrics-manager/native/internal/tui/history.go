@@ -212,6 +212,15 @@ func chartObservations(d Dashboard) []chartObservation {
 			})
 		}
 	}
+	for _, storage := range d.Storage {
+		for _, spec := range storage.specs() {
+			value := storage.Metrics[spec.Metric]
+			observations = append(observations, chartObservation{
+				key: "storage." + storage.Key + "." + spec.Metric, metric: spec.Metric,
+				label: storage.label(), device: storage.Key, value: value.Reading, at: value.At,
+			})
+		}
+	}
 	return observations
 }
 

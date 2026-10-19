@@ -25,6 +25,7 @@ type DashboardConfig struct {
 	Processes             ProcessConfig        `json:"processes"`
 	Mouse                 bool                 `json:"mouse"`
 	Network               NetworkConfig        `json:"network"`
+	Storage               StorageConfig        `json:"storage"`
 	Alerts                AlertConfig          `json:"alerts"`
 	Thresholds            map[string]Threshold `json:"thresholds"`
 }
@@ -89,6 +90,17 @@ var supportedThresholds = map[string]bool{
 	"network.txPercent":       true,
 	"network.errorsPerSecond": true,
 	"network.dropsPerSecond":  true,
+	"storage.usedPercent":     true,
+	"storage.inodesPercent":   true,
+	"storage.busyPercent":     true,
+	"storage.readMiBps":       true,
+	"storage.writeMiBps":      true,
+	"storage.readIOPS":        true,
+	"storage.writeIOPS":       true,
+	"storage.readAwaitMs":     true,
+	"storage.writeAwaitMs":    true,
+	"storage.queueDepth":      true,
+	"storage.inProgress":      true,
 }
 
 func DefaultDashboardConfig() DashboardConfig {
@@ -96,6 +108,10 @@ func DefaultDashboardConfig() DashboardConfig {
 		Processes: ProcessConfig{MaxDisplayed: 10, SortBy: "usage", Descending: true, CPUMode: "total", MaxSampleAge: processSampleAge(3 * time.Second)},
 		Mouse:     true,
 		Network:   NetworkConfig{MaxInterfaces: 8, MaxSampleAge: "10s"},
+		Storage: StorageConfig{
+			MaxFilesystems: 4, MaxDevices: 4, MaxSampleAge: "10s",
+			IgnoreFilesystems: []string{"tmpfs", "devtmpfs", "devfs", "iso9660", "overlay", "aufs", "squashfs"},
+		},
 		Alerts: AlertConfig{
 			SamplesToRaise:    3,
 			SamplesToClear:    3,
@@ -119,6 +135,8 @@ func DefaultDashboardConfig() DashboardConfig {
 			"network.txPercent":       {Careful: 70, Warning: 80, Critical: 90},
 			"network.errorsPerSecond": {Careful: 0.1, Warning: 1, Critical: 10},
 			"network.dropsPerSecond":  {Careful: 0.1, Warning: 1, Critical: 10},
+			"storage.usedPercent":     {Careful: 70, Warning: 80, Critical: 90},
+			"storage.inodesPercent":   {Careful: 70, Warning: 80, Critical: 90},
 		},
 	}
 }
@@ -182,6 +200,9 @@ func ensureJSONEnd(decoder *json.Decoder) error {
 }
 
 func (c DashboardConfig) Validate() error {
+	if err := c.Storage.validate(); err != nil {
+		return err
+	}
 	if c.Network.MaxInterfaces < 1 || c.Network.MaxInterfaces > 32 {
 		return fmt.Errorf("network.maxInterfaces must be between 1 and 32")
 	}
@@ -271,6 +292,13 @@ func thresholdMetric(name string) string {
 }
 
 func thresholdUnit(name string) string {
+	if strings.HasPrefix(name, "storage.") {
+		for _, spec := range storageChartSpecs() {
+			if spec.Metric == name {
+				return " " + spec.Unit
+			}
+		}
+	}
 	if isPercentThreshold(name) {
 		return "%"
 	}

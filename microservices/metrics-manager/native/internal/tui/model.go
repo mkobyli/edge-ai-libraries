@@ -49,6 +49,7 @@ type Model struct {
 	// updatedAt is when dash was collected, zero until the first success.
 	updatedAt       time.Time
 	processDataSeen bool
+	storageDataSeen bool
 
 	// err is the reason the most recent poll failed, or nil.
 	err error
@@ -58,6 +59,7 @@ type Model struct {
 	alerts          AlertTracker
 	history         History
 	network         networkTracker
+	storage         storageTracker
 	activeTab       Tab
 	tabOffsets      [tabCount]int
 	detailSelection detailChoice
@@ -119,6 +121,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	mouseEnabled := m.mouseEnabled()
 	switch msg := msg.(type) {
 	case clockMsg:
+		m.expireStorage(m.now())
 		m.history.Prune(m.now())
 		m.setOffset(m.offset)
 		return m, clockTick()
@@ -196,11 +199,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dash = BuildDashboard(msg.Samples)
 			m.processDataSeen = m.processDataSeen || len(m.dash.Processes) > 0
 			m.dash.Network, m.dash.NetworkLimited = m.network.update(msg.Samples, msg.At, m.config.Network)
+			m.dash.Storage, m.dash.StorageLimited = m.storage.update(msg.Samples, msg.At, m.config.Storage)
+			m.storageDataSeen = m.storageDataSeen || len(m.dash.Storage) > 0
 			m.updatedAt = msg.At
 			m.alerts.Update(m.dash, m.config.Thresholds, msg.At)
 			m.history.Update(m.dash, msg.At)
 		} else {
 			m.network = networkTracker{}
+			m.storage = storageTracker{}
+			m.expireStorage(msg.At)
 			m.alerts.Interrupt()
 			m.history.Update(Dashboard{}, msg.At)
 		}

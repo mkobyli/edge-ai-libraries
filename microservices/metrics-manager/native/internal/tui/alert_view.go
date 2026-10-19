@@ -60,6 +60,15 @@ func (m Model) alertSummary(width int) string {
 		}
 		summary += " | " + status
 	}
+	if len(m.storageIssues()) > 0 {
+		if len(summary)+len(hint)+14 > width {
+			summary = fmt.Sprintf("Alerts C:%d W:%d", counts[SeverityCritical], counts[SeverityWarning])
+			if m.processCoverageLimited() {
+				summary += " | CPU!"
+			}
+		}
+		summary += " | Storage!"
+	}
 	summary += " | " + hint
 	switch {
 	case counts[SeverityCritical] > 0:
@@ -75,6 +84,13 @@ func (m Model) alertDetails(width int) string {
 	b.WriteString(headingStyle.Render("Alerts") + "\n")
 	b.WriteString("High utilization may be expected during inference; thresholds are diagnostic, not safety limits.\n\n")
 	b.WriteString("History shows ended episodes, not current load. Process CPU alerts always use total host CPU capacity as 100%, regardless of the Overview CPU display mode.\n\n")
+	if issues := m.storageIssues(); len(issues) > 0 {
+		b.WriteString(headingStyle.Render("Storage alert coverage limited") + "\n")
+		for _, issue := range issues {
+			b.WriteString("  " + issue + "\n")
+		}
+		b.WriteString("Missing storage data cannot confirm recovery. Check timestamps, collection and storage.maxSampleAge.\n\n")
+	}
 	if m.err != nil || (!m.updatedAt.IsZero() && m.now().Sub(m.updatedAt) > m.staleAfter()) {
 		b.WriteString("Data is stale: these are last known events, not confirmed current conditions.\n\n")
 	}

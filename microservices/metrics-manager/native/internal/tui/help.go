@@ -53,7 +53,7 @@ func (m Model) helpBody(width int) string {
 		"  Mouse capture enables tab clicks and scrolling; help releases it.\n" +
 		"  Set mouse=false in the dashboard config to disable all capture.\n" +
 		"  details.mouse=false disables only metric click/wheel selection.\n" +
-		"  CPU, Memory, individual GPUs, NPU and network interfaces have separate sections.\n\n" +
+		"  CPU, Memory, GPUs, NPU, Network and Storage resources have separate sections.\n\n" +
 		"Reading the display\n" +
 		"  Overview: current readings. Trends: multiple history charts.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
@@ -93,6 +93,20 @@ func (m Model) helpBody(width int) string {
 		"  Errors/drops use events/s, not lifetime totals; rate colors share alert thresholds.\n" +
 		"  -once shows totals but cannot calculate a rate from one snapshot.\n" +
 		"  See the native package guide to enable the optional input.\n\n" +
+		"Storage - optional Telegraf disk and diskio inputs\n" +
+		"  Filesystems show space and inode usage; Storage I/O shows block-device activity.\n" +
+		"  Read/write MiB/s and IOPS need two timestamped counter samples, not two polls.\n" +
+		"  Await is average completed-I/O time (including queueing), not model-load latency.\n" +
+		"  No completed I/O means await is unavailable, not a measured zero.\n" +
+		"  Busy time is NOT percent of maximum SSD/NVMe performance; no default I/O alerts.\n" +
+		"  Space/inode thresholds default to 70/80/90%; small files can exhaust inodes.\n" +
+		"  Trends default to space used and read/write transfer, five minutes in Braille.\n" +
+		"  Details adds free GiB, inodes, IOPS, await, busy time and queue measurements.\n" +
+		"  storage.mountPoints/devices filter exact names; maxFilesystems/maxDevices default to 4.\n" +
+		"  storage.maxSampleAge defaults to 10s; stale/invalid samples cannot confirm alerts.\n" +
+		"  Storage! means limited alert coverage; press a for reasons, not an all-clear.\n" +
+		"  Filesystems and device layers are separate; never sum partitions and their disks.\n" +
+		"  Collection is opt-in; the native guide explains permissions and protected mounts.\n\n" +
 		"Startup reference - defaults, not the current session settings\n\n" +
 		CommandLineHelp()
 	return lipgloss.NewStyle().Width(width).Render(content)

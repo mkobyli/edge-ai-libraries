@@ -8,6 +8,7 @@ import "time"
 type timedReading struct {
 	Reading
 	At     time.Time
+	From   time.Time
 	Reason string
 }
 
@@ -48,7 +49,7 @@ func (s *counterRateState) update(value Reading, timestampMS int64, now time.Tim
 		}
 		return s.result
 	}
-	result := timedReading{At: at, Reason: "waiting for a second measurement"}
+	result := timedReading{At: at, From: s.at, Reason: "waiting for a second measurement"}
 	if !s.at.IsZero() {
 		if value.Value < s.value {
 			result.Reason = "counter reset; waiting for next measurement"
