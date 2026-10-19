@@ -17,6 +17,9 @@ func (m Model) helpBody(width int) string {
 		"Processes - Overview (CPU and GPU lists)\n" +
 		"  CPU columns: PID, Process, Threads, User, Memory (RSS), CPU.\n" +
 		"  Threads counts OS threads, not busy CPUs or Go goroutines; no health threshold.\n" +
+		"  16 Threads on 14 logical CPUs is normal: threads may sleep or wait for CPU time.\n" +
+		"  A thread runs on one logical CPU at a time and may migrate between CPUs.\n" +
+		"  Logical CPUs are OS scheduling units, not necessarily physical cores (SMT).\n" +
 		"  User is the real UID's name on the monitored host, or the numeric UID if unresolved.\n" +
 		"  Older collectors may omit Threads/User; missing values are not zero.\n" +
 		"  s: cycle sort key: usage, memory, PID.\n" +
@@ -24,6 +27,11 @@ func (m Model) helpBody(width int) string {
 		"  c: toggle process CPU per-core / total; does not affect GPU usage.\n" +
 		"  total (default): 100% = the monitored host's total logical CPU capacity.\n" +
 		"  per-core: diagnostic view; 100% = one logical CPU, values can exceed 100%.\n" +
+		"  CPU is CPU time across all process threads divided by elapsed time, not thread count.\n" +
+		"  total = per-core / monitored logical CPU count.\n" +
+		"  On 14 logical CPUs: 100% per-core is about 7.1% total; 1400% is 100% total.\n" +
+		"  1500% per-core means about 15 logical CPUs busy on average, e.g. 93.8% of 16 CPUs.\n" +
+		"  On a fixed 14-CPU host, sustained 1500% is unexpected: check counts and sampling.\n" +
 		"  Missing/invalid CPU count: total is n/a, never guessed from the TUI machine.\n" +
 		"  Colors and alerts always use total host CPU thresholds, even in per-core view.\n" +
 		"  Missing/invalid CPU count disables process CPU colors and alert evaluation.\n" +

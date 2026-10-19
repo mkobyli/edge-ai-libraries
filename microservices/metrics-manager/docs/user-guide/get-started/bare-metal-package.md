@@ -493,6 +493,9 @@ The GPU process table is unchanged.
 - **Threads** is the number of OS threads from `/proc/<pid>/stat`, including
   sleeping threads. It is not the number of busy CPUs or Go goroutines.
   No generic warning threshold is applied to it.
+- **PID** identifies the process; it is not a CPU or thread count. Linux can
+  reuse a PID after a process exits.
+- **Process** is the process name, not its full command line.
 - **User** is the name associated with the process's real UID from
   `/proc/<pid>/status`, resolved on the monitored host. It is not necessarily
   the effective user of a setuid program. If no name is resolved, the numeric
@@ -500,6 +503,33 @@ The GPU process table is unchanged.
   directory-only account may be displayed as a UID.
 - **Memory** remains RSS, and **CPU** retains the selectable scale described
   below. Neither metric changes because these columns were added.
+  RSS is memory currently resident in RAM, not virtual address space or
+  uniquely owned memory; shared pages can appear in more than one process's RSS.
+
+#### Why can Threads exceed the CPU count?
+
+A thread is an execution context within a process. The **Threads** column counts
+the process's OS threads whether they are running, runnable and waiting for CPU
+time, or sleeping while waiting for work, I/O or synchronization.
+
+**16 threads on a host with 14 logical CPUs is normal.** The operating system
+schedules runnable threads onto available logical CPUs. Each thread runs on at
+most one logical CPU at a time and may move between CPUs; it is not permanently
+assigned to a core. At most 14 of those threads can execute simultaneously on
+14 logical CPUs, and other processes compete for the same CPUs. The remaining
+threads wait or sleep. A process with 16 mostly sleeping threads may use almost
+no CPU, whereas one continuously busy thread can use about 100% in per-core mode.
+Thread count alone therefore does not indicate overload.
+
+A **logical CPU** is a scheduling unit visible to the OS. It is not necessarily
+a physical core: SMT (often called Hyper-Threading) can expose multiple logical
+CPUs per physical core. Those logical CPUs share physical resources, so twice
+as many logical CPUs does not imply twice the performance. Neither Threads nor
+the process CPU column identifies the CPU on which a thread is currently running.
+Runtime tasks such as Go goroutines are also not OS threads and are not counted
+individually here.
+
+#### Collector compatibility and ownership
 
 Older collectors can still be monitored: missing Threads/User are shown as
 absent, not zero or an invented user. To obtain these fields, upgrade the
@@ -527,6 +557,43 @@ Press `c` in Overview to toggle the CPU column in Processes:
   of compute performance or a percentage of the process's cgroup CPU quota.
 - `per-core`: a diagnostic view where 100% means one logical CPU. CPU time
   includes all threads, so a multithreaded process can exceed 100%.
+
+#### Why can CPU show 1500%?
+
+The collector measures the increase in the process's user and kernel CPU time
+across **all its threads**, divided by elapsed wall-clock time:
+
+```text
+per-core CPU % = process CPU time during the interval / elapsed time * 100
+total CPU %   = per-core CPU % / monitored logical CPU count
+```
+
+For example, 15 CPU-seconds accumulated during one elapsed second means **1500%
+per-core**: the equivalent of 15 logical CPUs continuously busy on average.
+It does not mean one core is running at 15 times its capacity, and it does not
+mean the process has exactly 15 threads. On a host with 16 logical CPUs, that
+same reading is **93.75% total** (about 93.8% when rounded).
+
+For a host reporting **14 logical CPUs**:
+
+| Work performed during the interval | Per-core CPU | Total CPU |
+| ---------------------------------- | ------------ | --------- |
+| One logical CPU about half busy | 50% | about 3.6% |
+| One logical CPU continuously busy | 100% | about 7.1% |
+| Two logical CPUs continuously busy | 200% | about 14.3% |
+| All 14 logical CPUs continuously busy | 1400% | 100% |
+
+These are CPU-time equivalents, not fixed assignments of threads to cores.
+With a stable, correctly reported CPU count, the expected aggregate ceiling is
+approximately `100 * logical CPU count` in per-core mode and 100% in total mode.
+**Sustained 1500% on a host with only 14 logical CPUs is not explained by having
+16 threads.** Check the monitored endpoint's `platform_logical_cpus`, collector
+CPU visibility/affinity and sampling consistency. Small short-lived deviations
+can occur due to measurement timing and counter granularity; a sustained
+mismatch warrants investigation rather than treating it as normal load.
+TUI does not clamp the process reading to hide a mismatch.
+
+#### Colors, alerts and startup preference
 
 The panel shows the current mode and its 100% reference. The shortcut affects
 only the CPU process table, not GPU process usage, host charts, sorting,

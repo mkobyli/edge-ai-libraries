@@ -141,6 +141,7 @@ func TestHelpWrapsReferenceWithoutLosingTextAndFitsTerminal(t *testing.T) {
 		if compact(body) != compact(m.helpBody(1000)) {
 			t.Fatalf("help text was truncated at width %d", width)
 		}
+
 		for _, height := range []int{1, 2, 5, 8, 24, 50} {
 			m, _ = update(t, m, tea.WindowSizeMsg{Width: width, Height: height})
 			m.setOffset(m.maxOffset())
@@ -158,5 +159,22 @@ func TestHelpWrapsReferenceWithoutLosingTextAndFitsTerminal(t *testing.T) {
 	m := testModel(nil)
 	if !strings.Contains(compact(m.helpBody(140)), compact(CommandLineHelp())) {
 		t.Fatal("in-TUI help omitted part of the shared startup reference")
+	}
+}
+
+func TestHelpExplainsProcessCPUAndThreads(t *testing.T) {
+	m := testModel(nil)
+	body := m.helpBody(1000)
+	for _, explanation := range []string{
+		"16 Threads on 14 logical CPUs is normal",
+		"A thread runs on one logical CPU at a time",
+		"not necessarily physical cores (SMT)",
+		"total = per-core / monitored logical CPU count",
+		"1400% is 100% total",
+		"1500% per-core means about 15 logical CPUs busy on average",
+		"On a fixed 14-CPU host, sustained 1500% is unexpected",
+		"Colors and alerts always use total host CPU thresholds",
+	} {
+		wantContains(t, body, explanation)
 	}
 }
