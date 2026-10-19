@@ -1181,12 +1181,10 @@ axis. The shade depends only on the row's position within the plot, not on
 thresholds, trend direction or each column's individual peak. At the same
 scale and size, equal-height columns therefore have identical shading and a
 tall column contains the gradient from its base upward.
-Brightness increases faster near the baseline, giving shorter columns a more
-visible gradient even when readings occupy less than half the axis range.
+The palette uses a subtle linear RGB blend, without accelerated brightening or
+cyan color stops. On dark terminal themes it runs from muted blue (`#1e5a96`)
+to a moderately lighter blue (`#69a9df`), avoiding strongly contrasting bands.
 This affects colors only, not the scale or plotted heights.
-On dark terminal themes, the palette progresses from deep blue (`#004a86`)
-through saturated blue (`#0068b5`) and cyan (`#00c7fd`) to light cyan
-(`#b4f1ff`), making both hue and brightness changes visible.
 There is no extra color-mode setting: `solid` uses background shades, while
 `unicode`, `ascii` and `braille` use foreground shades. Light terminal themes
 use a darker palette for legibility. True-color terminals display the full

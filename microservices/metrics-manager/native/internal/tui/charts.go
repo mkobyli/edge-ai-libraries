@@ -184,9 +184,7 @@ func (m Model) renderChart(spec ChartSpec, series HistorySeries, width int) stri
 
 func chartRowStyle(row, height int) lipgloss.Style {
 	level, span := max(0, min(height-1, height-1-row)), max(1, height-1)
-	// Brighten early so measurements below half of the axis range still
-	// show distinct shades; the plotted values and axis remain unchanged.
-	brightness := math.Sqrt(float64(level) / float64(span))
+	brightness := float64(level) / float64(span)
 	if lipgloss.ColorProfile() == termenv.ANSI {
 		// Keep limited palettes blue instead of quantizing pale shades to white.
 		color := lipgloss.Color("4")
@@ -202,18 +200,9 @@ func chartRowStyle(row, height int) lipgloss.Style {
 		}
 		return fmt.Sprintf("#%02x%02x%02x", rgb[0], rgb[1], rgb[2])
 	}
-	low, high := [3]int{0, 74, 134}, [3]int{0, 104, 181}
-	amount := brightness / 0.25
-	if brightness >= 0.65 {
-		low, high = [3]int{0, 199, 253}, [3]int{180, 241, 255}
-		amount = (brightness - 0.65) / 0.35
-	} else if brightness >= 0.25 {
-		low, high = [3]int{0, 104, 181}, [3]int{0, 199, 253}
-		amount = (brightness - 0.25) / 0.4
-	}
 	return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
 		Light: mix([3]int{15, 52, 100}, [3]int{45, 110, 180}, brightness),
-		Dark:  mix(low, high, amount),
+		Dark:  mix([3]int{30, 90, 150}, [3]int{105, 169, 223}, brightness),
 	})
 }
 

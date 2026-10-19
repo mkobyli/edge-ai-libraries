@@ -69,8 +69,7 @@ func (m Model) helpBody(width int) string {
 		"  Time buckets are anchored: closed columns move together, not regrouped per poll.\n" +
 		"  Auto scales expand in steps; halving the range needs 30s before shrinking.\n" +
 		"  Plots fade from dark blue at the baseline to light blue at the top of the axis.\n" +
-		"  Shades brighten faster near the baseline so short bars remain distinguishable.\n" +
-		"  Dark-theme plots progress from deep blue through saturated blue to bright cyan.\n" +
+		"  Plots use a subtle linear blue gradient, without cyan stops or accelerated brightening.\n" +
 		"  Only two blue shades? Check TERM/COLORTERM; 16-color terminals cannot show the full gradient.\n" +
 		"  Shades depend on height, not health or trend direction; values keep threshold colors.\n" +
 		"  Nonnegative metrics default to a zero baseline, including all-zero samples.\n" +
