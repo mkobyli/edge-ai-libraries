@@ -62,7 +62,8 @@ func (m Model) helpBody(width int) string {
 		"  Overview: 3 columns on wide windows, 2 on medium, 1 on narrow windows.\n" +
 		"  Wide: CPU/Memory/NPU left, GPUs with clients middle, CPU processes right.\n" +
 		"  Medium: CPU/Memory/GPUs left, CPU processes then NPU right.\n" +
-		"  Network and Storage follow the main area. All columns scroll together, not pinned.\n" +
+		"  Network/Storage fill the shortest columns below their main panels, never above them.\n" +
+		"  All columns scroll together; CPU processes are not pinned to the screen.\n" +
 		"  Details: one selected chart; both use 5 minutes by default.\n" +
 		"  Filled plots preserve blank gaps where measurements are missing.\n" +
 		"  Time buckets are anchored: closed columns move together, not regrouped per poll.\n" +

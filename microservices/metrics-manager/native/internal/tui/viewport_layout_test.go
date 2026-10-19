@@ -14,7 +14,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-func TestOverviewKeepsProcessesAndAcceleratorsAboveIO(t *testing.T) {
+func TestOverviewKeepsPrimaryPanelsInPlace(t *testing.T) {
 	rowOf := func(text, marker string) int {
 		t.Helper()
 		for i, line := range strings.Split(text, "\n") {
@@ -38,15 +38,17 @@ func TestOverviewKeepsProcessesAndAcceleratorsAboveIO(t *testing.T) {
 	for _, width := range []int{80, 152, 153, 200, 223, 224, 240, 300} {
 		m.width = width
 		view := ansi.Strip(m.panelGrid(width))
-		networkRow := rowOf(view, "┌ Network eth0")
+		primary := m
+		primary.dash.Network = nil
+		primary.dash.Storage = nil
+		baseline := ansi.Strip(primary.panelGrid(width))
 		for _, marker := range []string{"┌ CPU", "┌ Memory", "┌ NPU", "┌ GPU 0 ", "┌ GPU 1", "┌ Processes", "gpu-worker", "other-gpu", "cpu-worker"} {
-			if rowOf(view, marker) >= networkRow {
-				t.Fatalf("Network displaced %s at width %d:\n%s", marker, width, view)
+			if rowOf(view, marker) != rowOf(baseline, marker) {
+				t.Fatalf("auxiliary panels displaced %s at width %d:\n%s", marker, width, view)
 			}
 		}
-		if rowOf(view, "┌ Filesystem /data") <= networkRow {
-			t.Fatal("Storage displaced Network")
-		}
+		wantContains(t, view, "┌ Network eth0")
+		wantContains(t, view, "┌ Filesystem /data")
 		widths := m.overviewColumnWidths(width)
 		expectedColumns := 1
 		if width >= 153 {
@@ -88,6 +90,56 @@ func TestOverviewKeepsProcessesAndAcceleratorsAboveIO(t *testing.T) {
 			wantContains(t, frame, pair[1])
 			if strings.Count(view, pair[1]) != 1 {
 				t.Fatal("GPU process list was duplicated")
+			}
+		}
+	}
+}
+
+func TestOverviewNetworkFillsShortColumnWithoutAddingRows(t *testing.T) {
+	m := testModel(nil)
+	m.dash = BuildDashboard(parseFixture(t, hostExposition+acceleratorExposition))
+	m.dash.Processes = []Process{{PID: "200", Command: "cpu-worker"}}
+	for _, width := range []int{200, 240} {
+		m.width = width
+		m.dash.Network = nil
+		before := m.panelGrid(width)
+		columns := m.overviewPrimaryColumns(width)
+		last := len(columns) - 1
+		expectedRow := lipgloss.Height(columns[last]) + 1
+		var network networkTracker
+		m.dash.Network, _ = network.update(networkSamples(fixedNow, 0, "eth0", "host"), fixedNow, m.config.Network)
+		after := m.panelGrid(width)
+		if lipgloss.Height(after) != lipgloss.Height(before) {
+			t.Fatalf("width %d: Network added rows instead of filling the existing gap", width)
+		}
+		widths := m.overviewColumnWidths(width)
+		line := ansi.Strip(strings.Split(after, "\n")[expectedRow])
+		start := width - widths[last]
+		if !strings.HasPrefix(ansi.Cut(line, start, width), "┌ Network eth0") {
+			t.Fatalf("width %d: Network was not placed immediately below the right-hand panels: %q", width, line)
+		}
+		if strings.Count(ansi.Strip(after), "┌ Network eth0") != 1 {
+			t.Fatal("Network panel duplicated")
+		}
+	}
+}
+
+func TestOverviewPreservesAuxiliaryLimitPanels(t *testing.T) {
+	m := testModel(nil)
+	m.dash.GPUs = []GPU{{ID: "0"}}
+	m.dash.NetworkLimited = true
+	m.dash.StorageLimited = true
+	for _, width := range []int{80, 153, 224} {
+		m.width = width
+		view := ansi.Strip(m.panelGrid(width))
+		for _, warning := range []string{"Interface limit reached", "Resource limit reached"} {
+			if strings.Count(view, warning) != 1 {
+				t.Fatalf("width %d: missing or duplicated warning %q", width, warning)
+			}
+		}
+		for _, line := range strings.Split(view, "\n") {
+			if lipgloss.Width(line) > width {
+				t.Fatalf("width %d: warning panel overflowed", width)
 			}
 		}
 	}

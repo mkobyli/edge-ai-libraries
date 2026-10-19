@@ -201,32 +201,43 @@ func (m Model) bodyLines(width int) []string {
 }
 
 func (m Model) panelGrid(width int) string {
-	groups := []string{m.overviewPrimary(width)}
-	var networks []func(Model) string
+	widths := m.overviewColumnWidths(width)
+	columns := m.overviewPrimaryColumns(width)
+	var auxiliary []func(Model) string
 	for _, network := range m.dash.Network {
-		networks = append(networks, func(m Model) string { return m.networkSection(network) })
+		auxiliary = append(auxiliary, func(m Model) string { return m.networkSection(network) })
 	}
 	if m.dash.NetworkLimited {
-		networks = append(networks, func(Model) string {
+		auxiliary = append(auxiliary, func(Model) string {
 			return "Network\nInterface limit reached; adjust network.interfaces or network.maxInterfaces."
 		})
 	}
-	if len(networks) > 0 {
-		groups = append(groups, m.overviewGroup(width, networks))
-	}
-	var disks []func(Model) string
 	for _, storage := range m.dash.Storage {
-		disks = append(disks, func(m Model) string { return m.storageSection(storage) })
+		auxiliary = append(auxiliary, func(m Model) string { return m.storageSection(storage) })
 	}
 	if m.dash.StorageLimited {
-		disks = append(disks, func(Model) string {
+		auxiliary = append(auxiliary, func(Model) string {
 			return "Storage\nResource limit reached; adjust storage.mountPoints/devices or storage.maxFilesystems/maxDevices."
 		})
 	}
-	if len(disks) > 0 {
-		groups = append(groups, m.overviewGroup(width, disks))
+	for _, render := range auxiliary {
+		shortest := 0
+		for i := 1; i < len(columns); i++ {
+			if lipgloss.Height(columns[i]) < lipgloss.Height(columns[shortest]) {
+				shortest = i
+			}
+		}
+		column := m
+		column.panelContentWidth = max(1, widths[shortest]-2)
+		if columns[shortest] != "" {
+			columns[shortest] += "\n\n"
+		}
+		columns[shortest] += framePanel(render(column), widths[shortest])
 	}
-	return strings.Join(groups, "\n\n")
+	for i := range columns {
+		columns[i] = lipgloss.NewStyle().Width(widths[i]).Render(columns[i])
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithGap(columns, panelGap)...)
 }
 
 // Reserve more space for the six-column CPU process table than for hardware.
@@ -252,7 +263,7 @@ func (m Model) overviewColumnWidths(width int) []int {
 	return widths
 }
 
-func (m Model) overviewPrimary(width int) string {
+func (m Model) overviewPrimaryColumns(width int) []string {
 	widths := m.overviewColumnWidths(width)
 	stacks := make([][]func(Model) string, len(widths))
 	stacks[0] = append(stacks[0], Model.cpuSection)
@@ -283,20 +294,9 @@ func (m Model) overviewPrimary(width int) string {
 		for _, render := range stack {
 			panels = append(panels, framePanel(render(column), widths[i]))
 		}
-		rendered[i] = lipgloss.NewStyle().Width(widths[i]).Render(strings.Join(panels, "\n\n"))
+		rendered[i] = strings.Join(panels, "\n\n")
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithGap(rendered, panelGap)...)
-}
-
-func (m Model) overviewGroup(width int, renderers []func(Model) string) string {
-	columns := max(1, min(3, len(renderers), (width+panelGap)/(panelMinWidth+panelGap)))
-	columnWidth := (width - panelGap*(columns-1)) / columns
-	m.panelContentWidth = max(1, columnWidth-2)
-	panels := make([]string, 0, len(renderers))
-	for _, render := range renderers {
-		panels = append(panels, framePanel(render(m), columnWidth))
-	}
-	return packPanels(panels, width, panelMinWidth, columns)
+	return rendered
 }
 
 func (m Model) panelWidth() int {

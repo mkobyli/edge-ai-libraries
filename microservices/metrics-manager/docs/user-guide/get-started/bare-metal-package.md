@@ -229,9 +229,15 @@ Overview responds to terminal width while prioritizing CPU/GPU diagnostics:
 
 Each column stacks its panels independently. **Every GPU's metrics and process
 table share one frame**, keeping device activity and its clients together.
-Absent optional devices are omitted. **Network and Storage appear below the
-entire main area**, so they cannot push processes down. All columns scroll
-vertically together; the CPU process table is not pinned to the screen.
+Absent optional devices are omitted. **Network and Storage fill the available
+space below the main panels in each column**, rather than waiting for the tallest
+column or occupying separate full-width rows. Each additional panel goes into
+the currently shortest column, without moving CPU, Memory, NPU, GPU or process
+panels. Network is placed first, followed by Storage; these panels may appear
+side by side. Their placement can change when panel heights change or the
+terminal is resized. In a single column they remain after the main panels.
+All columns scroll vertically together; the CPU process table is not pinned
+to the screen.
 
 Process tables keep **one process per row** and use their column's width, with
 more space reserved for the six-column CPU process table. Padding contracts when
