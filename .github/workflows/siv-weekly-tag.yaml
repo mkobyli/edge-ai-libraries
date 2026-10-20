@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 name: "[SIV] Weekly Build Tagging"
 
 on:
@@ -16,6 +19,15 @@ jobs:
       pull-requests: write
 
     steps:
+    - name: Calculate weekly tag name
+      id: weekly-tag
+      env:
+        TAG_PREFIX: ${{ vars.SIV_WEEKLY_BUILD_PREFIX }}
+      run: |
+        TAG_NAME="${TAG_PREFIX}-$(date -u +'%Y%m%d')"
+        git check-ref-format "refs/tags/${TAG_NAME}"
+        echo "name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+
     - name: Checkout repository with submodules
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
@@ -29,6 +41,8 @@ jobs:
         git config user.email "${{ secrets.SIV_USER_EMAIL }}"
 
     - name: Update all submodules to latest
+      env:
+        TAG_NAME: ${{ steps.weekly-tag.outputs.name }}
       run: |
         echo "🧹 Resetting submodules to clean state..."
         git submodule foreach --recursive git reset --hard
@@ -53,6 +67,35 @@ jobs:
 
         # Update each top-level submodule individually
         for submodule in $ALL_SUBMODULES; do
+          # DLStreamer prefers the matching weekly tag, then main, then its existing commit.
+          if [ "$submodule" = "libraries/dlstreamer" ]; then
+            tag_found=false
+            for attempt in 1 2 3; do
+              echo "Fetching DLStreamer tag ${TAG_NAME} (attempt ${attempt}/3)"
+              if git -C "$submodule" fetch --no-tags origin "refs/tags/${TAG_NAME}" &&
+                 TARGET_SHA=$(git -C "$submodule" rev-parse --verify 'FETCH_HEAD^{commit}'); then
+                tag_found=true
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep 10
+              fi
+            done
+
+            if [ "$tag_found" = false ]; then
+              echo "::warning::Could not fetch DLStreamer tag ${TAG_NAME} after 3 attempts; falling back to main."
+              if ! git -C "$submodule" fetch --no-tags origin refs/heads/main ||
+                 ! TARGET_SHA=$(git -C "$submodule" rev-parse --verify 'FETCH_HEAD^{commit}'); then
+                echo "::warning::Could not fetch DLStreamer main; keeping its existing commit and continuing."
+                continue
+              fi
+            fi
+
+            git -C "$submodule" checkout --detach "$TARGET_SHA"
+            git -C "$submodule" submodule update --init --recursive
+            continue
+          fi
+
           # Check if this submodule is shallow
           if echo "$SHALLOW_SUBMODULES" | grep -qx "$submodule"; then
             echo "⏭️  Skipping shallow submodule: $submodule"
@@ -157,8 +200,9 @@ jobs:
         echo "sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
 
     - name: Create annotated tag via API
+      env:
+        TAG_NAME: ${{ steps.weekly-tag.outputs.name }}
       run: |
-        TAG_NAME="${{ vars.SIV_WEEKLY_BUILD_PREFIX }}-$(date +'%Y%m%d')"
         COMMIT_SHA="${{ steps.get-sha.outputs.sha }}"
         TAG_MESSAGE="Weekly Build - ${TAG_NAME}"
 
