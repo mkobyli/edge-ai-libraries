@@ -1402,9 +1402,15 @@ you want to observe (for example `nvme0n1`). The example samples every second
 with per-input nanosecond precision (exported as millisecond timestamps), avoiding
 whole-second rounding into the future. It
 excludes virtual filesystems such as tmpfs/overlay/squashfs, filters loop/ram
-devices from export and omits serial/WWID tags. Existing main configuration must
+devices from export and includes `ID_MODEL`, `ID_SERIAL_SHORT` and `wwid`
+identification tags when udev/kernel metadata is available. Existing main configuration must
 retain `metric_version = 1` and `export_timestamp = true`.
 Upgrading never activates the example automatically.
+
+For an existing local `storage.conf`, add
+`device_tags = ["ID_MODEL", "ID_SERIAL_SHORT"]` in `[[inputs.diskio]]` and remove
+`wwid` from any `tagexclude` list. Preserve local device/mount selections and restart
+Telegraf. Updating the packaged example does not overwrite an active local file.
 
 To disable, move the drop-in out of the `*.conf` set and restart Telegraf:
 

@@ -19,7 +19,6 @@
   # Select one I/O layer, e.g. ["nvme0n1"], to avoid confusing partition,
   # device-mapper and physical-disk readings. The TUI never sums these layers.
   devices = ["*"]
-  skip_serial_number = true
-  tagexclude = ["serial", "wwid"]
+  device_tags = ["ID_MODEL", "ID_SERIAL_SHORT"]
   [inputs.diskio.tagdrop]
     name = ["loop*", "ram*"]

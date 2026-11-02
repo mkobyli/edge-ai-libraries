@@ -26,7 +26,8 @@ The image is based on `python:3.12-slim` and includes:
 
 - Telegraf 1.39.3 (system metrics agent)
 - qmassa 2.1.0 (Intel® GPU telemetry)
-- Native Go collectors: `mm-plugin-cpu`, `mm-plugin-gpu`, `mm-plugin-npu`
+- Native Go collectors: `mm-plugin-cpu`, `mm-plugin-gpu`, `mm-plugin-npu`,
+  `mm-plugin-proc`, `mm-plugin-membw`, plus the opt-in `mm-plugin-rapl`
 - Python 3.12 runtime with FastAPI
 - supervisord process manager
 
@@ -220,6 +221,16 @@ docker run --rm \
 
 See [Environment Variables](./get-started/environment-variables.md) for all available variables.
 
+### Additional Native Collectors
+
+For optional per-CPU powerstat, high-resolution temperature, IRQ, network,
+storage, RAPL and Turbostat collection, follow
+[Additional collectors in the native-enabled Docker image](./get-started/native-docker-collectors.md).
+This image uses Telegraf configuration, not the collector `ENABLE_*` switches
+from Python-reader images or the bare-metal configuration helper. The guide
+includes a complete Compose recipe and explains why mounting `telegraf.d/`
+alone does not enable inputs.
+
 ### With Custom Metrics Directory (Volume Mount)
 
 To persist custom metric scripts across container restarts, mount a volume:
@@ -344,20 +355,30 @@ TELEGRAF_CONFIG=./my-telegraf.conf
 
 ### Add Inputs on Top of Default Config
 
-Drop `.conf` files in `telegraf.d/`:
+The native-enabled container does not automatically load `telegraf.d/`.
+Append additional input definitions to a copy of the base config and mount
+that file. For example, enable the bundled native RAPL collector:
 
 ```bash
-mkdir -p telegraf.d
+cp telegraf.conf my-telegraf.conf
 
-cat > telegraf.d/my-input.conf << 'EOF'
-[[inputs.exec]]
-  commands = ["/app/custom-metrics/my-sensor.sh"]
-  interval = "5s"
+cat >> my-telegraf.conf <<'EOF'
+
+[[inputs.execd]]
+  command = ["/usr/libexec/metrics-manager/mm-plugin-rapl"]
+  signal = "none"
+  restart_delay = "10s"
   data_format = "influx"
 EOF
 
-docker compose up --build
+TELEGRAF_CONFIG=./my-telegraf.conf docker compose up -d --no-build --force-recreate metrics-manager
 ```
+
+Use a new file name if `my-telegraf.conf` already contains local edits.
+RAPL requires readable host energy counters; package power can appear even
+when the hardware has no platform (`psys`) domain. See the complete
+[additional native Docker collectors guide](./get-started/native-docker-collectors.md)
+for prerequisites, other inputs and verification commands.
 
 ### Restrict CORS Origins
 
