@@ -71,6 +71,8 @@ func NewCollector(sysfsRoot, hostname string) (*Collector, error) {
 	busyPath := filepath.Join(devPath, "npu_busy_time_us")
 	if _, err := os.Stat(busyPath); err == nil {
 		collector.busyPath = busyPath
+	} else if os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "mm-plugin-npu: npu_busy_time_us not found at %s; utilization will be omitted\n", busyPath)
 	}
 
 	// Memory utilisation and the frequency ceiling come from the driver
@@ -235,6 +237,9 @@ func (c *Collector) memoryMB() (float64, bool) {
 	}
 	bytes, err := readUint(c.memoryPath)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "mm-plugin-npu: warning: Failed to read npu_memory_utilization: %v\n", err)
+		}
 		return 0, false
 	}
 	return float64(bytes) / 1024 / 1024, true
@@ -262,6 +267,7 @@ func (c *Collector) readBusyUS() (uint64, bool) {
 	}
 	value, err := readUint(c.busyPath)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "mm-plugin-npu: warning: Failed to read npu_busy_time_us: %v\n", err)
 		return 0, false
 	}
 	return value, true

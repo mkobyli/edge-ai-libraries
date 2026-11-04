@@ -552,7 +552,13 @@ Unavailable utilization and memory readings are omitted from newly collected
 points, not replaced with `0` or `-1`. Measured zero remains a valid value.
 Utilization also requires two valid busy-time readings; after a read failure
 or counter reset, the collector establishes a new baseline before reporting it.
-Previously exported series remain subject to Telegraf's expiration policy.
+The shipped container and bare-metal Telegraf configurations expire each
+series after 15 seconds without an update. Until then, SSE preserves its
+original sample timestamp, even when other NPU fields continue updating.
+Removal becomes visible on the next scrape/SSE poll, not immediately when
+the collector omits a field. This expiration applies to all exported series;
+custom inputs slower than 15 seconds require a suitably longer
+`expiration_interval`. The default 10-second custom scripts fit this window.
 
 The native plugin reports every busy-time or memory read/parse failure to
 stderr with the attribute name and cause, while keeping the other metrics.

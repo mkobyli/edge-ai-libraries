@@ -66,9 +66,13 @@ detected by sysfs availability, regardless of SoC generation. The existing
 After a busy-time read failure or counter reset, utilisation resumes only
 after a valid baseline and a subsequent valid reading.
 
-These are collector-level guarantees. Omitted fields do not by themselves
-remove previously exported series from downstream caches; Telegraf/SSE
-expiration and consumer handling must be verified separately.
+Omitted fields do not immediately remove previously exported series.
+The shipped container and bare-metal configurations set Telegraf's
+`expiration_interval` to `15s`, independently for each series. SSE preserves
+the last sample timestamp until the series expires, then omits it from the
+next snapshot. Allow for flush and polling latency. This window also applies
+to non-NPU series and accommodates the default 10-second custom scripts;
+increase it if custom inputs run less frequently.
 
 The same native collector is used in the bare-metal package. Its command-line
 options, Line Protocol output, stderr diagnostics and no-hardware idle

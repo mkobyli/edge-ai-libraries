@@ -929,12 +929,7 @@ func buildNPU(idx *Index) NPU {
 	}
 }
 
-// npuMemory reads the NPU memory counter, treating the platform's
-// "unsupported" sentinel as absent.
-//
-// mm-plugin-npu reports -1 where the sysfs node does not exist, which is the
-// case on Meteor Lake and Arrow Lake. Rendering that as "-1 MB" would dress a
-// sentinel up as a measurement.
+// npuMemory accepts omitted fields and treats legacy negative sentinels as absent.
 func npuMemory(idx *Index) Reading {
 	if r := idx.Value("npu_memory_mb", nil); !r.OK || r.Value >= 0 {
 		return r

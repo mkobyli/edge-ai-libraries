@@ -23,12 +23,22 @@
   stdout remains Line Protocol only.
 - The native Go plugin, Telegraf integration, command-line options,
   `npu_frequency_max_mhz` and `npu_power_state` remain unchanged.
+- TUI coverage now checks current Hz against the MHz limit and the transition
+  from measured zero to unavailable readings. ViPPET converts Hz to MHz and
+  preserves missing utilization as `N/A` and gaps in chart history.
+- Container, bare-metal and ViPPET Prometheus exports now explicitly expire inactive
+  series after 15 seconds instead of the default 60 seconds. Other fields
+  updating do not refresh an omitted field's sample timestamp. SSE forwards
+  the reduced snapshot after expiration without changes to the metrics store.
 
 **Migration:** Deploy the corrected collector with compatible consumers.
 Convert `npu_frequency` from Hz to MHz by dividing by `1_000_000` and handle
 omitted readings as unavailable, not idle. Historical frequency values from
 older plugin versions retain their old scale. Omitted fields do not immediately
-remove cached downstream series; verify Telegraf/SSE expiration separately.
+remove cached downstream series; allow 15 seconds plus flush/poll latency.
+Expiration applies to all exported series. The default 10-second custom
+scripts fit this window; slower custom inputs need a longer
+`expiration_interval` in the deployed Telegraf configuration.
 See the [NPU API reference](./api-reference.md#intel-npu-npu-via-mm-plugin-npu).
 
 ## Version 2026.2.0

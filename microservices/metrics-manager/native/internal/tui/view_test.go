@@ -40,6 +40,37 @@ func wantContains(t *testing.T, view, want string) {
 	}
 }
 
+func TestNPUSnapshotAvailabilityAndFrequencyLimit(t *testing.T) {
+	base := "npu_frequency 1600000000\nnpu_frequency_max_mhz 1600\nnpu_power 2\n"
+	model := testModel(nil)
+	for _, step := range []struct {
+		name       string
+		fields     string
+		wantUtil   string
+		wantMemory string
+		available  bool
+	}{
+		{"measured", "npu_utilization 50\nnpu_memory_mb 512\n", "50.0%", "512 MB", true},
+		{"zero", "npu_utilization 0\nnpu_memory_mb 0\n", "0.0%", "0 MB", true},
+		{"unavailable", "", absent, absent, false},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			model, _ = update(t, model, snapshotMsg(source.Snapshot{
+				At: fixedNow, Samples: parseFixture(t, base+step.fields),
+			}))
+			if model.dash.NPU.Utilization.OK != step.available || model.dash.NPU.MemoryMB.OK != step.available {
+				t.Fatalf("availability not replaced by snapshot: %+v", model.dash.NPU)
+			}
+			wantReading(t, "current frequency in Hz", model.dash.NPU.FrequencyHz, 1_600_000_000)
+			wantReading(t, "frequency limit in MHz", model.dash.NPU.MaxFrequencyMHz, 1600)
+			section := strings.Join(strings.Fields(model.npuSection()), " ")
+			wantContains(t, section, "1.60 GHz of 1.60 GHz")
+			wantContains(t, section, "utilization "+step.wantUtil)
+			wantContains(t, section, "memory "+step.wantMemory)
+		})
+	}
+}
+
 func TestViewRendersCPUAndMemory(t *testing.T) {
 	view := renderFixture(t, hostExposition)
 
