@@ -39,6 +39,41 @@ These example files also serve the bare-metal package. Their systemd restart
 instructions and split privileged/unprivileged directories do not apply to the
 single privileged container used below.
 
+## NPU metric units and availability
+
+The native `mm-plugin-npu` collector emits `frequency` in actual **Hz**;
+Telegraf exports it as `npu_frequency`. The PLL conversion is ratio times
+50 MHz times 2/3 on Meteor Lake and Arrow Lake, and ratio times 50 MHz divided
+by 2 on Lunar Lake and Panther Lake. For example, Arrow Lake ratio 48 emits
+`frequency=1600000000`. The driver-provided `frequency_max_mhz` remains in
+**MHz**, and `power_state` retains its existing PCI D-state encoding.
+
+This corrects the older plugin's display-scaled frequency without renaming the
+metric. Consumers displaying MHz must divide `npu_frequency` by `1_000_000`;
+do not infer the unit from its magnitude. Deploy the corrected collector
+together with compatible consumers. Historical values from older plugin
+versions have the old scale and must not be interpreted as actual Hz.
+
+`bandwidth` is **MB/s**, calculated from the accumulated traffic delta divided
+by the actual elapsed seconds, with correction for a 32-bit counter wrap.
+A non-positive interval drops the sample with a diagnostic on stderr and
+leaves the previous counter baseline intact.
+
+`utilization` and `memory_mb` are omitted when their sysfs readings are
+unavailable or invalid; measured zero is still emitted. Memory support is
+detected by sysfs availability, regardless of SoC generation. The existing
+`memory_mb` field retains its bytes / 1024 / 1024 conversion (MiB).
+After a busy-time read failure or counter reset, utilisation resumes only
+after a valid baseline and a subsequent valid reading.
+
+These are collector-level guarantees. Omitted fields do not by themselves
+remove previously exported series from downstream caches; Telegraf/SSE
+expiration and consumer handling must be verified separately.
+
+The same native collector is used in the bare-metal package. Its command-line
+options, Line Protocol output, stderr diagnostics and no-hardware idle
+behaviour are unchanged; no Python reader is required.
+
 ## How configuration is loaded
 
 The current container starts Telegraf with:

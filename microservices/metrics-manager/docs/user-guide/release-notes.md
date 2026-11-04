@@ -1,5 +1,36 @@
 # Release Notes: Metrics Manager
 
+## Unreleased
+
+**Changed: Native NPU Metric Contract**
+
+- `npu_frequency` now reports the actual PLL-derived clock frequency in Hz,
+  replacing the older display scaling without changing the metric name.
+  MTL/ARL use ratio times 50 MHz times 2/3; LNL/PTL use ratio times 50 MHz
+  divided by 2. ARL ratio 48 reports `1600000000` Hz.
+- `npu_bandwidth` is now a rate in MB/s over the actual elapsed interval,
+  with correction for a single 32-bit counter wrap. Invalid intervals drop
+  the sample without changing the baseline.
+- Unavailable `npu_utilization` and `npu_memory_mb` readings are omitted
+  instead of emitting artificial zero utilization or a `-1` memory sentinel.
+  Measured zero is preserved. Memory detection uses sysfs availability on
+  all supported generations. Busy-time failures and resets require a new
+  valid baseline before utilization resumes.
+- Every failed busy-time or memory read/parse emits a diagnostic to stderr
+  without suppressing subsequent warnings or blocking the remaining metrics.
+  An absent busy-time attribute is reported once at initialization; an absent
+  memory node remains silent. No log file or `NPU_READER_LOG_FILE` is added;
+  stdout remains Line Protocol only.
+- The native Go plugin, Telegraf integration, command-line options,
+  `npu_frequency_max_mhz` and `npu_power_state` remain unchanged.
+
+**Migration:** Deploy the corrected collector with compatible consumers.
+Convert `npu_frequency` from Hz to MHz by dividing by `1_000_000` and handle
+omitted readings as unavailable, not idle. Historical frequency values from
+older plugin versions retain their old scale. Omitted fields do not immediately
+remove cached downstream series; verify Telegraf/SSE expiration separately.
+See the [NPU API reference](./api-reference.md#intel-npu-npu-via-mm-plugin-npu).
+
 ## Version 2026.2.0
 
 **Release Date:** September 9, 2026

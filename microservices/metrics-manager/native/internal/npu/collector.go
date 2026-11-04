@@ -102,19 +102,17 @@ func NewCollector(sysfsRoot, hostname string) (*Collector, error) {
 		return nil, err
 	}
 	collector.prevEnergy = telemetry.EnergyJoules()
-	collector.prevBandwidth = telemetry.BandwidthMBs()
+	collector.prevBandwidth = telemetry.MemoryTrafficMB()
 	collector.prevBusyUS, collector.hasPrevBusy = collector.readBusyUS()
 	collector.prevTime = collector.now()
 
 	return collector, nil
 }
 
-// BusyTimeSupported reports whether utilisation can be measured. When false,
-// the utilization field is reported as zero.
+// BusyTimeSupported reports whether the driver exposes the busy-time counter.
 func (c *Collector) BusyTimeSupported() bool { return c.busyPath != "" }
 
-// MemoryUtilisationSupported reports whether NPU memory usage is exposed. When
-// false, the memory_mb field is reported as -1.
+// MemoryUtilisationSupported reports whether NPU memory usage is exposed.
 func (c *Collector) MemoryUtilisationSupported() bool { return c.memoryPath != "" }
 
 // Gen reports the detected SoC generation.
@@ -128,32 +126,39 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 
 	sampleTime := c.now()
 	elapsed := sampleTime.Sub(c.prevTime).Seconds()
+	if elapsed <= 0 {
+		return nil, fmt.Errorf("non-positive NPU sampling interval: %s", sampleTime.Sub(c.prevTime))
+	}
 	c.prevTime = sampleTime
 
 	// Power is the derivative of the energy counter over the interval that
 	// actually elapsed, not the nominal one, so scheduling jitter does not
 	// distort the reading.
 	energy := c.telemetry.EnergyJoules()
-	power := 0.0
-	if elapsed > 0 {
-		power = (energy - c.prevEnergy) / elapsed
-	}
+	power := (energy - c.prevEnergy) / elapsed
 	c.prevEnergy = energy
 
-	bandwidth := c.telemetry.BandwidthMBs()
+	bandwidth := c.telemetry.MemoryTrafficMB()
 	bandwidthDelta := bandwidth - c.prevBandwidth
+	if bandwidthDelta < 0 {
+		bandwidthDelta += float64(uint64(1)<<32) / 1e3
+	}
 	c.prevBandwidth = bandwidth
 
 	fields := []lineproto.Field{
 		lineproto.FixedFloatField("power", power, 3),
-		lineproto.FixedFloatField("frequency", c.telemetry.DisplayFreqHz(), 0),
+		lineproto.FixedFloatField("frequency", c.telemetry.FreqHz(), 0),
 		lineproto.IntField("temperature", int64(c.telemetry.TemperatureC())),
-		lineproto.FixedFloatField("bandwidth", bandwidthDelta, 3),
+		lineproto.FixedFloatField("bandwidth", bandwidthDelta/elapsed, 3),
 		lineproto.IntField("tile_config", int64(c.telemetry.TileConfig())),
-		lineproto.IntField("utilization", c.utilization(elapsed)),
-		lineproto.FixedFloatField("memory_mb", c.memoryMB(), 2),
-		lineproto.IntField("power_state", c.powerState()),
 	}
+	if utilization, ok := c.utilization(elapsed); ok {
+		fields = append(fields, lineproto.IntField("utilization", utilization))
+	}
+	if memory, ok := c.memoryMB(); ok {
+		fields = append(fields, lineproto.FixedFloatField("memory_mb", memory, 2))
+	}
+	fields = append(fields, lineproto.IntField("power_state", c.powerState()))
 
 	// The ceiling gives the current frequency a meaning. It is static, so it
 	// is omitted rather than reported as zero where the driver does not
@@ -197,39 +202,42 @@ func (c *Collector) powerState() int64 {
 }
 
 // utilization returns the share of the interval the NPU spent busy, as a
-// truncated percentage capped at 100.
-func (c *Collector) utilization(elapsed float64) int64 {
+// truncated percentage capped at 100, and whether it is measurable.
+func (c *Collector) utilization(elapsed float64) (int64, bool) {
+	if elapsed <= 0 {
+		return 0, false
+	}
 	busyUS, ok := c.readBusyUS()
 	prevBusyUS, hadPrev := c.prevBusyUS, c.hasPrevBusy
 	c.prevBusyUS, c.hasPrevBusy = busyUS, ok
 
-	if !ok || !hadPrev || elapsed <= 0 {
-		return 0
+	if !ok || !hadPrev {
+		return 0, false
 	}
 
 	// The counter resets when the NPU driver reloads. A negative delta is
-	// meaningless, so report idle rather than a large negative number.
+	// meaningless, so omit utilisation until the next valid interval.
 	if busyUS < prevBusyUS {
-		return 0
+		return 0, false
 	}
 
 	percent := int64(100 * float64(busyUS-prevBusyUS) / (elapsed * 1e6))
 	if percent > 100 {
-		return 100
+		return 100, true
 	}
-	return percent
+	return percent, true
 }
 
-// memoryMB returns NPU memory usage in MB, or -1 when it is not available.
-func (c *Collector) memoryMB() float64 {
+// memoryMB returns NPU memory usage in MB and whether it is available.
+func (c *Collector) memoryMB() (float64, bool) {
 	if c.memoryPath == "" {
-		return -1
+		return 0, false
 	}
 	bytes, err := readUint(c.memoryPath)
 	if err != nil {
-		return -1
+		return 0, false
 	}
-	return float64(bytes) / 1024 / 1024
+	return float64(bytes) / 1024 / 1024, true
 }
 
 // maxFrequencyMHz returns the frequency ceiling the driver reports, and

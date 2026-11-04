@@ -3,10 +3,6 @@
 
 // Package npu reads Intel NPU telemetry through the kernel's Platform
 // Monitoring Technology (PMT) sysfs interface.
-//
-// It is a port of the Python NPU readers this package replaced, and
-// deliberately reproduces their arithmetic and output formatting so that the
-// switch does not change a single emitted byte.
 package npu
 
 import (
@@ -20,9 +16,6 @@ import (
 
 // CPUGen identifies the SoC generation, which determines the telemetry
 // register layout.
-//
-// The order matters: memory utilisation is only exposed from PTL onwards, and
-// that check is a numeric comparison.
 type CPUGen int
 
 const (
@@ -177,23 +170,17 @@ func (t *Telemetry) read(offset, msb, lsb uint) uint64 {
 }
 
 // FreqMHz returns the NPU frequency in MHz.
-//
-// Meteor Lake encodes the work point on a different scale from every later
-// generation.
 func (t *Telemetry) FreqMHz() float64 {
 	raw := float64(t.read(uint(t.regs.workpoint), 7, 0))
-	if t.gen == GenMTL {
-		return 2 * raw / 3 / 10
+	if t.gen == GenMTL || t.gen == GenARL {
+		return raw * 50 * 2 / 3
 	}
-	return 0.05 * raw
+	return raw * 50 / 2
 }
 
-// DisplayFreqHz returns the frequency as reported by the monitoring tool.
-//
-// The halving is part of the tool's presentation, not a unit conversion; it is
-// kept so the metric matches what npu-monitor-tool displays.
-func (t *Telemetry) DisplayFreqHz() float64 {
-	return t.FreqMHz() * 1000 / 2
+// FreqHz returns the NPU frequency in Hz.
+func (t *Telemetry) FreqHz() float64 {
+	return t.FreqMHz() * 1e6
 }
 
 // TileConfig returns the active NPU tile configuration.
@@ -217,8 +204,8 @@ func (t *Telemetry) EnergyJoules() float64 {
 	return float64(whole) + fraction
 }
 
-// BandwidthMBs returns the accumulated network-on-chip bandwidth counter.
-func (t *Telemetry) BandwidthMBs() float64 {
+// MemoryTrafficMB returns the accumulated network-on-chip traffic in MB.
+func (t *Telemetry) MemoryTrafficMB() float64 {
 	return float64(t.read(uint(t.regs.memoryBW), 31, 0)) / 1e3
 }
 
