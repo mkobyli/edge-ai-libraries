@@ -319,10 +319,17 @@ uv sync --group test --group dev
 # Run with auto-reload
 uvicorn app.main:app --reload --port 9090
 
-# Run linting and formatting
-black app/
-ruff check app/
+# Check the native/Docker Python scope (Helm validation is separate)
+.venv/bin/black --check --extend-exclude 'test_helm_chart\.py$' app tests docker_collectors.py
+.venv/bin/ruff check --exclude test_helm_chart.py app tests docker_collectors.py
+.venv/bin/mypy app docker_collectors.py
+.venv/bin/python -m pytest --ignore=tests/test_helm_chart.py
 ```
+
+Async fixtures use function-scoped event loops and close their stores/clients.
+Resource leaks and unraisable exceptions fail the suite rather than being
+silenced. Lifecycle regressions cover queued/active HTTP pushes, debounce
+cancellation and cleanup when the application lifespan exits with an error.
 
 ---
 

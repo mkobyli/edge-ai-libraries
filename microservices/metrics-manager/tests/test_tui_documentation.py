@@ -34,7 +34,9 @@ def test_packaged_guide_keeps_relative_image_links():
     images = Path(contents["dist/doc/images/*"])
     assert images == readme.parent / "images"
     build = (ROOT / "native/build.sh").read_text()
-    assert 'cp -R "$COMPONENT_DIR/docs/user-guide/get-started/images" "$STAGE_DIR/doc/images"' in build
+    assert (
+        'cp -R "$COMPONENT_DIR/docs/user-guide/get-started/images" "$STAGE_DIR/doc/images"' in build
+    )
 
 
 def test_packaged_guide_includes_unit_migration():
