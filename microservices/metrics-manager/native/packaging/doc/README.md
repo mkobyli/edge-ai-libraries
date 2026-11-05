@@ -182,11 +182,26 @@ installing the current package. This manages a separate `network-virtual.conf`
 drop-in selecting `veth*` and `lxc*`, independently of `ENABLE_NETWORK`.
 Use `false` to disable it or `auto` to leave it unchanged. Existing local
 drop-ins are preserved. Adjust its patterns to local interface names and
-avoid selecting the same interfaces in another `inputs.ethtool` block.
-This does not select `eth0` inside a container or change `inputs.net`:
-including virtual interfaces there can double-count traffic. The host peer
+avoid selecting the same interfaces in another `net` or `ethtool` block.
+The new primary example selects `eth*`/`en*`; the virtual example now adds
+`net` traffic as well as driver counters for `veth*`/`lxc*`. Narrow an existing
+primary `interfaces = []` before adding virtual traffic. Local virtual drop-ins
+remain driver-only until edited. Select bond/wireless/custom names explicitly
+in both input lists. This does not select `eth0` inside a container. The host peer
 has its own counters and `peer_ifindex`, not the container endpoint's values.
 Unsupported driver counters are omitted, not synthesized as zero.
+
+The storage example keeps `ID_MODEL` but sets `skip_serial_number = true` and
+`tagexclude = ["serial", "wwid"]`. Durable identifiers require explicit opt-in:
+set `skip_serial_number = false`, remove those tags from `tagexclude`, and
+optionally add `ID_SERIAL_SHORT` to `device_tags`, before the `tagdrop` table.
+Existing custom files are not rewritten; review them when upgrading.
+Choose filesystem `mount_points` and disk I/O `devices` at the desired layer
+(including RAID/device-mapper); do not sum physical and logical layers.
+TUI selections and row limits do not restrict export or identifier exposure.
+Numbered IRQ export retains total and per-CPU fields, approximately
+IRQs * (CPUs + 1) series per host; an intentional `fieldinclude = ["total"]`
+before the IRQ `tagpass` table reduces this to totals only.
 
 ### Additional privileged collectors
 

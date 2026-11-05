@@ -119,8 +119,8 @@ They control bundled additions, not the baseline or user-supplied inputs.
 | `ENABLE_TEMPERATURE` | `false` | High-resolution package temperature and min/max/mean |
 | `ENABLE_INTERRUPTS` | `false` | Numbered device IRQs with per-CPU series |
 | `ENABLE_NETWORK` | `false` (bridge), `true` (host-NIC) | Network traffic and NIC driver counters; explicit `false` overrides either default |
-| `ENABLE_NETWORK_VIRTUAL` | `false` | Separate veth/lxc driver counters |
-| `ENABLE_STORAGE` | `false` | Filesystem usage and disk I/O |
+| `ENABLE_NETWORK_VIRTUAL` | `false` | Separate veth/lxc traffic and driver counters |
+| `ENABLE_STORAGE` | `false` | Filesystem usage and disk I/O; bundled serial/WWID export disabled |
 | `TURBOSTAT_INTERVAL` | `5` | Positive integer seconds fitting a Telegraf duration |
 | `TURBOSTAT_BIN` | `/usr/local/bin/turbostat` | Absolute container executable path, without spaces/shell expansion |
 | `HOST_TURBOSTAT_BIN` | _(unset)_ | Host binary source for the explicit read-only mount in the optional Compose override |

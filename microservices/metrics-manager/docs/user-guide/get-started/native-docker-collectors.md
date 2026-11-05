@@ -33,9 +33,9 @@ unchanged"; it has no Docker equivalent.
 | `ENABLE_TURBOSTAT` | IPC, SMI and other Turbostat diagnostics; requires the explicit binary mount below |
 | `ENABLE_TEMPERATURE` | 100 ms package-temperature samples and 1 s min/max/mean |
 | `ENABLE_INTERRUPTS` | Numbered device IRQ counters, including per-CPU series |
-| `ENABLE_NETWORK` | Network traffic and NIC driver counters in the container's network namespace |
-| `ENABLE_NETWORK_VIRTUAL` | Separate veth/lxc driver counters, independent of `ENABLE_NETWORK` |
-| `ENABLE_STORAGE` | Filesystem usage and disk I/O |
+| `ENABLE_NETWORK` | Primary eth*/en* traffic and NIC driver counters in the container's network namespace |
+| `ENABLE_NETWORK_VIRTUAL` | Separate veth/lxc traffic and driver counters, independent of `ENABLE_NETWORK` |
+| `ENABLE_STORAGE` | Filesystem usage and disk I/O; serial/WWID export disabled |
 
 For example, from the component directory:
 
@@ -87,6 +87,37 @@ automatic network/storage inputs are not combined with custom instances of the
 same plugins. Keep those additions manual when using custom selections.
 The shipped baseline temperature/powerstat inputs and their optional additions
 are intentionally distinct and can coexist.
+
+### Selection, export volume and identifiers
+
+The primary example selects `eth*`/`en*` in both `net` and `ethtool`; the
+virtual example selects `veth*`/`lxc*` in both, without entering another network
+namespace. Names do not prove physical NICs: bridge-mode `eth0` is often virtual.
+For bond, bridge, wireless or custom names, edit both interface lists in your
+manual drop-ins. Avoid overlapping selections or summing traffic across layers.
+On upgrade, a custom primary `interfaces = []` includes virtual links; narrow
+it before adding the virtual traffic block. Existing virtual drop-ins are not
+rewritten and remain driver-only until edited.
+
+For storage, set `inputs.disk.mount_points` and `inputs.diskio.devices` in a
+manual copy; RAID, partitions and device-mapper remain selectable. Defaults
+retain all disk I/O layers except loop/ram, not a cross-layer aggregate.
+The bundled example uses `skip_serial_number = true`, `device_tags = ["ID_MODEL"]`
+and `tagexclude = ["serial", "wwid"]`. Review existing mounted copies separately:
+they are **not** automatically made private. For explicit serial/WWID opt-in,
+set `skip_serial_number = false`, remove those tags from `tagexclude`, and
+optionally add `ID_SERIAL_SHORT` to `device_tags`, before the `tagdrop` table.
+Disabling future export does not erase existing downstream data.
+
+IRQs retain total and per-CPU fields (`cpu_as_tag = false`): D numbered IRQs on
+C CPUs create roughly D * (C + 1) series per host. Add `fieldinclude = ["total"]`
+before the example's `tagpass` table only if you deliberately want total-only
+export. TUI row/device/interface limits never reduce exported series or hide
+identifiers from the API. See the
+[selection and privacy guidance](./bare-metal-package.md#optional-storage-monitoring)
+for mount/device selection, metadata opt-in and the display/export distinction.
+
+### Applying changed configuration
 
 `false` means **do not add the bundled configuration**; it does not remove a
 user-configured input. You remain responsible for avoiding duplicates between
@@ -152,7 +183,8 @@ collection off in either variant. Remove/comment that assignment to accept
 per-variant defaults, or set `ENABLE_NETWORK=true`. The updated `.env.example`
 leaves this flag commented. If you have custom `net`/`ethtool` inputs, keep the
 flag false to avoid a startup conflict with the automatic input.
-Virtual NIC driver collection still requires `ENABLE_NETWORK_VIRTUAL=true`.
+Virtual veth/lxc traffic and driver collection still requires
+`ENABLE_NETWORK_VIRTUAL=true`.
 
 ### Ports, URLs and exposure
 

@@ -114,6 +114,32 @@ def test_existing_input_does_not_get_duplicate(configuration, monkeypatch, optio
     collectors.prepare_config(main, dropins, examples, {f"ENABLE_{option}": "false"})
 
 
+def test_custom_selection_and_privacy_opt_in_are_preserved(configuration):
+    main, dropins, examples = configuration
+    selections = {
+        "network.conf": '[[inputs.net]]\ninterfaces = ["bond0", "wlan0"]\n',
+        "storage.conf": (
+            '[[inputs.disk]]\nmount_points = ["/data"]\n'
+            '[[inputs.diskio]]\ndevices = ["dm-0", "md0"]\n'
+            'skip_serial_number = false\ndevice_tags = ["ID_SERIAL_SHORT"]\n'
+        ),
+        "irq.conf": '[[inputs.interrupts]]\nfieldinclude = ["total"]\n',
+    }
+    for name, text in selections.items():
+        (dropins / name).write_text(text)
+    active = collectors.prepare_config(main, dropins, examples, {})
+    assert {path.read_text() for path in active.iterdir()} == set(selections.values())
+    for name, text in selections.items():
+        assert (dropins / name).read_text() == text
+
+
+def test_virtual_traffic_cannot_overlap_a_custom_primary_input(configuration):
+    main, dropins, examples = configuration
+    (dropins / "network.conf").write_text("[[inputs.net]]\ninterfaces = []\n")
+    with pytest.raises(collectors.ConfigurationError, match="ENABLE_NETWORK_VIRTUAL conflicts"):
+        collectors.prepare_config(main, dropins, examples, {"ENABLE_NETWORK_VIRTUAL": "true"})
+
+
 def test_partial_storage_overlap_is_explicit_error(configuration):
     main, dropins, examples = configuration
     (dropins / "disk.conf").write_text("[[inputs.disk]]\n")

@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Testing Guide
 
 This guide covers how to run tests for Metrics Manager.
@@ -95,6 +100,28 @@ pytest tests/test_models.py -v
 ```
 
 ---
+
+## Telemetry selection regression tests
+
+The selection tests check the actual bundled Telegraf examples. To also run
+deterministic tests with the pinned Telegraf binary, use the existing project
+Python test environment from the component directory:
+
+```bash
+TELEGRAF_TEST_BINARY=/usr/bin/telegraf \
+  .venv/bin/python -m pytest tests/test_telemetry_selection.py tests/test_docker_collectors.py -q
+bash native/tests/configure-metrics-test.sh
+```
+
+Use the Telegraf version pinned in `versions.env`. Without
+`TELEGRAF_TEST_BINARY`, only the binary-dependent fixture tests are skipped;
+the static selection and Docker configuration tests still run.
+The fixtures use temporary procfs/sysfs/udev data and `telegraf --test`, not
+real host disks, mounts or network traffic. They verify primary/virtual NIC
+separation, exact custom mount/device selections, serial/WWID opt-in and IRQ
+field filtering. IRQ filtering uses line-protocol fixtures because that input
+has no procfs path override. No service, root privileges or hardware access
+is required. These checks complement, not replace, hardware validation.
 
 ## Test Categories
 

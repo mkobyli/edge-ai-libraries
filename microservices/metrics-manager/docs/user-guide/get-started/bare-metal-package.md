@@ -704,7 +704,7 @@ and invalid values are rejected before applying any changes.
 | `ENABLE_TEMPERATURE` | `telegraf.d/temperature.conf`, including basicstats |
 | `ENABLE_INTERRUPTS` | `telegraf.d/interrupts.conf` |
 | `ENABLE_NETWORK` | `telegraf.d/network.conf`, including ethtool |
-| `ENABLE_NETWORK_VIRTUAL` | `telegraf.d/network-virtual.conf`, ethtool counters for host-side `veth*`/`lxc*` links only |
+| `ENABLE_NETWORK_VIRTUAL` | `telegraf.d/network-virtual.conf`, traffic and ethtool counters for host-side `veth*`/`lxc*` links |
 | `ENABLE_STORAGE` | `telegraf.d/storage.conf` |
 
 For example, set `ENABLE_RAPL=true` and `ENABLE_POWERSTAT_EXTRA=true` to enable
@@ -717,10 +717,10 @@ disabled files are restored on enable. Disabling renames a drop-in to
 disabling fails rather than overwriting either file.
 
 `ENABLE_NETWORK_VIRTUAL` is independent of `ENABLE_NETWORK`: disabling one
-does not disable the other. It adds no `inputs.net` collector and does not
-change existing traffic-interface selection. If your local `network.conf`
-already selects `veth*`/`lxc*` in `inputs.ethtool`, avoid selecting the same
-interfaces in the new drop-in. No extra privileges are required.
+does not disable the other. The new virtual example adds separate `net` and
+`ethtool` selections without changing an existing primary drop-in. Ensure
+local primary selections do not also include `veth*`/`lxc*` interfaces.
+No extra privileges are required.
 
 Finally, the script runs `systemctl try-restart 'metrics-manager-*.service'`
 to reload all running Metrics Manager services. Unlike plain `restart`, this
@@ -770,6 +770,15 @@ sudo install -o root -g root -m 0644 \
 sudo systemctl restart metrics-manager-telegraf.service
 curl -fsS http://127.0.0.1:9273/metrics | grep '^interrupts_total{'
 ```
+
+The example explicitly retains `cpu_as_tag = false`: each numbered IRQ has
+`interrupts_total` plus `interrupts_CPU0`, `interrupts_CPU1`, etc. For D device
+IRQs and C CPUs this is approximately **D * (C + 1)** exported series per host.
+For example, 200 IRQs on 128 CPUs produce 25,800 series, even if the TUI shows
+only a few rows. The `irq` filter excludes non-numbered and soft IRQ entries.
+If only totals are needed, deliberately add `fieldinclude = ["total"]` inside
+`[[inputs.interrupts]]`, **before** `[inputs.interrupts.tagpass]`; this reduces
+export to D series without changing the `interrupts_total` name.
 
 `interrupts_total` is a cumulative **counter**, not an IRQ/s gauge: use
 `rate(interrupts_total[1m])` in Prometheus to calculate IRQ/s. To disable
@@ -1239,11 +1248,15 @@ preserving your `net` interface selection. `ethtool` needs driver support and
 only matches `eth*`/`en*` interfaces in the example; its exposed fields vary by
 NIC. It does not replace the `net_*` counters or their rate calculations.
 
-Set `interfaces = ["enp1s0"]` to your actual interface names (`ip -brief link`).
-An empty list collects UP, non-loopback interfaces, including virtual devices.
-Explicitly select the relevant physical interfaces to avoid interpreting traffic
-on a bridge and its member/veth devices as separate physical traffic. The TUI
-does not sum interfaces.
+The new primary example selects `eth*`/`en*` in both inputs, rather than all UP
+interfaces. These are naming patterns, **not physical-device detection**:
+`eth0` in a container may itself be virtual. Replace both `interfaces` and
+`interface_include` with your intended interfaces (`ip -brief link`), for
+example `["enp1s0"]`, `["bond0"]` or `["wlan0"]`. Custom names are not excluded
+by a hard-coded device classifier. An empty `interfaces` list collects UP,
+non-loopback interfaces, including virtual devices; it does not disable input.
+Keep each interface in only one `net` and one `ethtool` input.
+The TUI does not sum bridge/member/veth traffic into a host total.
 
 ```bash
 sudo systemctl restart metrics-manager-telegraf.service
@@ -1290,7 +1303,8 @@ collector or synthetic zero values are needed. To collect them from host-side
 container links, install the current package, set `ENABLE_NETWORK_VIRTUAL=true`
 in `native/metrics-options.conf`, and run `native/configure-metrics.sh`.
 The separate packaged `telegraf-network-virtual.conf` example selects `veth*`
-and `lxc*`. Existing local settings are retained; adjust interface patterns in
+and `lxc*` for both `net` traffic and `ethtool` driver counters, independently
+of the primary input. Existing local settings are retained; adjust interface patterns in
 `/etc/metrics-manager/telegraf.d/network-virtual.conf` if needed.
 Set the option to `false` to disable this drop-in, or `auto` to leave it unchanged.
 
@@ -1303,8 +1317,11 @@ These are the host endpoints' counters, not the same series as container
 `eth0`: `host`, `interface`, `peer_ifindex`, RX/TX direction and values may
 differ. Matching metric names establishes counter availability, not equality
 of monitored interfaces or readings. No matching links means no such series.
-Adding this drop-in does not modify `inputs.net`; avoid summing physical,
-bridge and virtual traffic as if each represented independent traffic.
+The new example adds its own `inputs.net` block. On upgrade, an existing primary
+`interfaces = []` would overlap it: narrow the primary selection before adding
+virtual traffic, and preserve local choices rather than overwriting drop-ins.
+Existing virtual drop-ins remain driver-only until you add the `net` block.
+Avoid summing physical, bridge and virtual traffic as independent traffic.
 
 GPU frequency and throttling data also exist natively under different names.
 The native frequency fields are Hz, not MHz; divide by `1e6` for MHz comparisons:
@@ -1436,16 +1453,43 @@ Choose `mount_points` for application filesystems and `devices` for the I/O laye
 you want to observe (for example `nvme0n1`). The example samples every second
 with per-input nanosecond precision (exported as millisecond timestamps), avoiding
 whole-second rounding into the future. It
-excludes virtual filesystems such as tmpfs/overlay/squashfs, filters loop/ram
-devices from export and includes `ID_MODEL`, `ID_SERIAL_SHORT` and `wwid`
-identification tags when udev/kernel metadata is available. Existing main configuration must
+excludes virtual filesystems such as tmpfs/overlay/squashfs and filters loop/ram
+devices from export. It keeps `ID_MODEL` when available but disables serial and
+WWID export by default. Existing main configuration must
 retain `metric_version = 1` and `export_timestamp = true`.
 Upgrading never activates the example automatically.
 
-For an existing local `storage.conf`, add
-`device_tags = ["ID_MODEL", "ID_SERIAL_SHORT"]` in `[[inputs.diskio]]` and remove
-`wwid` from any `tagexclude` list. Preserve local device/mount selections and restart
-Telegraf. Updating the packaged example does not overwrite an active local file.
+For an existing local `storage.conf`, apply the following settings in
+`[[inputs.diskio]]`, **before** `[inputs.diskio.tagdrop]`, to adopt the new
+privacy defaults:
+
+```toml
+skip_serial_number = true
+device_tags = ["ID_MODEL"]
+tagexclude = ["serial", "wwid"]
+```
+
+`skip_serial_number` alone does **not** suppress WWID in Telegraf 1.40.2;
+the tag filter is required. To explicitly export durable identifiers, set
+`skip_serial_number = false`, remove `serial` and `wwid` from `tagexclude`,
+and optionally add `ID_SERIAL_SHORT` to `device_tags`. Retain any unrelated
+local exclusions. Metadata availability still depends on the kernel/udev.
+The TUI works without these identifiers. This is an export policy, not a
+promise that Telegraf never reads device metadata internally.
+
+Keep `mount_points` as exact mount paths and `devices` as kernel names/globs
+(for example `["dm-0"]` or `["md0"]` for a selected logical layer).
+Partitions, RAID and device-mapper are supported; no physical-only classifier
+is applied. `devices = ["*"]` keeps all layers except the loop/ram tag filter;
+choose one layer for capacity/performance interpretation, never sum layers.
+To monitor an intentionally selected loop/ram device, also adjust `tagdrop`.
+An empty/omitted device or mount list is not a way to disable collection.
+
+Preserve local selections and restart Telegraf. Updating the packaged example
+does not overwrite an active local file. Review custom `device_tags`,
+`name_templates` and other inputs separately if they encode identifiers.
+Changing labels starts new downstream time series; it does not delete
+previously exported identifiers from databases, retained samples or logs.
 
 To disable, move the drop-in out of the `*.conf` set and restart Telegraf:
 
@@ -1468,6 +1512,15 @@ ordinary container does not validate host filesystem coverage.
 Disk I/O counters come from procfs/sysfs. Device-name metadata may be unavailable
 in a restricted container: Telegraf can log a warning and retain the kernel name
 while still exporting counters.
+
+#### Export selection versus TUI selection
+
+Telegraf `mount_points`, `devices`, interface lists and IRQ field/tag filters
+control what reaches **all** exporters, the Metrics Manager API and downstream
+storage. TUI `storage.mountPoints`, `storage.devices`, `network.interfaces`,
+`maxFilesystems`, `maxDevices`, `maxInterfaces` and row limits only restrict
+display/evaluation; they do not reduce collection, exported series or identifier
+exposure. Keep both layers aligned when limiting telemetry volume.
 
 #### Reading the TUI
 
