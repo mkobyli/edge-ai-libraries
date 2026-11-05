@@ -16,6 +16,7 @@ A unified metrics collection, ingestion, and relay service that combines Telegra
 - **SSE Streaming**: Real-time metrics streaming via Server-Sent Events (`GET /metrics/stream`)
 - **Prometheus Compatible**: Metrics endpoint for Prometheus scraping
 - **Custom Telegraf Config**: Mount your own Telegraf configuration
+- **Additional native Docker collectors**: Enable optional RAPL, per-CPU powerstat, Turbostat, temperature statistics, IRQ, network and storage inputs ([setup guide](./docs/user-guide/get-started/native-docker-collectors.md))
 - **Rate Limiting**: IP-based request throttling with configurable limits
 - **Correlation IDs**: Distributed tracing support with automatic ID propagation
 - **Structured Logging**: JSON-formatted logs for log aggregators (ELK, Loki)

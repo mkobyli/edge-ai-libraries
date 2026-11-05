@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+#
+# Opt-in: copy to /etc/metrics-manager/telegraf.d/interrupts.conf and restart
+# metrics-manager-telegraf.service. Only numbered device IRQs are retained.
+
+[[inputs.interrupts]]
+  [inputs.interrupts.tagpass]
+    irq = ["[0-9]*"]

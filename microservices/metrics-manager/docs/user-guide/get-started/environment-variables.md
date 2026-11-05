@@ -78,7 +78,7 @@ These variables are used ONLY by `compose.yaml` and are NOT read by the applicat
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TELEGRAF_CONFIG` | `./telegraf.conf` | Host path to Telegraf config file (mounted into container) |
-| `TELEGRAF_CONFIG_DIR` | `./telegraf.d` | Host path to additional Telegraf configs directory (mounted into container) |
+| `TELEGRAF_CONFIG_DIR` | `./telegraf.d` | Host directory mounted at `/etc/telegraf/telegraf.d`; the native-enabled container does not load it automatically (see [additional collectors](./native-docker-collectors.md)) |
 | `HOST_METRICS_PORT` | `9090` | Host port mapping for Metrics Manager API |
 | `HOST_TELEGRAF_PORT` | `9273` | Host port mapping for Telegraf Prometheus endpoint |
 | `HOST_TELEGRAF_HTTP_PORT` | `8186` | Host port mapping for Telegraf HTTP listener |
@@ -266,16 +266,18 @@ TELEGRAF_CONFIG=./my-telegraf.conf docker compose up
 
 ### Additional Config Directory
 
-Drop additional `.conf` files in `telegraf.d/`:
+The native-enabled container currently starts Telegraf with `--config` only,
+without `--config-directory`. Mounting files under `telegraf.d/` therefore does
+**not** activate them. Append the required input definitions to a copy of the
+base configuration and mount that single file using `TELEGRAF_CONFIG`.
+Keep only one agent, output and HTTP listener configuration.
 
-```bash
-mkdir telegraf.d
-echo '[[inputs.exec]]
-  commands = ["my-custom-script.sh"]
-  interval = "10s"
-  data_format = "json"
-' > telegraf.d/custom-input.conf
-```
+See [Additional collectors in the native-enabled Docker image](./native-docker-collectors.md)
+for a complete Compose example, optional RAPL and Turbostat setup, and metric
+verification. Collector `ENABLE_*` switches from Python-reader images are not
+implemented by this image's entrypoint; the similarly named
+`native/metrics-options.conf` options apply to installed bare-metal services,
+not the container.
 
 ### Example: Disable GPU or NPU Metrics
 

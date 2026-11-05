@@ -254,9 +254,56 @@ func TestCollectMatchesPythonFormat(t *testing.T) {
 	}
 
 	want := "npu,host=test-host power=4.000,frequency=1000,temperature=45i," +
-		"bandwidth=128.750,tile_config=2i,utilization=0i,memory_mb=512.00 1725062401000000000\n"
+		"bandwidth=128.750,tile_config=2i,utilization=0i,memory_mb=512.00,power_state=-1i 1725062401000000000\n"
 	if got := string(rendered); got != want {
 		t.Errorf("Collect()\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestPowerState(t *testing.T) {
+	tests := []struct {
+		state string
+		want  int64
+	}{
+		{"D0", 0}, {"D1", 1}, {"D2", 2},
+		{"D3hot", 3}, {"D3cold", 4}, {"unrecognised", -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.state, func(t *testing.T) {
+			root := buildNPUSysfs(t, "0x130670b2", make([]byte, 4096), "", "")
+			path := filepath.Join(root, "bus/pci/drivers/intel_vpu/0000:00:0b.0/power_state")
+			writeFile(t, path, []byte(tt.state+"\n"))
+			collector, err := NewCollector(root, "h")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := collector.powerState(); got != tt.want {
+				t.Errorf("powerState() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPowerStateUnavailable(t *testing.T) {
+	root := buildNPUSysfs(t, "0x130670b2", make([]byte, 4096), "", "")
+	collector, err := NewCollector(root, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := collector.powerState(); got != -1 {
+		t.Errorf("absent power_state = %d, want -1", got)
+	}
+	path := filepath.Join(root, "bus/pci/drivers/intel_vpu/0000:00:0b.0/power_state")
+	writeFile(t, path, []byte("D3hot\n"))
+	collector, err = NewCollector(root, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := collector.powerState(); got != -1 {
+		t.Errorf("unreadable power_state = %d, want -1", got)
 	}
 }
 

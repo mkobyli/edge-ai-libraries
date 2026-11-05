@@ -46,19 +46,21 @@ func detailGroup(item detailItem) (rank int, device, title string) {
 		return 0, "", "CPU"
 	case strings.HasPrefix(item.spec.Metric, "memory."):
 		return 1, "", "Memory"
+	case strings.HasPrefix(item.spec.Metric, "rapl."):
+		return 2, "", "RAPL power"
 	case strings.HasPrefix(item.spec.Metric, "gpu."):
 		if item.choice.device != "" {
-			return 2, item.choice.device, "GPU " + item.choice.device
+			return 3, item.choice.device, "GPU " + item.choice.device
 		}
-		return 2, "", "GPU"
+		return 3, "", "GPU"
 	case strings.HasPrefix(item.spec.Metric, "npu."):
-		return 3, "", "NPU"
+		return 4, "", "NPU"
 	case strings.HasPrefix(item.spec.Metric, "network."):
-		return 4, item.choice.device, item.choice.label
-	case strings.HasPrefix(item.spec.Metric, "storage."):
 		return 5, item.choice.device, item.choice.label
+	case strings.HasPrefix(item.spec.Metric, "storage."):
+		return 6, item.choice.device, item.choice.label
 	default:
-		return 6, "", "Other"
+		return 7, "", "Other"
 	}
 }
 
@@ -151,7 +153,9 @@ func (m Model) detailItems() []detailItem {
 			items = append(items, instances[key])
 		}
 		if len(keys) == 0 {
-			if (strings.HasPrefix(spec.Metric, "network.") || strings.HasPrefix(spec.Metric, "storage.")) && m.detailSelection.metric != spec.Metric {
+			if (strings.HasPrefix(spec.Metric, "network.") || strings.HasPrefix(spec.Metric, "storage.") ||
+				strings.HasPrefix(spec.Metric, "rapl.") || spec.Metric == "memory.readMiBps" ||
+				spec.Metric == "memory.writeMiBps") && m.detailSelection.metric != spec.Metric {
 				continue
 			}
 			items = append(items, detailItem{

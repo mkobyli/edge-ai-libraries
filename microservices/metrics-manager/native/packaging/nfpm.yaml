@@ -72,6 +72,10 @@ contents:
     dst: /usr/libexec/metrics-manager/mm-plugin-membw
     file_info: { mode: 0755 }
 
+  - src: dist/bin/mm-plugin-rapl
+    dst: /usr/libexec/metrics-manager/mm-plugin-rapl
+    file_info: { mode: 0755 }
+
   # The dashboard is the one thing a person runs, so it goes in the path.
   - src: dist/bin/mm-tui
     dst: /usr/bin/mm-tui
@@ -115,6 +119,10 @@ contents:
     type: dir
     file_info: { mode: 0755, owner: root, group: root }
 
+  - dst: /etc/metrics-manager/powerstat.d
+    type: dir
+    file_info: { mode: 0755, owner: root, group: root }
+
   # Operator-supplied metric scripts, in the style of /etc/cron.daily.
   #
   # Root-owned and not writable by the service user: Telegraf executes whatever
@@ -148,6 +156,10 @@ contents:
     dst: /usr/lib/systemd/system/metrics-manager-membw.service
     file_info: { mode: 0644 }
 
+  - src: systemd/metrics-manager-rapl.service
+    dst: /usr/lib/systemd/system/metrics-manager-rapl.service
+    file_info: { mode: 0644 }
+
   # Creates the runtime directory and the FIFO with ownership that lets root
   # write and only the service user read.
   - src: tmpfiles/metrics-manager.conf
@@ -164,8 +176,23 @@ contents:
   - src: etc/telegraf-network.conf.example
     dst: /usr/share/doc/metrics-manager/examples/telegraf-network.conf
     file_info: { mode: 0644 }
+  - src: etc/telegraf-network-virtual.conf.example
+    dst: /usr/share/doc/metrics-manager/examples/telegraf-network-virtual.conf
+    file_info: { mode: 0644 }
   - src: etc/telegraf-storage.conf.example
     dst: /usr/share/doc/metrics-manager/examples/telegraf-storage.conf
+    file_info: { mode: 0644 }
+  - src: etc/telegraf-temperature.conf.example
+    dst: /usr/share/doc/metrics-manager/examples/telegraf-temperature.conf
+    file_info: { mode: 0644 }
+  - src: etc/telegraf-interrupts.conf.example
+    dst: /usr/share/doc/metrics-manager/examples/telegraf-interrupts.conf
+    file_info: { mode: 0644 }
+  - src: etc/telegraf-powerstat-extra.conf.example
+    dst: /usr/share/doc/metrics-manager/examples/telegraf-powerstat-extra.conf
+    file_info: { mode: 0644 }
+  - src: etc/telegraf-turbostat.conf.example
+    dst: /usr/share/doc/metrics-manager/examples/telegraf-turbostat.conf
     file_info: { mode: 0644 }
 
   - src: dist/doc/README.md

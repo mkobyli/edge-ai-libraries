@@ -85,6 +85,7 @@ For details, see [How It Works](./how-it-works.md).
 - [How It Works (Architecture Details)](./how-it-works.md)
 - [API Reference](./api-reference.md)
 - [Environment Variables](./get-started/environment-variables.md)
+- [Additional Native Docker Collectors](./get-started/native-docker-collectors.md)
 - [Custom Metrics Scripts](./get-started/custom-metrics.md)
 - [Helm Deployment](./get-started/deploy-with-helm.md)
 - [Bare-metal Package](./get-started/bare-metal-package.md)

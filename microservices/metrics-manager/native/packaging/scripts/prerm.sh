@@ -10,7 +10,7 @@
 
 set -e
 
-SERVICES="metrics-manager-telegraf.service metrics-manager-qmassa.service metrics-manager-npu.service metrics-manager-powerstat.service metrics-manager-proc.service metrics-manager-membw.service"
+SERVICES="metrics-manager-telegraf.service metrics-manager-qmassa.service metrics-manager-npu.service metrics-manager-powerstat.service metrics-manager-proc.service metrics-manager-membw.service metrics-manager-rapl.service"
 
 case "$1" in
 remove | deconfigure)

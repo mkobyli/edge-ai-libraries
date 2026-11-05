@@ -43,6 +43,9 @@ var supportedCharts = map[string]bool{
 	"cpu.temperatureC":           true,
 	"memory.usedPercent":         true,
 	"memory.bandwidthMiBps":      true,
+	"memory.readMiBps":           true,
+	"memory.writeMiBps":          true,
+	"rapl.powerW":                true,
 	"gpu.utilizationPercent":     true,
 	"gpu.temperatureC":           true,
 	"npu.utilizationPercent":     true,
@@ -87,7 +90,7 @@ func nonnegativeChart(metric string) bool {
 	}
 	switch metric {
 	case "cpu.totalPercent", "cpu.classPercent", "cpu.frequencyMHz", "cpu.powerW",
-		"memory.usedPercent", "memory.bandwidthMiBps",
+		"memory.usedPercent", "memory.bandwidthMiBps", "memory.readMiBps", "memory.writeMiBps", "rapl.powerW",
 		"gpu.utilizationPercent", "gpu.enginePercent", "gpu.frequencyMHz", "gpu.powerW", "gpu.vramPercent",
 		"npu.utilizationPercent", "npu.frequencyMHz", "npu.powerW", "npu.memoryMiB",
 		"network.rxMiBps", "network.txMiBps", "network.rxPercent", "network.txPercent",
@@ -118,6 +121,9 @@ func DefaultChartsConfig() ChartsConfig {
 				{Metric: "cpu.powerW", Title: "CPU package power", Unit: "W"},
 				fixedChart("memory.usedPercent", "Memory used", "%", 0, 100),
 				{Metric: "memory.bandwidthMiBps", Title: "Memory bandwidth", Unit: "MiB/s"},
+				{Metric: "memory.readMiBps", Title: "DRAM read", Unit: "MiB/s"},
+				{Metric: "memory.writeMiBps", Title: "DRAM write", Unit: "MiB/s"},
+				{Metric: "rapl.powerW", Title: "RAPL power", Unit: "W"},
 				fixedChart("gpu.utilizationPercent", "GPU utilization", "%", 0, 100),
 				fixedChart("gpu.enginePercent", "GPU engine utilization", "%", 0, 100),
 				fixedChart("gpu.temperatureC", "GPU temperature", "°C", 0, 110),

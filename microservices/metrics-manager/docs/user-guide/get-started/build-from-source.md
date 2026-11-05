@@ -242,9 +242,13 @@ The `telegraf.conf` file controls system metric collection. To customize:
 
 1. Edit `telegraf.conf` in the metrics-manager root directory
 2. Or mount a custom config: `TELEGRAF_CONFIG=./my-telegraf.conf docker compose up`
-3. Or drop additional `.conf` files in the `telegraf.d/` directory
+3. Append extra input definitions to a copy of the base config and mount that
+   single file. The native-enabled container does not automatically load the
+   mounted `telegraf.d/` directory.
 
-See [Environment Variables](./environment-variables.md) for Telegraf customization examples.
+See [Additional Native Docker Collectors](./native-docker-collectors.md) for a
+complete example and [Environment Variables](./environment-variables.md) for
+Telegraf configuration settings.
 
 ### Extending with Custom Inputs
 

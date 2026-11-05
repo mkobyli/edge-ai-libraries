@@ -220,6 +220,9 @@ func (m Model) panelGrid(width int) string {
 			return "Storage\nResource limit reached; adjust storage.mountPoints/devices or storage.maxFilesystems/maxDevices."
 		})
 	}
+	for _, panel := range m.dash.Optional {
+		auxiliary = append(auxiliary, func(m Model) string { return m.optionalSection(panel) })
+	}
 	for _, render := range auxiliary {
 		shortest := 0
 		for i := 1; i < len(columns); i++ {
@@ -605,13 +608,24 @@ func (m Model) memorySection() string {
 	b.WriteString(field("used", used))
 	b.WriteString(field("available", formatPercent(mem.AvailablePercent)))
 
-	// Bandwidth is omitted rather than dashed out when the collector is not
-	// running, because on many machines it simply cannot be read.
-	if mem.TotalMiBps.OK {
-		b.WriteString(field("bandwidth", fmt.Sprintf("%s   read %s   write %s",
-			formatBandwidthMiBps(mem.TotalMiBps),
-			formatBandwidthMiBps(mem.ReadMiBps),
-			formatBandwidthMiBps(mem.WriteMiBps))))
+	valid := func(r Reading) bool {
+		return r.OK && !math.IsNaN(r.Value) && !math.IsInf(r.Value, 0)
+	}
+	if valid(mem.ReadMiBps) || valid(mem.WriteMiBps) || valid(mem.TotalMiBps) {
+		value := func(r Reading) string {
+			if !valid(r) {
+				return "-"
+			}
+			return formatBandwidthMiBps(r)
+		}
+		b.WriteString(responsiveTable([]column{
+			{title: "metric", width: 18, left: true},
+			{title: "read", width: 14},
+			{title: "write", width: 14},
+			{title: "total", width: 14},
+		}, [][]string{{
+			"DRAM bandwidth", value(mem.ReadMiBps), value(mem.WriteMiBps), value(mem.TotalMiBps),
+		}}, m.panelWidth()))
 	}
 
 	return b.String()
@@ -840,8 +854,28 @@ func (m Model) npuSection() string {
 	b.WriteString(field("bandwidth", formatBandwidth(npu.BandwidthMBps)))
 	b.WriteString(field("memory", formatMegabytes(npu.MemoryMB)))
 	b.WriteString(field("tile config", formatCount(npu.TileConfig)))
+	if npu.PowerState.OK {
+		b.WriteString(field("power state", npuPowerState(npu.PowerState)))
+	}
 
 	return b.String()
+}
+
+func npuPowerState(state Reading) string {
+	switch state.Value {
+	case 0:
+		return "D0"
+	case 1:
+		return "D1"
+	case 2:
+		return "D2"
+	case 3:
+		return "D3hot"
+	case 4:
+		return "D3cold"
+	default:
+		return "unknown"
+	}
 }
 
 // column describes one table column. Padding is applied to the plain text

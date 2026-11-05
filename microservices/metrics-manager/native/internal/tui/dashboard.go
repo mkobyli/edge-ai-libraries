@@ -220,6 +220,11 @@ type Memory struct {
 	TotalMiBps Reading
 }
 
+type RAPLPower struct {
+	Domain string
+	PowerW Reading
+}
+
 // GPUEngine is one engine's share of busy time, in percent.
 type GPUEngine struct {
 	Name  string
@@ -323,6 +328,7 @@ type NPU struct {
 	BandwidthMBps Reading
 	TileConfig    Reading
 	MemoryMB      Reading
+	PowerState    Reading
 
 	// MaxFrequencyMHz is the ceiling the driver reports, which is what
 	// makes the current frequency mean anything.
@@ -359,12 +365,14 @@ type Dashboard struct {
 	Platform       Platform
 	CPU            CPU
 	Memory         Memory
+	RAPL           []RAPLPower
 	GPUs           []GPU
 	NPU            NPU
 	Network        []NetworkInterface
 	NetworkLimited bool
 	Storage        []StorageResource
 	StorageLimited bool
+	Optional       []OptionalPanel
 
 	// Processes are the busiest on the machine, by CPU and by resident
 	// memory. The collector caps how many it publishes.
@@ -381,16 +389,31 @@ var classOrder = map[string]int{"P": 0, "E": 1, "LPE": 2}
 // Reading, which the view renders as unavailable rather than as zero.
 func BuildDashboard(samples []promtext.Sample) Dashboard {
 	idx := NewIndex(samples)
+	rapl := buildRAPL(idx)
 
 	return Dashboard{
 		Host:      hostOf(samples),
 		Platform:  buildPlatform(idx),
 		CPU:       buildCPU(idx),
 		Memory:    buildMemory(idx),
+		RAPL:      rapl,
 		GPUs:      buildGPUs(idx),
 		NPU:       buildNPU(idx),
+		Optional:  buildOptionalPanels(idx, rapl),
 		Processes: buildProcesses(idx),
 	}
+}
+
+func buildRAPL(idx *Index) []RAPLPower {
+	var domains []RAPLPower
+	for _, sample := range idx.All("rapl_power_power_w") {
+		if domain := sample.Labels["domain"]; domain != "" &&
+			!math.IsNaN(sample.Value) && !math.IsInf(sample.Value, 0) {
+			domains = append(domains, RAPLPower{Domain: domain, PowerW: reading(sample.Value)})
+		}
+	}
+	sort.Slice(domains, func(i, j int) bool { return domains[i].Domain < domains[j].Domain })
+	return domains
 }
 
 // buildPlatform reads the description the CPU collector publishes.
@@ -899,6 +922,7 @@ func buildNPU(idx *Index) NPU {
 		BandwidthMBps: idx.Value("npu_bandwidth", nil),
 		TileConfig:    idx.Value("npu_tile_config", nil),
 		MemoryMB:      npuMemory(idx),
+		PowerState:    idx.Value("npu_power_state", nil),
 		// A ceiling of zero would be as meaningless here as it is for the
 		// CPU, so the same guard applies.
 		MaxFrequencyMHz: statedLimit(idx.Value("npu_frequency_max_mhz", nil)),

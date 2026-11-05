@@ -21,6 +21,14 @@ mm-tui
 Everything starts at installation and again at boot. The raw readings are at
 `http://127.0.0.1:9273/metrics`.
 
+Additional inputs and the RAPL collector require manual activation: see
+[temperature and basicstats](#enable-inputstemp-and-aggregatorsbasicstats),
+[device interrupts](#enable-inputsinterrupts) and
+[per-CPU powerstat](#enable-inputsintel_powerstat-per-cpu-fields) and
+[turbostat](#enable-inputsturbostat), and
+[RAPL platform power](#enable-rapl-package-and-platform-power). Each has its own commands and
+verification step below.
+
 ## Building the package
 
 You need Docker and about 2 GB of free disk. You do **not** need a Go or Rust
@@ -42,7 +50,8 @@ native/packaging/dist/metrics-manager_<version>_amd64.deb
 ```
 
 While iterating on the dashboard or the packaging, reuse the image instead of
-rebuilding it every time:
+rebuilding it every time (but rebuild after changing a collector or adding
+`mm-plugin-rapl`, since the plugin binaries are copied from the image):
 
 ```bash
 SKIP_IMAGE_BUILD=1 ./native/build.sh
@@ -65,7 +74,7 @@ sudo apt install ./native/packaging/dist/metrics-manager_*_amd64.deb
 ```
 
 Installation creates the service account, loads the `msr` module, and starts
-everything. Give it a few seconds, then check all six services came up:
+everything. Give it a few seconds, then check the services came up:
 
 ```bash
 systemctl list-units 'metrics-manager-*' --no-legend
@@ -97,8 +106,11 @@ mm-tui
 
 The quickest way to trust a reading is to make it move.
 
-**Memory bandwidth.** Watch the Memory panel while writing a few gigabytes into
-RAM. It should jump from tens of MiB/s to thousands and settle back.
+**Memory bandwidth.** Watch the `DRAM bandwidth` row in the Memory panel while
+writing a few gigabytes into RAM. Its `read`, `write` and `total` columns should
+jump from tens of MiB/s to thousands and settle back. If the row is absent, the service may be
+running but unable to open perf counters; see
+[No memory bandwidth](#when-something-is-missing).
 
 ```bash
 dd if=/dev/zero of=/dev/shm/mmtest bs=1M count=8000; rm -f /dev/shm/mmtest
@@ -160,12 +172,14 @@ sudo systemctl disable 'metrics-manager-*'
 | Path | Contents |
 |---|---|
 | `/usr/bin/mm-tui` | Terminal dashboard |
-| `/usr/libexec/metrics-manager/` | Telegraf, qmassa and the three collector plugins |
+| `/usr/libexec/metrics-manager/` | Telegraf, qmassa and the collector plugins |
 | `/etc/metrics-manager/telegraf.conf` | Collection and publishing configuration |
+| `/etc/metrics-manager/telegraf-powerstat.conf` | Privileged package power and idle-state collection |
 | `/etc/metrics-manager/metrics-manager.env` | Settings shared by every service |
 | `/etc/metrics-manager/tui-dashboard.json` | Dashboard thresholds, alert behavior and process display limit |
 | `/etc/metrics-manager/tui-charts.json` | Trend history window, chart size and selected metrics |
 | `/etc/metrics-manager/telegraf.d/` | Drop-in directory for local configuration |
+| `/etc/metrics-manager/powerstat.d/` | Optional privileged powerstat input drop-ins |
 | `/etc/metrics-manager/custom-metrics.d/` | Operator-supplied metric scripts |
 | `/run/metrics-manager/` | Ingest socket and the qmassa FIFO |
 
@@ -282,9 +296,13 @@ long ago the last successful read was; when the endpoint stops answering, the
 readings stay on screen and the age keeps climbing rather than the panel
 emptying.
 
-Panels appear only when the hardware is there: CPU and memory always, GPU once
-qmassa reports a device, NPU on machines that have one. The GPU heading names
-the kernel driver, as in `GPU 0 · i915`, because it decides what can be read.
+CPU and memory panels are always present; GPU appears once qmassa reports a
+device, and NPU on machines that have one. The RAPL power panel and the DRAM
+bandwidth row inside Memory appear only when their collectors publish samples. The
+opt-in panels for high-resolution package temperature, DRAM power, per-CPU
+telemetry, device IRQ counters and NIC driver statistics also require samples.
+Merely installing the package does not add empty panels. The GPU heading names the
+kernel driver, as in `GPU 0 · i915`, because it decides what can be read.
 
 What each panel shows:
 
@@ -292,10 +310,39 @@ What each panel shows:
 |---|---|
 | Header | CPU model, thread count, kernel release |
 | CPU | Usage, frequency, package temperature and power against TDP, base and per-class turbo ceilings, uncore frequency, idle-state residency, and a row per core class with the evidence for the split |
-| Memory | Used and available, and memory controller throughput |
+| Memory | Used and available RAM; when collected, one `DRAM bandwidth` row with `read`, `write` and `total` columns (`-` for a missing reading) |
 | GPU | Power, temperature, memory, engine occupancy, per-tile frequencies and throttle reasons, and the processes using the device |
-| NPU | Utilisation, frequency, power, temperature, bandwidth, memory, tile configuration |
+| NPU | Utilisation, frequency, power, temperature, bandwidth, memory, tile configuration and PCI power state (`D0`–`D3cold`) when published |
 | Processes | The busiest by CPU and RSS, with OS thread count and owner |
+| RAPL power | Top-level RAPL domains including `package-0` and `psys` platform power (W), when readable; not the per-component subdomains |
+| Package temperature (100 ms) | Opt-in sample and one-second min/max/mean of package sensors |
+| Per-CPU telemetry / DRAM power | Opt-in table with one row per CPU (`CPU 1`, `CPU 8`, etc.), `frequency` and `temperature` columns (`-` where one reading is missing); DRAM RAPL power where supported |
+| Device interrupts (counters) | Opt-in cumulative `interrupts_total` per numbered device IRQ; use `rate()` for IRQ/s |
+| NIC driver | Opt-in `ethtool_*` readings per interface; available fields depend on the NIC driver |
+| Turbostat | Opt-in table with one row per CPU and `IRQ`/`NMI` columns (`-` for a missing reading); IPC, SMI and other available per-CPU diagnostics remain below the table |
+
+These additional panels are in Overview. If the extra rows exceed the terminal
+height, scroll the Overview. The Memory row uses
+`memory_bandwidth_*_mibps` when `mm-plugin-membw` can read the controller
+counters. RAPL power uses
+`rapl_power_power_w{domain="..."}` from the optional `mm-plugin-rapl` service.
+The RAPL panel appears only after that service is manually enabled and
+publishes readings. Details also offers DRAM read, write and total bandwidth
+charts, and a separate RAPL power chart for each available domain; these are
+not added to the default Trends charts.
+
+On an upgrade, `/etc/metrics-manager/tui-charts.json` is preserved if locally
+modified. If Details does not list the new plots, add these entries to its
+`details.metrics` array (or merge them from `tui-charts.json.dpkg-dist`) and
+restart `mm-tui`:
+
+```json
+{"metric": "memory.readMiBps", "title": "DRAM read", "unit": "MiB/s"},
+{"metric": "memory.writeMiBps", "title": "DRAM write", "unit": "MiB/s"},
+{"metric": "rapl.powerW", "title": "RAPL power", "unit": "W"}
+```
+
+The existing `memory.bandwidthMiBps` entry is the total bandwidth chart.
 
 The Trends tab retains the most recent five minutes by default. It shows CPU
 utilisation, memory usage, CPU temperature, and utilisation and temperature for
@@ -360,7 +407,7 @@ the selection does not restart collection or discard earlier samples.
 - `a` opens alert details and `h` opens help. Returning preserves the selected metric.
 
 The metric list uses up to three columns within labelled sections, always in
-the order **CPU, Memory, each GPU separately, NPU**. GPU IDs sort numerically
+the order **CPU, Memory, RAPL power (if available), each GPU separately, NPU**. GPU IDs sort numerically
 where numeric IDs are available. Different sections never share a row.
 Core-class readings stay in CPU, and each GPU's temperature, engines, frequency,
 power and VRAM stay together. Keyboard navigation skips section headings;
@@ -376,7 +423,8 @@ remains selected if it disappears, even after its retained history expires.
 No metric is substituted silently.
 
 The default selection includes CPU total and per-class P/E/LP-E usage,
-temperature, frequency and package power; RAM use and system DRAM bandwidth;
+temperature, frequency and package power; RAM use and DRAM read, write and
+total bandwidth (MiB/s); RAPL power for each published domain (W);
 per-GPU aggregate/engine utilisation, temperature, per-tile actual frequency,
 graphics power and dedicated VRAM percentage; NPU utilisation, temperature,
 frequency, power and memory. Frequency charts use MHz. NPU memory uses MiB
@@ -425,7 +473,7 @@ one across the network means you have deliberately exposed it. See
 
 ## Services and privileges
 
-Six services run, and they deliberately do not share a privilege level. Each
+The services run without sharing a privilege level. Each
 collector holds the smallest privilege that was measured to work, and nothing
 more.
 
@@ -435,6 +483,7 @@ more.
 | `metrics-manager-proc` | `metrics-manager`, no capabilities | Busiest processes; needs to see other processes, not to be privileged |
 | `metrics-manager-npu` | `metrics-manager` + `CAP_DAC_READ_SEARCH` | NPU telemetry is `0440 root:root` in sysfs |
 | `metrics-manager-membw` | `metrics-manager` + `CAP_PERFMON` | Memory controller counters are read through perf |
+| `metrics-manager-rapl` (opt-in) | `metrics-manager` + `CAP_DAC_READ_SEARCH` | Top-level RAPL `energy_uj` counters are typically root-readable only |
 | `metrics-manager-powerstat` | `metrics-manager` + `CAP_SYS_RAWIO`, `CAP_DAC_READ_SEARCH` | Package power, TDP and idle states come from MSRs and RAPL |
 | `metrics-manager-qmassa` | `root` + `CAP_SYS_RAWIO`, `CAP_PERFMON`, `CAP_SYS_PTRACE`, `CAP_DAC_READ_SEARCH` | GPU power and temperature come from model-specific registers; client usage requires reading other users' DRM `fdinfo` |
 
@@ -510,18 +559,296 @@ authentication in front of either one before exposing it off the host.
 ## Configuration
 
 Settings shared by every service live in
-`/etc/metrics-manager/metrics-manager.env` — the `host` tag and the qmassa
-sampling interval. Telegraf itself is configured by
+`/etc/metrics-manager/metrics-manager.env` — the `host` tag, Turbostat executable
+and sampling interval, qmassa sampling interval and process limit. Telegraf itself is configured by
 `/etc/metrics-manager/telegraf.conf`, with local additions in
 `/etc/metrics-manager/telegraf.d/*.conf`, which is read afterwards and left
 alone by upgrades.
 
 ```bash
-sudo systemctl restart 'metrics-manager-*.service'
+sudo systemctl try-restart 'metrics-manager-*.service'
 ```
 
 These files are marked as configuration, so an upgrade preserves your edits and
 leaves the new packaged version alongside as `.dpkg-dist`.
+
+### Collector startup settings
+
+| Variable | Default | Meaning |
+| -------- | ------- | ------- |
+| `TURBOSTAT_INTERVAL` | `5` | Positive integer sampling cadence in seconds for the optional Turbostat input |
+| `TURBOSTAT_BIN` | `/usr/bin/turbostat` | Absolute host path to Turbostat; normally the distribution wrapper selecting the running kernel's tools |
+| `METRICS_MANAGER_HOSTNAME` | empty (kernel hostname) | Stable `host=` tag shared by Telegraf and every native collector |
+
+These settings are for native services: there is no bind mount or `make up`
+binary resolution. Install tools matching the running kernel. A custom binary
+must be executable and accessible inside the powerstat service's sandbox:
+avoid home directories and private temporary directories; prefer `/usr/local/bin`
+or `/usr/lib/linux-tools/...`. Revisit version-specific paths after kernel upgrades.
+
+Edit the shared environment file directly, or use the configuration script below.
+For example, an options file containing only:
+
+```ini
+TURBOSTAT_INTERVAL=2
+TURBOSTAT_BIN=/usr/local/bin/turbostat
+METRICS_MANAGER_HOSTNAME=lab-node-42
+```
+
+changes these startup settings without enabling any collector. Add
+`ENABLE_TURBOSTAT=true` to enable that input too. Omitted startup settings remain
+unchanged; `METRICS_MANAGER_HOSTNAME=` restores the kernel hostname. Values in
+the helper's options file are unquoted literals: no shell expansion, spaces in
+binary paths, or `$(uname -r)`. Host tags may contain letters, digits, `_`, `.`,
+`:` and `-`. `auto` applies only to `ENABLE_*` options, not startup settings.
+
+The current Turbostat example reads `${TURBOSTAT_BIN}` and
+`${TURBOSTAT_INTERVAL}s` from the environment. When explicitly setting either
+Turbostat option, the helper also wires that field in existing active or
+disabled `powerstat.d/turbostat.conf` drop-ins, retaining all other settings.
+If editing the environment manually after upgrading, replace the old hard-coded
+`path` / `interval` assignments with those references first. The service has
+fallback defaults for older environment files that lack the new variables.
+Restart running services after direct edits; no `daemon-reload` is needed for
+environment-only changes. The helper performs the restart automatically.
+
+### Optional telemetry: enable individual plugins
+
+The package ships these examples outside the active configuration directories.
+Install only the collectors you want; none is enabled by default. Check whether
+the destination already exists before using `install`, since it would replace
+local settings.
+
+These commands require an **installed package built after these examples were
+added**, not merely the source files or a built `.deb` on disk. Check before
+enabling an input:
+
+```bash
+dpkg-query -W metrics-manager
+test -f /usr/share/doc/metrics-manager/examples/telegraf-powerstat-extra.conf
+systemctl list-unit-files metrics-manager-powerstat.service
+```
+
+If `dpkg-query` reports no package or the example/unit is missing, [build and
+install the current package](#building-the-package) first (installation starts
+the Metrics Manager services). On this checkout the package is
+under `native/packaging/dist/`; from the `microservices/metrics-manager`
+directory, install the built package with:
+
+```bash
+sudo apt install ./native/packaging/dist/metrics-manager_*_amd64.deb
+```
+
+An older package with the same version string may lack newly added examples;
+verify the installed files, not only the version.
+
+#### Configure optional telemetry with a script
+
+From the source checkout, edit
+[`native/metrics-options.conf`](../../../native/metrics-options.conf), then run:
+
+```bash
+./native/configure-metrics.sh
+# Or use a separate options file:
+./native/configure-metrics.sh /path/to/metrics-options.conf
+```
+
+The Bash script uses `sudo` when not already running as root and requires the
+installed package described above. It reads assignments as data, not shell
+commands. Each `ENABLE_*` option accepts `true` (enable), `false` (disable), or `auto`
+(leave its current configuration and enablement unchanged). Omitted options
+default to `auto`; the [startup settings](#collector-startup-settings) above
+are also accepted and are left unchanged when omitted. Review the selected values in your options file before running
+the script. Unknown keys, duplicate keys
+and invalid values are rejected before applying any changes.
+
+| Option | Controls |
+| ------ | -------- |
+| `ENABLE_RAPL` | `metrics-manager-rapl.service` |
+| `ENABLE_POWERSTAT_EXTRA` | Per-CPU powerstat fields in `powerstat.d/extra.conf` |
+| `ENABLE_TURBOSTAT` | `powerstat.d/turbostat.conf` |
+| `ENABLE_TEMPERATURE` | `telegraf.d/temperature.conf`, including basicstats |
+| `ENABLE_INTERRUPTS` | `telegraf.d/interrupts.conf` |
+| `ENABLE_NETWORK` | `telegraf.d/network.conf`, including ethtool |
+| `ENABLE_NETWORK_VIRTUAL` | `telegraf.d/network-virtual.conf`, ethtool counters for host-side `veth*`/`lxc*` links only |
+| `ENABLE_STORAGE` | `telegraf.d/storage.conf` |
+
+For example, set `ENABLE_RAPL=true` and `ENABLE_POWERSTAT_EXTRA=true` to enable
+both, or set either to `false` to disable it. RAPL uses `systemctl enable --now`
+or `disable --now`. Drop-ins are installed from the packaged examples only
+when no local configuration exists. Existing active files are preserved except
+for explicitly selected Turbostat startup fields;
+disabled files are restored on enable. Disabling renames a drop-in to
+`.conf.disabled`, retaining local settings. If both files already exist,
+disabling fails rather than overwriting either file.
+
+`ENABLE_NETWORK_VIRTUAL` is independent of `ENABLE_NETWORK`: disabling one
+does not disable the other. It adds no `inputs.net` collector and does not
+change existing traffic-interface selection. If your local `network.conf`
+already selects `veth*`/`lxc*` in `inputs.ethtool`, avoid selecting the same
+interfaces in the new drop-in. No extra privileges are required.
+
+Finally, the script runs `systemctl try-restart 'metrics-manager-*.service'`
+to reload all running Metrics Manager services. Unlike plain `restart`, this
+does not start stopped services, including a RAPL service just disabled by
+`ENABLE_RAPL=false`. It also does not enable a stopped baseline collector:
+powerstat drop-ins require `metrics-manager-powerstat.service` to be running.
+Command failures are reported and stop the script; changes already applied
+are not rolled back.
+
+Hardware and kernel prerequisites still apply. In particular, install matching
+Turbostat tools first (the script checks the effective `TURBOSTAT_BIN --version`
+when enabling Turbostat or setting its binary path), and review
+Network interface and Storage mount/device selection as described below.
+Verify actual metrics at the endpoint; enabling a collector does not guarantee
+hardware support or immediate removal of cached samples.
+
+#### Enable `inputs.temp` and `aggregators.basicstats`
+
+For 100 ms CPU package samples and one-second min/max/mean, run:
+
+```bash
+sudo install -o root -g root -m 0644 \
+  /usr/share/doc/metrics-manager/examples/telegraf-temperature.conf \
+  /etc/metrics-manager/telegraf.d/temperature.conf
+sudo systemctl restart metrics-manager-telegraf.service
+curl -fsS http://127.0.0.1:9273/metrics |
+  grep -E '^temp_highres_temp(_(min|max|mean))?[{ ]'
+```
+
+This adds `temp_highres_temp` and `temp_highres_temp_{min,max,mean}`. The
+existing one-second `temp_temp` stays unchanged. To disable only the
+high-resolution samples while retaining the configuration for later:
+
+```bash
+sudo mv -i /etc/metrics-manager/telegraf.d/temperature.conf /etc/metrics-manager/telegraf.d/temperature.conf.disabled
+sudo systemctl restart metrics-manager-telegraf.service
+```
+
+#### Enable `inputs.interrupts`
+
+For per-device IRQ counters (only numbered IRQs), run:
+
+```bash
+sudo install -o root -g root -m 0644 \
+  /usr/share/doc/metrics-manager/examples/telegraf-interrupts.conf \
+  /etc/metrics-manager/telegraf.d/interrupts.conf
+sudo systemctl restart metrics-manager-telegraf.service
+curl -fsS http://127.0.0.1:9273/metrics | grep '^interrupts_total{'
+```
+
+`interrupts_total` is a cumulative **counter**, not an IRQ/s gauge: use
+`rate(interrupts_total[1m])` in Prometheus to calculate IRQ/s. To disable
+this input without deleting its configuration:
+
+```bash
+sudo mv -i /etc/metrics-manager/telegraf.d/interrupts.conf /etc/metrics-manager/telegraf.d/interrupts.conf.disabled
+sudo systemctl restart metrics-manager-telegraf.service
+```
+
+#### Enable `inputs.intel_powerstat` per-CPU fields
+
+Per-CPU frequency and temperature need the **privileged** Telegraf service,
+not the regular `telegraf.d` directory:
+
+```bash
+sudo install -o root -g root -m 0644 \
+  /usr/share/doc/metrics-manager/examples/telegraf-powerstat-extra.conf \
+  /etc/metrics-manager/powerstat.d/extra.conf
+sudo systemctl restart metrics-manager-powerstat.service
+sudo systemctl restart metrics-manager-telegraf.service
+curl -fsS http://127.0.0.1:9273/metrics |
+  grep -E '^powerstat_core_cpu_(frequency_mhz|temperature_celsius)'
+```
+
+The extra input collects only new fields, avoiding duplicates of the existing
+package power and C-state metrics. To collect DRAM RAPL power as well, first
+verify that the host exposes a readable DRAM RAPL subzone; then edit
+`/etc/metrics-manager/powerstat.d/extra.conf` to set
+`package_metrics = ["current_dram_power_consumption"]` and restart
+`metrics-manager-powerstat.service`. Without that subzone the plugin logs an
+error on every interval. To disable **only these additional fields** while
+retaining the baseline package-power and C-state readings:
+
+```bash
+sudo mv -i /etc/metrics-manager/powerstat.d/extra.conf /etc/metrics-manager/powerstat.d/extra.conf.disabled
+sudo systemctl restart metrics-manager-powerstat.service
+sudo systemctl restart metrics-manager-telegraf.service
+```
+
+Restart `metrics-manager-powerstat.service`, not
+`metrics-manager-telegraf.service`: the former loads `powerstat.d`. To disable
+*all* powerstat readings instead, run
+`sudo systemctl disable --now metrics-manager-powerstat.service`. Telegraf may
+continue exposing cached samples briefly after the powerstat service stops.
+
+#### Enable RAPL package and platform power
+
+The `mm-plugin-rapl` binary and `metrics-manager-rapl.service` are installed
+but **not started or enabled by default**. Unlike `inputs.turbostat`, RAPL
+runs as its own service because its sysfs energy counters need
+`CAP_DAC_READ_SEARCH`; the unprivileged Telegraf service only receives its
+samples over the existing local collection socket. No `powerstat.d` drop-in
+or Telegraf restart is needed.
+
+```bash
+sudo systemctl enable --now metrics-manager-rapl.service
+curl -fsS http://127.0.0.1:9273/metrics |
+  grep '^rapl_power_power_w'
+```
+
+The TUI shows the RAPL power panel only after a reading arrives. The plugin
+reports top-level domains such as `package-0` and `psys` where available;
+`psys` is platform power, not a DRAM subdomain. To stop collection now and
+keep it disabled after reboot:
+
+```bash
+sudo systemctl disable --now metrics-manager-rapl.service
+```
+
+Previously exposed samples may remain briefly in Telegraf's Prometheus cache.
+If the enabled service publishes nothing, see
+[No RAPL power](#when-something-is-missing).
+
+#### Enable `inputs.turbostat`
+
+Turbostat is an opt-in diagnostic for IPC, SMI, IRQ/NMI, core temperature and
+other CPU details. It runs in the **privileged** powerstat Telegraf service
+because it reads CPU MSRs; do not copy this example into `telegraf.d`. It needs
+`TURBOSTAT_BIN` (default `/usr/bin/turbostat`) backed by tools for the *running kernel*. A wrapper
+present in `/usr/bin` is not sufficient if it reports that no matching binary
+exists. On Debian/Ubuntu, install the matching `linux-tools-$(uname -r)`
+package if available, then verify `turbostat --version` succeeds before enabling.
+Use `--version` for this check: some versions return a nonzero exit status for
+`--help` even when the binary works.
+
+```bash
+turbostat --version
+sudo install -o root -g root -m 0644 \
+  /usr/share/doc/metrics-manager/examples/telegraf-turbostat.conf \
+  /etc/metrics-manager/powerstat.d/turbostat.conf
+sudo systemctl restart metrics-manager-powerstat.service
+curl -fsS http://127.0.0.1:9273/metrics |
+  grep -E '^turbostat_(ipc|smi)'
+```
+
+The example collects every `TURBOSTAT_INTERVAL` seconds (default five),
+independently of Telegraf's 1s interval. Configure it and the executable through
+the [startup settings](#collector-startup-settings). Additional fields depend on
+the CPU and kernel. The TUI shows a
+Turbostat panel only when measurements arrive; a running service alone does
+not prove the external binary or its MSR permissions work. If the check above
+returns nothing, inspect `journalctl -u metrics-manager-powerstat.service`.
+To disable the input without removing its settings:
+
+```bash
+sudo mv -i /etc/metrics-manager/powerstat.d/turbostat.conf /etc/metrics-manager/powerstat.d/turbostat.conf.disabled
+sudo systemctl restart metrics-manager-powerstat.service
+sudo systemctl restart metrics-manager-telegraf.service
+```
+
+This leaves the baseline `intel_powerstat` collector running. The endpoint
+may retain the last Turbostat samples briefly after the input stops.
 
 ### Process columns and ownership
 
@@ -857,11 +1184,13 @@ The TUI automatically displays interfaces when `net_*` metrics are available:
 - Trends: five-minute RX/TX charts per interface with the new default chart list.
 - Details: one group per interface, with ten selectable rate/utilization charts.
 - Alerts: timestamp-aware Network events and the existing bottom alert preview.
+- Overview also adds a NIC driver panel per interface when the optional
+  `ethtool_*` series exist; this panel shows the driver's raw counters, not the
+  derived Network rates.
 
-Enable the native
+The updated example enables both native
 [`net` input](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/net)
-by copying the example. If the destination already exists, edit it instead of
-overwriting your settings:
+and `inputs.ethtool`. Copy it only if the destination does not already exist:
 
 ```bash
 sudo install -o root -g root -m 0644 \
@@ -869,6 +1198,12 @@ sudo install -o root -g root -m 0644 \
   /etc/metrics-manager/telegraf.d/network.conf
 sudoedit /etc/metrics-manager/telegraf.d/network.conf
 ```
+
+For an existing, locally tuned `network.conf`, **do not run `install`**: edit
+the file and add the `[[inputs.ethtool]]` block from the updated example,
+preserving your `net` interface selection. `ethtool` needs driver support and
+only matches `eth*`/`en*` interfaces in the example; its exposed fields vary by
+NIC. It does not replace the `net_*` counters or their rate calculations.
 
 Set `interfaces = ["enp1s0"]` to your actual interface names (`ip -brief link`).
 An empty list collects UP, non-loopback interfaces, including virtual devices.
@@ -879,7 +1214,7 @@ does not sum interfaces.
 ```bash
 sudo systemctl restart metrics-manager-telegraf.service
 curl --fail --silent http://127.0.0.1:9273/metrics |
-  grep -E '^net_(bytes|packets|err|drop|speed)'
+  grep -E '^(net_(bytes|packets|err|drop|speed)|ethtool_)'
 mm-tui
 ```
 
@@ -904,6 +1239,56 @@ The `.conf.disabled` file is not loaded. Telegraf configuration changes require
 a service restart; dashboard-only changes require restarting `mm-tui`.
 Container host-network visibility is a separate deployment concern: the native
 setup does not imply that an isolated container sees the host's interfaces.
+
+#### Virtual NIC counters and container metric coverage
+
+A container's `eth0` may use the `veth` driver, while the host's physical NIC
+uses a driver such as `e1000e`. The following container counters do not have
+equivalents on every physical NIC:
+
+- `ethtool_peer_ifindex`
+- `ethtool_rx_pp_alloc_*` and `ethtool_rx_pp_recycle_*`
+- `ethtool_rx_queue_0_drops` and `ethtool_rx_queue_0_xdp_*`
+- `ethtool_tx_queue_0_xdp_xmit` and `ethtool_tx_queue_0_xdp_xmit_errors`
+
+The existing Telegraf `ethtool` input supports these driver counters; no extra
+collector or synthetic zero values are needed. To collect them from host-side
+container links, install the current package, set `ENABLE_NETWORK_VIRTUAL=true`
+in `native/metrics-options.conf`, and run `native/configure-metrics.sh`.
+The separate packaged `telegraf-network-virtual.conf` example selects `veth*`
+and `lxc*`. Existing local settings are retained; adjust interface patterns in
+`/etc/metrics-manager/telegraf.d/network-virtual.conf` if needed.
+Set the option to `false` to disable this drop-in, or `auto` to leave it unchanged.
+
+```bash
+curl --fail --silent http://127.0.0.1:9273/metrics |
+  grep -E '^ethtool_(peer_ifindex|rx_pp_|rx_queue_0_|tx_queue_0_)'
+```
+
+These are the host endpoints' counters, not the same series as container
+`eth0`: `host`, `interface`, `peer_ifindex`, RX/TX direction and values may
+differ. Matching metric names establishes counter availability, not equality
+of monitored interfaces or readings. No matching links means no such series.
+Adding this drop-in does not modify `inputs.net`; avoid summing physical,
+bridge and virtual traffic as if each represented independent traffic.
+
+GPU frequency and throttling data also exist natively under different names:
+
+| Container name | Native name |
+| --- | --- |
+| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq` |
+| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq` |
+| `gpu_throttle_throttled` | `gpu_throttle_status` |
+| `gpu_throttle_throttle_pl1` | `gpu_throttle_pl1` |
+| `gpu_throttle_throttle_pl2` | `gpu_throttle_pl2` |
+| `gpu_throttle_throttle_prochot` | `gpu_throttle_prochot` |
+| `gpu_throttle_throttle_thermal` | `gpu_throttle_thermal` |
+
+Use native `gpu_id`, `driver` and `tile` labels instead of `card` and `gt`;
+the device identifiers must be matched to the actual hardware, not assumed
+numerically identical. No duplicate aliases are added. Compare available
+names separately from values, labels and Prometheus `TYPE` declarations:
+coverage is not a promise of an identical schema between deployments.
 
 #### Counter rates and missing data
 
@@ -1017,9 +1402,15 @@ you want to observe (for example `nvme0n1`). The example samples every second
 with per-input nanosecond precision (exported as millisecond timestamps), avoiding
 whole-second rounding into the future. It
 excludes virtual filesystems such as tmpfs/overlay/squashfs, filters loop/ram
-devices from export and omits serial/WWID tags. Existing main configuration must
+devices from export and includes `ID_MODEL`, `ID_SERIAL_SHORT` and `wwid`
+identification tags when udev/kernel metadata is available. Existing main configuration must
 retain `metric_version = 1` and `export_timestamp = true`.
 Upgrading never activates the example automatically.
+
+For an existing local `storage.conf`, add
+`device_tags = ["ID_MODEL", "ID_SERIAL_SHORT"]` in `[[inputs.diskio]]` and remove
+`wwid` from any `tagexclude` list. Preserve local device/mount selections and restart
+Telegraf. Updating the packaged example does not overwrite an active local file.
 
 To disable, move the drop-in out of the `*.conf` set and restart Telegraf:
 
@@ -1451,6 +1842,12 @@ actual frequency per core class, and C-state residency.
 `cpufreq/stats/time_in_state` under `acpi-cpufreq`, at the cost of no longer
 measuring how the machine actually runs.
 
+**NPU PCI power state.** `npu_power_state` maps the driver's `power_state` to
+`D0=0`, `D1=1`, `D2=2`, `D3hot=3`, `D3cold=4`. The collector emits `-1` when
+the sysfs attribute is missing, unreadable or unknown; the TUI displays that
+sentinel as `unknown`, not as a valid power state. This field is collected by
+the NPU plugin, not by the optional Turbostat input.
+
 **Which C-states exist varies by platform.** Meteor Lake reports C0, C1, C6 and
 C7; Panther Lake reports only C0. Unsupported states are detected and skipped
 with a single warning, so a short list is the platform speaking rather than a
@@ -1530,14 +1927,49 @@ is safe to leave alone.
 
 **No memory bandwidth.** The counters are read through perf, which the kernel
 gates behind `perf_event_paranoid`. The collector says so on startup rather
-than reporting zeros.
+than reporting zeros. An `active (running)` unit may still be idling with no
+samples.
 
 ```bash
-journalctl -u metrics-manager-membw -n 20
+journalctl -u metrics-manager-membw -n 20 --no-pager
+cat /proc/sys/kernel/perf_event_paranoid
+sudo /usr/libexec/metrics-manager/mm-plugin-membw -once
 ```
+
+On the tested host `perf_event_paranoid=4` denied uncore `perf_event_open`
+even with the unit's effective `CAP_PERFMON`; a diagnostic run with
+`CAP_SYS_ADMIN` could count. The root `-once` command above checks whether
+the counters themselves work without changing the service. An administrator
+can assess whether a less restrictive **host-wide** perf policy is acceptable;
+do not grant this service broad `CAP_SYS_ADMIN` merely to make the metric
+appear. Restart `metrics-manager-membw.service` after changing the host policy:
+the idling collector must reopen its counters. When available, it publishes
+`memory_bandwidth_{read,write,total}_mibps` (system-wide MiB/s), corresponding
+to tcmi's DRAM read/write/total GB/s after unit conversion.
 
 A machine whose memory controller exposes no free-running counters cannot
 report this at all; the service idles instead of restarting in a loop.
+
+**No RAPL power.** The Go collector reads top-level
+`/sys/class/powercap/intel-rapl:N/energy_uj` (not `:N:M` subdomains) once per
+second and converts energy deltas to watts, correcting counter wrap using
+`max_energy_range_uj`. It reports each available domain as
+`rapl_power_power_w{domain="package-0"}` or
+`rapl_power_power_w{domain="psys"}`; `psys` depends on hardware support.
+Once enabled, `metrics-manager-rapl.service` runs with read-only
+`CAP_DAC_READ_SEARCH` and sends readings to Telegraf's collection socket.
+If it is running but there are no series, check the startup diagnostic and
+the sysfs zones:
+
+```bash
+journalctl -u metrics-manager-rapl.service -n 20 --no-pager
+ls -l /sys/class/powercap/intel-rapl:*/energy_uj
+sudo /usr/libexec/metrics-manager/mm-plugin-rapl -once
+curl -fsS http://127.0.0.1:9273/metrics | grep '^rapl_power_power_w'
+```
+
+The `-once` check only verifies counter readability; it does not change the
+installed service or the host's RAPL permissions.
 
 **No process list.** `metrics-manager-proc` needs no privileges, but it does
 need to see other processes. Hardening it with `ProtectProc=invisible`, or

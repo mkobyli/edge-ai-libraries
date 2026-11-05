@@ -13,10 +13,13 @@ After=systemd-modules-load.service
 Type=simple
 User=metrics-manager
 Group=metrics-manager
+# Defaults also cover upgrades retaining an older metrics-manager.env.
+Environment=TURBOSTAT_INTERVAL=5 TURBOSTAT_BIN=/usr/bin/turbostat
 EnvironmentFile=/etc/metrics-manager/metrics-manager.env
 
 ExecStart=/usr/libexec/metrics-manager/telegraf \
-    --config /etc/metrics-manager/telegraf-powerstat.conf
+    --config /etc/metrics-manager/telegraf-powerstat.conf \
+    --config-directory /etc/metrics-manager/powerstat.d
 
 Restart=on-failure
 RestartSec=5s

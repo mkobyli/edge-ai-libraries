@@ -68,6 +68,60 @@ func TestDetailsDefaultsToFullWidthCPUHistory(t *testing.T) {
 	}
 }
 
+func TestDetailsShowsDRAMReadWriteTotalAndRAPLPerDomain(t *testing.T) {
+	m := testModel(nil)
+	m.now = func() time.Time { return fixedNow }
+	exposition := hostExposition + `memory_bandwidth_read_mibps{host="itest"} 2048
+memory_bandwidth_write_mibps{host="itest"} 128
+memory_bandwidth_total_mibps{host="itest"} 2176
+rapl_power_power_w{host="itest",domain="psys"} 9.83
+rapl_power_power_w{host="itest",domain="package-0"} 6.51
+`
+	m, _ = update(t, m, snapshotMsg(source.Snapshot{At: fixedNow, Samples: parseFixture(t, exposition)}))
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 140, Height: 60})
+	m, _ = update(t, m, key("3"))
+	items := m.detailItems()
+	want := map[string]float64{
+		"memory.bandwidth":       2176,
+		"memory.bandwidth.read":  2048,
+		"memory.bandwidth.write": 128,
+		"rapl.package-0":         6.51,
+		"rapl.psys":              9.83,
+	}
+	for i, item := range items {
+		value, ok := want[item.choice.key]
+		if !ok {
+			continue
+		}
+		if !item.value.OK || item.value.Value != value ||
+			len(item.series.Points) != 1 || item.series.Points[0].Value != value {
+			t.Errorf("%s has no current value or plot data: %+v", item.choice.key, item)
+		}
+		if strings.HasPrefix(item.choice.key, "rapl.") {
+			_, _, group := detailGroup(item)
+			if group != "RAPL power" {
+				t.Errorf("RAPL metric grouped as %q", group)
+			}
+		}
+		m.selectDetail(i)
+		wantContains(t, m.View(), "last ")
+		delete(want, item.choice.key)
+	}
+	if len(want) != 0 {
+		t.Errorf("Details missing chart choices: %v", want)
+	}
+}
+
+func TestDetailsHidesOptionalRAPLAndDRAMReadWriteUntilSamples(t *testing.T) {
+	m := detailsModel(t, 120, 35)
+	for _, item := range m.detailItems() {
+		if item.spec.Metric == "rapl.powerW" ||
+			item.spec.Metric == "memory.readMiBps" || item.spec.Metric == "memory.writeMiBps" {
+			t.Errorf("missing optional metric appears in Details: %s", item.spec.Metric)
+		}
+	}
+}
+
 func TestDetailsKeyboardSelectsAndKeepsHistory(t *testing.T) {
 	m := detailsModel(t, 120, 30)
 	before := len(m.history.Series("cpu.totalPercent")[0].Points)

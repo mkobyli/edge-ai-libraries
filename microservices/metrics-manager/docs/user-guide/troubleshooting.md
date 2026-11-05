@@ -79,6 +79,23 @@ curl -s "http://localhost:9090/api/v1/capabilities?profile=expanded" | jq .devic
 
 ## Metrics Not Appearing
 
+### Missing `/app/scripts` Readers
+
+The current image ships native collectors, not the old Python readers or CPU
+frequency script. If Telegraf reports a missing `/app/scripts/qmassa_reader.py`,
+check whether a bind mount overrides `/etc/telegraf/telegraf.conf` with an older
+configuration. Rebuilding the image does not replace a bind-mounted file.
+
+Use the bundled [Telegraf configuration](../../telegraf.conf), or migrate custom
+CPU, GPU and NPU inputs to `inputs.execd` with these commands, respectively:
+
+- `/usr/libexec/metrics-manager/mm-plugin-cpu`
+- `/usr/libexec/metrics-manager/mm-plugin-gpu`
+- `/usr/libexec/metrics-manager/mm-plugin-npu`
+
+Restart the container after updating its mounted configuration. GPU collection
+also requires `HARDWARE_TELEMETRY_ENABLED=true` to start qmassa.
+
 ### Custom Metric Not Appearing on `/api/v1/metrics`
 
 **Symptom**: Metric accepted (201 response) but does not appear in query.

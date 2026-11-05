@@ -69,7 +69,7 @@ trap 'docker rm --force "$container" >/dev/null 2>&1 || true' EXIT INT TERM
 
 docker cp "$container:/usr/bin/telegraf" "$STAGE_DIR/bin/telegraf"
 docker cp "$container:/usr/local/bin/qmassa" "$STAGE_DIR/bin/qmassa"
-for plugin in mm-plugin-cpu mm-plugin-gpu mm-plugin-npu mm-plugin-proc mm-plugin-membw; do
+for plugin in mm-plugin-cpu mm-plugin-gpu mm-plugin-npu mm-plugin-proc mm-plugin-membw mm-plugin-rapl; do
     docker cp "$container:/usr/libexec/metrics-manager/$plugin" "$STAGE_DIR/bin/$plugin"
 done
 

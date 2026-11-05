@@ -168,7 +168,7 @@ RUN set -eux; \
     mkdir -p /out; \
     go vet ./...; \
     go test ./...; \
-    for plugin in mm-plugin-cpu mm-plugin-gpu mm-plugin-npu mm-plugin-proc mm-plugin-membw; do \
+    for plugin in mm-plugin-cpu mm-plugin-gpu mm-plugin-npu mm-plugin-proc mm-plugin-membw mm-plugin-rapl; do \
         go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
             -o "/out/${plugin}" "./cmd/${plugin}"; \
     done
@@ -332,6 +332,12 @@ COPY telegraf.conf /etc/telegraf/telegraf.conf
 COPY supervisord.conf /etc/supervisor/supervisord.conf
 COPY entrypoint.sh /entrypoint.sh
 
+# Verify the native collectors run in the final image, not just the build stage.
+RUN set -eux; \
+    for plugin in /usr/libexec/metrics-manager/mm-plugin-*; do \
+        "$plugin" -version; \
+    done
+
 # Strip CRLF (handles files copied from Windows working directories)
 RUN sed -i 's/\r$//' /entrypoint.sh /etc/telegraf/telegraf.conf /etc/supervisor/supervisord.conf
 
@@ -345,7 +351,7 @@ RUN chmod +x /entrypoint.sh && \
 # Environment variables with defaults
 ENV METRICS_PORT=9090
 ENV TELEGRAF_PORT=9273
-ENV HARDWARE_TELEMETRY_ENABLED=false
+ENV HARDWARE_TELEMETRY_ENABLED=true
 ENV QMASSA_FIFO_PATH=/app/qmassa.fifo
 ENV LOG_LEVEL=INFO
 ENV CORS_ORIGINS="*"

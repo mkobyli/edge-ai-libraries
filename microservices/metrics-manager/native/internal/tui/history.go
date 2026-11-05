@@ -147,6 +147,25 @@ func chartObservations(d Dashboard) []chartObservation {
 			label: "Memory", value: d.Memory.TotalMiBps,
 		},
 	}
+	if d.Memory.ReadMiBps.OK && !math.IsNaN(d.Memory.ReadMiBps.Value) && !math.IsInf(d.Memory.ReadMiBps.Value, 0) {
+		observations = append(observations, chartObservation{
+			key: "memory.bandwidth.read", metric: "memory.readMiBps",
+			label: "Memory", value: d.Memory.ReadMiBps,
+		})
+	}
+	if d.Memory.WriteMiBps.OK && !math.IsNaN(d.Memory.WriteMiBps.Value) && !math.IsInf(d.Memory.WriteMiBps.Value, 0) {
+		observations = append(observations, chartObservation{
+			key: "memory.bandwidth.write", metric: "memory.writeMiBps",
+			label: "Memory", value: d.Memory.WriteMiBps,
+		})
+	}
+
+	for _, domain := range d.RAPL {
+		observations = append(observations, chartObservation{
+			key: "rapl." + domain.Domain, metric: "rapl.powerW",
+			label: domain.Domain, device: domain.Domain, value: domain.PowerW,
+		})
+	}
 
 	for _, gpu := range d.GPUs {
 		observations = append(observations,

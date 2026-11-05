@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Opt-in via ENABLE_NETWORK_VIRTUAL in configure-metrics.sh.
+# Collect host-side container links without changing inputs.net traffic selection.
+# Do not select the same interfaces in another inputs.ethtool block.
+[[inputs.ethtool]]
+  interface_include = ["veth*", "lxc*"]

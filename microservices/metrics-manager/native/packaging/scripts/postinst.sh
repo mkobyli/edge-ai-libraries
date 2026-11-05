@@ -55,6 +55,9 @@ configure)
         systemctl enable $SERVICES >/dev/null 2>&1 || true
         # shellcheck disable=SC2086
         systemctl restart $SERVICES >/dev/null 2>&1 || true
+        # RAPL is opt-in. Upgrade its binary for existing users without
+        # enabling or starting it on installations that never opted in.
+        systemctl try-restart metrics-manager-rapl.service >/dev/null 2>&1 || true
     fi
 
     echo "metrics-manager: telemetry is on http://127.0.0.1:9273/metrics; run mm-tui for the dashboard"

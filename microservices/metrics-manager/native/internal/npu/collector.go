@@ -27,13 +27,14 @@ type Collector struct {
 	telemetry *Telemetry
 	hostname  string
 
-	// busyPath, memoryPath and maxFreqPath are empty when the driver does
-	// not expose the corresponding attribute. All three are world-readable
+	// Paths are empty when the driver does not expose the corresponding
+	// attribute. These sysfs files are world-readable
 	// where they exist, unlike the PMT region the rest of the telemetry
 	// comes from.
-	busyPath    string
-	memoryPath  string
-	maxFreqPath string
+	busyPath       string
+	memoryPath     string
+	maxFreqPath    string
+	powerStatePath string
 
 	prevEnergy    float64
 	prevBandwidth float64
@@ -92,6 +93,11 @@ func NewCollector(sysfsRoot, hostname string) (*Collector, error) {
 		collector.maxFreqPath = maxFreqPath
 	}
 
+	powerStatePath := filepath.Join(devPath, "power_state")
+	if _, err := os.Stat(powerStatePath); err == nil {
+		collector.powerStatePath = powerStatePath
+	}
+
 	if err := telemetry.Update(); err != nil {
 		return nil, err
 	}
@@ -146,6 +152,7 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 		lineproto.IntField("tile_config", int64(c.telemetry.TileConfig())),
 		lineproto.IntField("utilization", c.utilization(elapsed)),
 		lineproto.FixedFloatField("memory_mb", c.memoryMB(), 2),
+		lineproto.IntField("power_state", c.powerState()),
 	}
 
 	// The ceiling gives the current frequency a meaning. It is static, so it
@@ -161,6 +168,32 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 		Fields:      fields,
 		Timestamp:   sampleTime,
 	}}, nil
+}
+
+// powerState matches the tcmi reader's PCI D-state encoding. -1 means the
+// attribute is absent, unreadable or reports an unrecognised state.
+func (c *Collector) powerState() int64 {
+	if c.powerStatePath == "" {
+		return -1
+	}
+	value, err := os.ReadFile(c.powerStatePath)
+	if err != nil {
+		return -1
+	}
+	switch strings.TrimSpace(string(value)) {
+	case "D0":
+		return 0
+	case "D1":
+		return 1
+	case "D2":
+		return 2
+	case "D3hot":
+		return 3
+	case "D3cold":
+		return 4
+	default:
+		return -1
+	}
 }
 
 // utilization returns the share of the interval the NPU spent busy, as a
