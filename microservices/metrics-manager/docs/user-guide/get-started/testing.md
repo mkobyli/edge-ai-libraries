@@ -123,6 +123,44 @@ field filtering. IRQ filtering uses line-protocol fixtures because that input
 has no procfs path override. No service, root privileges or hardware access
 is required. These checks complement, not replace, hardware validation.
 
+## Native memory-bandwidth validation
+
+From the native module, run:
+
+```bash
+go test ./internal/cpu ./internal/membw
+```
+
+Fixtures cover nonzero representative CPUs, multiple dies/controllers, duplicate
+PMU aliases, complete DDR subchannel pairs, aggregate-versus-subchannel selection,
+exact byte rates, invalid CPU masks, permission/open failures and short reads.
+Failed snapshots must not change any baseline or publish partial host totals;
+counter resets re-prime the entire set.
+
+The hardware smoke test also passed on a dual-socket Xeon 6972P with Linux 6.8:
+six IMC PMU types, representatives `0,96`, and two DDR subchannels per PMU.
+`strace -f -c -e trace=perf_event_open` confirmed **48 successful opens**:
+6 PMUs * 2 sockets * 2 subchannels * 2 directions. The unprivileged run under
+`perf_event_paranoid=4` failed visibly without publishing a measurement.
+The privileged `-once` run emitted read/write/total in bytes/s.
+
+For an independent counter check on that event layout:
+
+```bash
+sudo env LC_ALL=C perf stat -a --per-socket --no-big-num -x ';' \
+  -e 'uncore_imc/cas_count_read_sch0/,uncore_imc/cas_count_read_sch1/,uncore_imc/cas_count_write_sch0/,uncore_imc/cas_count_write_sch1/' \
+  -- sleep 2
+```
+
+Check `perf list` for the installed tool's event names. Perf 6.8 uses the
+aggregate `uncore_imc/` selector for these PMUs. Both sockets reported both
+directions/subchannels with 100% running time. Run perf and the collector
+**sequentially**, not together: they compete for counter slots. Separate time
+windows need not have identical rates; this smoke test establishes coverage
+and error handling, not peak-bandwidth calibration or a workload benchmark.
+The collector itself needs no external perf executable.
+No host perf policy, service permissions or capabilities were changed.
+
 ## Test Categories
 
 | Test File                      | Description                                                                |

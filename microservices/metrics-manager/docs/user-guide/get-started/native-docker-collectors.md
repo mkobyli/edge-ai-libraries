@@ -19,6 +19,14 @@ and base `intel_powerstat` package-power/C-state inputs. GPU throttle/frequency
 detail is already part of the native GPU collector. Optional flags do not
 disable this baseline.
 
+Memory bandwidth uses each IMC PMU's `cpumask` to cover its representative
+CPUs across dies/sockets, not a fixed CPU 0. It retains one host-total series
+set and refuses partial totals on controller errors. The same
+[PMU discovery and diagnostics](./bare-metal-package.md#when-something-is-missing)
+apply in Docker: the container must see the relevant PMU sysfs entries and have
+perf access under the host policy. No new mount, capability or automatic
+privilege escalation is introduced.
+
 The following flags default to **false** in the default bridge deployment.
 The opt-in host-NIC variant defaults only `ENABLE_NETWORK` to **true**; an
 explicit `false` overrides it. Docker accepts only lowercase

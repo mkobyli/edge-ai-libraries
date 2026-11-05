@@ -2035,7 +2035,34 @@ the idling collector must reopen its counters. When available, it publishes
 `memory_bandwidth_{read,write,total}_bytes_per_second` (system-wide bytes/s, displayed as GB/s), corresponding
 to tcmi's DRAM read/write/total GB/s after unit conversion.
 
-A machine whose memory controller exposes no free-running counters cannot
+The collector reads the decimal CPU list from each PMU's `cpumask` and opens
+read/write events on every listed representative, including nonzero CPUs on
+other dies/sockets. Each distinct PMU type and representative is counted once.
+Where counters are split into `cas_count_*_schN`, all advertised subchannels
+must have read/write pairs and are included without also adding an aggregate.
+The TUI still shows one host total, not per-socket panels. No external `perf`
+binary is needed. Missing/invalid masks, incomplete event pairs and inaccessible
+controllers fail visibly instead of publishing a partial total.
+
+If both free-running and programmable IMC families publish bandwidth pairs,
+the collector refuses to sum potentially overlapping coverage. Inspect the
+PMUs and, only after verifying coverage, use the existing `-devices` option to
+select one complete family, for example:
+
+```bash
+sudo /usr/libexec/metrics-manager/mm-plugin-membw -once \
+  -devices '/sys/bus/event_source/devices/uncore_imc_free_running_*'
+```
+
+Do not narrow this to one controller and interpret its output as a host total.
+Pinned events prevent multiplexed undercounts; an unavailable counter slot can
+cause an explicit scheduling/read error. On transient read failure the next
+complete sample averages over the full elapsed interval. A reset or wrap drops
+the whole interval and re-primes all counters. `-once` exits unsuccessfully on
+a sampling error; the long-running service logs and retries subsequent samples.
+Restart after CPU/PMU topology changes to refresh the startup discovery.
+
+A machine whose memory controller exposes no supported bandwidth pair cannot
 report this at all; the service idles instead of restarting in a loop.
 
 **No RAPL power.** The Go collector reads top-level

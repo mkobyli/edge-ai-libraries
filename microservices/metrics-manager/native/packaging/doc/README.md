@@ -363,8 +363,16 @@ sudo -u metrics-manager /usr/libexec/metrics-manager/mm-plugin-npu -once
 Run under `sudo` that will fail on the permissions — that is the expected way
 to tell an absent NPU from a permissions problem.
 
-**No memory bandwidth.** `mm-plugin-membw` reports system-wide DRAM read,
-write and total throughput in decimal GB/s (not GPU-only bandwidth). Check
+**No memory bandwidth.** `mm-plugin-membw` exports system-wide DRAM read,
+write and total throughput in bytes/s, displayed as decimal GB/s in the TUI
+(not GPU-only bandwidth). Each PMU's `cpumask` supplies the representative CPUs
+for all dies/sockets; CPU 0 is not assumed. Aliases are counted once, and
+incomplete/unreadable controllers never produce a partial host total.
+If both free-running and programmable families expose usable pairs, select one
+complete family with `-devices` after checking coverage, rather than summing
+overlapping counters. Pinned events reject scheduling failures instead of
+silently reporting multiplexed undercounts. Restart after topology changes.
+Check
 `journalctl -u metrics-manager-membw.service` and
 `cat /proc/sys/kernel/perf_event_paranoid`. On kernels that set this value to
 4, `CAP_PERFMON` alone may be refused for uncore events; the service will stay

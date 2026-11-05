@@ -652,13 +652,36 @@ The controller and its event names are discovered rather than assumed. Current
 client parts publish `data_read` and `data_write` on free-running counters,
 older ones `data_reads` and `data_writes`, and server parts
 `cas_count_read` and `cas_count_write`; the published scale and unit are read
-alongside them. Controllers exposing no counters are skipped, which is normal:
-a machine typically has several and only some carry events.
+alongside them. Platforms such as Xeon 6972P instead publish
+`cas_count_read_schN` / `cas_count_write_schN`: every advertised subchannel
+pair is summed. If an aggregate pair exists, it is used alone, never added to
+its subchannels. Controllers exposing no known bandwidth events are skipped,
+which is normal; incomplete read/write pairs or unreadable metadata fail
+explicitly rather than reducing the total silently.
+
+For each distinct PMU type, the collector opens a read/write pair on **every
+representative CPU** in that PMU's `cpumask` (a decimal CPU list). A list such
+as `0,48` covers two dies; it is not an instruction to choose only CPU 0.
+Duplicate CPU entries and PMU aliases are counted once. Distinct controllers
+and dies contribute to one host total; no socket labels or new series are added.
+The existing `-devices` glob restricts discovery and should cover the full
+intended set, not just one controller on a multisocket host.
+
+If both free-running and programmable IMC families expose usable pairs, the
+collector refuses to combine potentially overlapping coverage. Select one
+complete family with `-devices` only after checking its coverage. Missing or
+invalid `cpumask` is an error, never an implicit fallback to CPU 0.
+Events are pinned to avoid silent multiplexing undercounts. Open failures,
+short reads/unschedulable events, and counter resets/wraps produce diagnostics,
+not partial host totals. A transient read failure preserves the last complete
+baseline; the next complete sample spans the full elapsed interval. A reset
+re-primes all counters and skips that interval. Restart after topology changes
+so discovery and the representative CPU list are refreshed.
 
 **Requirements:**
 
-- A memory controller exposing free-running counters under
-  `/sys/bus/event_source/devices/uncore_imc_free_running_*`
+- Memory controllers exposing a supported read/write pair, scale and `cpumask`
+  under `/sys/bus/event_source/devices/uncore_imc*`
 - `CAP_PERFMON`, because the counters are read through `perf_event_open`. Where
   it is missing the collector says so and idles rather than reporting zeros
 

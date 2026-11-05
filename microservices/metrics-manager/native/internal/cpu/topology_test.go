@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -36,6 +37,10 @@ func TestParseCPUList(t *testing.T) {
 		{name: "non numeric", raw: "abc", wantErr: true},
 		{name: "reversed range", raw: "8-2", wantErr: true},
 		{name: "negative", raw: "-3", wantErr: true},
+		{name: "oversized expansion", raw: "0-65536", wantErr: true},
+		{name: "oversized repeated ranges", raw: "0-32768,0-32768", wantErr: true},
+		{name: "CPU ID overflow", raw: "2147483648", wantErr: true},
+		{name: "integer overflow", raw: "0-9223372036854775807", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -54,6 +59,20 @@ func TestParseCPUList(t *testing.T) {
 				t.Errorf("ParseCPUList(%q) = %v, want %v", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseCPUListBounds(t *testing.T) {
+	cpus, err := ParseCPUList("0-65535")
+	if err != nil || len(cpus) != 65536 || cpus[0] != 0 || cpus[65535] != 65535 {
+		t.Fatalf("maximum expansion = %d entries, %v", len(cpus), err)
+	}
+	cpus, err = ParseCPUList("2147483647")
+	if err != nil || len(cpus) != 1 || cpus[0] != 2147483647 {
+		t.Fatalf("maximum CPU ID = %v, %v", cpus, err)
+	}
+	if _, err := ParseCPUList(strings.Repeat(" ", (1<<20)+1)); err == nil {
+		t.Fatal("oversized cpulist was accepted")
 	}
 }
 
