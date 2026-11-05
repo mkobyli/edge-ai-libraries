@@ -9,6 +9,13 @@ set -e
 
 echo "[INFO] Starting Metrics Manager..."
 
+export TELEGRAF_CONFIG_PATH="${TELEGRAF_CONFIG_PATH-/etc/telegraf/telegraf.conf}"
+export HARDWARE_TELEMETRY_ENABLED="${HARDWARE_TELEMETRY_ENABLED-true}"
+export TURBOSTAT_BIN="${TURBOSTAT_BIN-/usr/local/bin/turbostat}"
+export TURBOSTAT_INTERVAL="${TURBOSTAT_INTERVAL-5}"
+TELEGRAF_ACTIVE_CONFIG_DIR=$(/opt/venv/bin/python /app/docker_collectors.py)
+export TELEGRAF_ACTIVE_CONFIG_DIR
+
 # Ensure directories exist
 mkdir -p /app/custom-metrics 2>/dev/null || true
 

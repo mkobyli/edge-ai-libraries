@@ -63,7 +63,7 @@ These variables configure the Telegraf locations for the application to use:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TELEGRAF_CONFIG_PATH` | `/etc/telegraf/telegraf.conf` | Path to Telegraf config inside the container (informational, not loaded by the app) |
+| `TELEGRAF_CONFIG_PATH` | `/etc/telegraf/telegraf.conf` | Main Telegraf config inside the container, read by the entrypoint and passed to Telegraf |
 | `TELEGRAF_PORT` | `9273` | Telegraf Prometheus endpoint port (where SSE poller fetches system metrics) |
 | `TELEGRAF_HTTP_ENDPOINT` | `http://localhost:8186/write` | Telegraf HTTP listener endpoint used to persist custom metrics in InfluxDB Line Protocol. Must be accessible from the app container |
 
@@ -83,10 +83,39 @@ These variables are used ONLY by `compose.yaml` and are NOT read by the applicat
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TELEGRAF_CONFIG` | `./telegraf.conf` | Host path to Telegraf config file (mounted into container) |
-| `TELEGRAF_CONFIG_DIR` | `./telegraf.d` | Host directory mounted at `/etc/telegraf/telegraf.d`; the native-enabled container does not load it automatically (see [additional collectors](./native-docker-collectors.md)) |
+| `TELEGRAF_CONFIG_DIR` | `./telegraf.d` | Host directory mounted at `/etc/telegraf/telegraf.d`; `.conf` files are snapshotted and loaded at startup |
 | `HOST_METRICS_PORT` | `9090` | Host port mapping for Metrics Manager API |
 | `HOST_TELEGRAF_PORT` | `9273` | Host port mapping for Telegraf Prometheus endpoint |
 | `HOST_TELEGRAF_HTTP_PORT` | `8186` | Host port mapping for Telegraf HTTP listener |
+
+## Optional Docker Collectors
+
+These settings are read by the Docker entrypoint, not Pydantic. Compose passes
+them into the container; use `-e` with plain `docker run`. Optional flags accept
+only lowercase `true`/`false` (including rejecting empty values and `auto`).
+They control bundled additions, not the baseline or user-supplied inputs.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_RAPL` | `false` | Native package/platform RAPL power |
+| `ENABLE_POWERSTAT_EXTRA` | `false` | Per-CPU frequency/temperature, without duplicating base package/C-state inputs |
+| `ENABLE_TURBOSTAT` | `false` | Turbostat diagnostics with a bounded executable/MSR preflight |
+| `ENABLE_TEMPERATURE` | `false` | High-resolution package temperature and min/max/mean |
+| `ENABLE_INTERRUPTS` | `false` | Numbered device IRQs with per-CPU series |
+| `ENABLE_NETWORK` | `false` | Network traffic and NIC driver counters |
+| `ENABLE_NETWORK_VIRTUAL` | `false` | Separate veth/lxc driver counters |
+| `ENABLE_STORAGE` | `false` | Filesystem usage and disk I/O |
+| `TURBOSTAT_INTERVAL` | `5` | Positive integer seconds fitting a Telegraf duration |
+| `TURBOSTAT_BIN` | `/usr/local/bin/turbostat` | Absolute container executable path, without spaces/shell expansion |
+| `HOST_TURBOSTAT_BIN` | _(unset)_ | Host binary source for the explicit read-only mount in the optional Compose override |
+
+Invalid flags/interval/path syntax fail startup. Unavailable or incompatible
+Turbostat binaries and unreadable MSRs produce a warning and skip the automatic
+Turbostat input, not the whole stack. Docker bind failures occur before that
+check and can still prevent container creation. See the
+[collectors guide](./native-docker-collectors.md) for the mount, conflicts with
+custom inputs and hardware/namespace scope. Recreate containers after changing
+settings; there is no hot reload. Bare-metal `auto` semantics are unchanged.
 
 ---
 
@@ -271,18 +300,17 @@ TELEGRAF_CONFIG=./my-telegraf.conf docker compose up
 
 ### Additional Config Directory
 
-The native-enabled container currently starts Telegraf with `--config` only,
-without `--config-directory`. Mounting files under `telegraf.d/` therefore does
-**not** activate them. Append the required input definitions to a copy of the
-base configuration and mount that single file using `TELEGRAF_CONFIG`.
-Keep only one agent, output and HTTP listener configuration.
+The native-enabled container loads the main configuration plus a private
+snapshot of mounted `telegraf.d/**/*.conf` files and enabled bundled additions.
+It passes that snapshot using `--config-directory`; mounted source files are
+not modified. Review old drop-ins before upgrading: earlier native-enabled
+images mounted this directory but did not load it. Keep only one agent, output
+and HTTP listener configuration, and avoid duplicate inputs.
 
 See [Additional collectors in the native-enabled Docker image](./native-docker-collectors.md)
-for a complete Compose example, optional RAPL and Turbostat setup, and metric
-verification. Collector `ENABLE_*` switches from Python-reader images are not
-implemented by this image's entrypoint; the similarly named
-`native/metrics-options.conf` options apply to installed bare-metal services,
-not the container.
+for optional RAPL/Turbostat setup, customization and metric verification.
+Use the Docker flags listed above; Python-reader flag names are not aliases.
+`native/metrics-options.conf` applies to installed bare-metal services only.
 
 ### Example: Disable GPU or NPU Metrics
 

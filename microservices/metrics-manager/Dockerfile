@@ -238,6 +238,7 @@ COPY telegraf.conf ./
 COPY compose.yaml ./
 COPY supervisord.conf ./
 COPY entrypoint.sh ./
+COPY docker_collectors.py ./
 COPY Dockerfile ./
 
 CMD ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]
@@ -325,10 +326,12 @@ ENV PYTHONUNBUFFERED=1
 
 # Create working directories
 WORKDIR /app
-RUN mkdir -p /app/custom-metrics /app/config
+RUN mkdir -p /app/custom-metrics /app/config /etc/telegraf/telegraf.d
 
 # Copy application files
 COPY app ./app
+COPY docker_collectors.py ./
+COPY native/packaging/etc/telegraf-*.conf.example /usr/share/metrics-manager/telegraf-examples/
 COPY VERSION ./
 COPY telegraf.conf /etc/telegraf/telegraf.conf
 COPY supervisord.conf /etc/supervisor/supervisord.conf

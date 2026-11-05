@@ -7,6 +7,14 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Unreleased
 
+Docker now supports native optional collector flags using explicit `true`/`false`
+values, with all additions disabled by default and the existing baseline
+unchanged. Mounted Telegraf `.conf` drop-ins are loaded from a private startup
+snapshot; review previously inactive files before upgrading. Conflicting
+automatic/custom inputs fail startup instead of duplicating measurements.
+Optional Turbostat uses a bounded in-container executable/MSR preflight and is
+skipped with a warning if unavailable. Recreate containers to apply changes.
+
 Target version: **2026.3.0**. Application metadata, logging defaults, Compose
 tags, plain Docker build defaults and current documentation examples now use
 this version. Runtime and image-tag overrides remain supported. Historical
