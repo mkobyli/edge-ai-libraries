@@ -171,6 +171,11 @@ remaining Debian findings keep publication pending. Passing functional tests
 does not satisfy this security gate, and scanner exclusions are not fixes.
 UNKNOWN findings are unscored, not proof of safety.
 
+For extended images, also record the pinned Intel vendor package versions.
+An image/package scan does not automatically inventory every native dependency
+embedded in the GPU/NPU compilers. Absence of scanner findings for those vendor
+packages is not a complete audit of their bundled C/C++ components.
+
 ## Telemetry selection regression tests
 
 The selection tests check the actual bundled Telegraf examples. To also run
@@ -230,6 +235,34 @@ windows need not have identical rates; this smoke test establishes coverage
 and error handling, not peak-bandwidth calibration or a workload benchmark.
 The collector itself needs no external perf executable.
 No host perf policy, service permissions or capabilities were changed.
+
+## OpenVINO accelerator smoke test
+
+On an approved host with supported Intel GPU and NPU devices, run this from the
+component directory after building the extended image:
+
+```bash
+docker run --rm --network none --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --device /dev/dri --device /dev/accel \
+  --memory 3g --cpus 4 --pids-limit 256 \
+  --mount "type=bind,source=$PWD/tests/openvino_runtime_smoke.py,target=/validation/smoke.py,readonly" \
+  --entrypoint /opt/venv/bin/python \
+  intel/metrics-manager:2026.3.0-extended-rc1 /validation/smoke.py
+```
+
+This runs a small synthetic graph for five seconds on each of CPU, GPU and NPU,
+checks changing inputs against expected numerical outputs, and verifies the
+actual execution device. It does not use `AUTO` or CPU fallback. Missing devices,
+compilation failures and incorrect results produce a nonzero exit status.
+This is an explicit hardware test, not part of the ordinary pytest suite and
+not a performance benchmark or validation of every model/platform.
+
+The command grants only the device nodes needed for inference, not host PID,
+the Docker socket or privileged mode. The broader telemetry matrix additionally
+tests PMT/perf/MSR access using the separately approved telemetry deployment.
+Host kernel drivers and NPU firmware must already be compatible; this test
+does not install or modify them.
 
 ## Test Categories
 
