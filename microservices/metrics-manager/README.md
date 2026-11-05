@@ -194,6 +194,18 @@ REGISTRY=intel/ make build              # → intel/metrics-manager:2026.3.0
 
 ### With Docker Compose directly
 
+The Python build and runtime stages share the digest-pinned `PYTHON_IMAGE`
+from `versions.env`, using Debian 13 (trixie). The runtime build applies
+available Debian package updates. To refresh the base, update its verified
+digest and run `make sync-versions`; to rerun package updates without cached
+layers, use `docker compose build --no-cache metrics-manager`.
+
+Build proxies use Docker's predefined proxy arguments without persisting their
+values. Empty runtime defaults are preserved; runtime proxies are supplied explicitly
+through Compose. Rescan both final variants before publishing: updating the
+base and official Telegraf does not guarantee that all Debian HIGH findings
+have upstream fixes.
+
 ```bash
 # Uses the TAG from .env (defaults to 2026.3.0)
 docker compose build metrics-manager

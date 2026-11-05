@@ -31,9 +31,9 @@ Instead of building from source, you can pull the pre-built Docker image from th
 docker pull intel/metrics-manager:2026.3.0
 ```
 
-The image is based on `python:3.12-slim` and includes:
+The image uses a digest-pinned `python:3.12-slim-trixie` base (Debian 13) and includes:
 
-- Telegraf 1.40.2 (system metrics agent)
+- Telegraf 1.40.3 (system metrics agent)
 - qmassa 2.1.0 (Intel® GPU telemetry)
 - Native Go collectors: `mm-plugin-cpu`, `mm-plugin-gpu`, `mm-plugin-npu`,
   `mm-plugin-proc`, `mm-plugin-membw`, plus the opt-in `mm-plugin-rapl`

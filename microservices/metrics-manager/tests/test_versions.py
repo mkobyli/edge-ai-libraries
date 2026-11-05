@@ -128,6 +128,7 @@ MIRRORED_KEYS = (
     "QMMD_VERSION",
     "RUST_IMAGE",
     "GO_IMAGE",
+    "PYTHON_IMAGE",
 )
 
 # versions.env is deliberately restricted to bare `KEY=value` lines so that
@@ -205,6 +206,28 @@ class TestDockerfileMirrorsVersionsEnv:
             f"Dockerfile ARG default={dockerfile_args[key]!r}. "
             f"Run `make sync-versions`."
         )
+
+    def test_python_stages_share_pinned_debian_base(self, versions, dockerfile_text):
+        assert re.fullmatch(
+            r"docker\.io/library/python:3\.12-slim-trixie@sha256:[0-9a-f]{64}",
+            versions["PYTHON_IMAGE"],
+        )
+        assert "FROM ${PYTHON_IMAGE} AS python-builder" in dockerfile_text
+        assert "FROM ${PYTHON_IMAGE} AS production" in dockerfile_text
+
+    def test_build_proxies_are_not_persisted(self, dockerfile_text):
+        assert not re.search(
+            r"^ARG\s+(?:https?|no)_proxy\b",
+            dockerfile_text,
+            re.MULTILINE | re.IGNORECASE,
+        )
+        proxy_values = re.findall(r"\b(?:https?|no)_proxy=([^\s]*)", dockerfile_text, re.IGNORECASE)
+        assert proxy_values == [""] * 6
+
+    def test_runtime_refreshes_distribution_packages(self, dockerfile_text):
+        production = dockerfile_text.split(" AS production\n", 1)[1]
+        assert "RUN set -eu;" in production
+        assert "apt-get upgrade --yes --no-install-recommends;" in production
 
 
 class TestTelegrafFetchIsVerified:

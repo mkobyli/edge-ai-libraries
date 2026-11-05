@@ -17,7 +17,7 @@ INSTALL_OPENVINO ?= false
 # versions.env, then run `make sync-versions`.
 include versions.env
 export TELEGRAF_VERSION TELEGRAF_SHA256 QMASSA_VERSION QMMD_VERSION
-export RUST_IMAGE GO_IMAGE
+export RUST_IMAGE GO_IMAGE PYTHON_IMAGE
 
 # Passed to every image build so the pins in versions.env win over the
 # Dockerfile ARG defaults.
@@ -27,7 +27,8 @@ BUILD_ARGS := \
 	--build-arg QMASSA_VERSION=$(QMASSA_VERSION) \
 	--build-arg QMMD_VERSION=$(QMMD_VERSION) \
 	--build-arg RUST_IMAGE=$(RUST_IMAGE) \
-	--build-arg GO_IMAGE=$(GO_IMAGE)
+	--build-arg GO_IMAGE=$(GO_IMAGE) \
+	--build-arg PYTHON_IMAGE=$(PYTHON_IMAGE)
 
 # Helm packaging configuration. Charts are pushed to the same OCI path as
 # the container image; the chart version carries a `-helm` suffix so the
@@ -79,6 +80,7 @@ versions:
 	@echo "QMMD_VERSION     = $(QMMD_VERSION)"
 	@echo "RUST_IMAGE       = $(RUST_IMAGE)"
 	@echo "GO_IMAGE         = $(GO_IMAGE)"
+	@echo "PYTHON_IMAGE     = $(PYTHON_IMAGE)"
 
 # Mirror versions.env into the Dockerfile ARG defaults. Run this after editing
 # versions.env; tests/test_versions.py fails if the two drift apart.
@@ -86,6 +88,7 @@ sync-versions:
 	@sed -i.bak -E \
 		-e 's|^ARG RUST_IMAGE=.*|ARG RUST_IMAGE=$(RUST_IMAGE)|' \
 		-e 's|^ARG GO_IMAGE=.*|ARG GO_IMAGE=$(GO_IMAGE)|' \
+		-e 's|^ARG PYTHON_IMAGE=.*|ARG PYTHON_IMAGE=$(PYTHON_IMAGE)|' \
 		-e 's|^ARG QMASSA_VERSION=.*|ARG QMASSA_VERSION=$(QMASSA_VERSION)|' \
 		-e 's|^ARG QMMD_VERSION=.*|ARG QMMD_VERSION=$(QMMD_VERSION)|' \
 		-e 's|^ARG TELEGRAF_VERSION=.*|ARG TELEGRAF_VERSION=$(TELEGRAF_VERSION)|' \

@@ -1242,7 +1242,7 @@ The TUI automatically displays interfaces when `net_*` metrics are available:
   derived Network rates.
 
 The updated example enables both native
-[`net` input](https://github.com/influxdata/telegraf/tree/v1.40.2/plugins/inputs/net)
+[`net` input](https://github.com/influxdata/telegraf/tree/v1.40.3/plugins/inputs/net)
 and `inputs.ethtool`. Copy it only if the destination does not already exist:
 
 ```bash
@@ -1279,7 +1279,7 @@ Keep `metric_version = 1` and `export_timestamp = true` in the existing
 `outputs.prometheus_client` configuration. Expected names include `net_bytes_recv`,
 `net_bytes_sent`, `net_packets_recv`, `net_err_in`, `net_drop_in` and `net_speed`,
 with `interface` and normally `host` labels and a final timestamp in milliseconds.
-The pinned Telegraf 1.40.2 exporter uses these names without an added `_total`.
+The pinned Telegraf 1.40.3 exporter uses these names without an added `_total`.
 No root service, capabilities or sandbox relaxation are required by this input.
 If samples are absent, inspect `journalctl -u metrics-manager-telegraf.service`
 and interface selection before changing service permissions.
@@ -1440,8 +1440,8 @@ Details metrics. No empty Network groups appear before an interface is observed.
 ### Optional Storage monitoring
 
 Storage is **opt-in**, like Network. This implementation uses the existing
-Telegraf 1.40.2 [`disk`](https://github.com/influxdata/telegraf/tree/v1.40.2/plugins/inputs/disk)
-and [`diskio`](https://github.com/influxdata/telegraf/tree/v1.40.2/plugins/inputs/diskio)
+Telegraf 1.40.3 [`disk`](https://github.com/influxdata/telegraf/tree/v1.40.3/plugins/inputs/disk)
+and [`diskio`](https://github.com/influxdata/telegraf/tree/v1.40.3/plugins/inputs/diskio)
 inputs, not a new native collector or a scan of the TUI machine.
 No service capabilities, device permissions or container mounts are changed.
 
@@ -1479,7 +1479,7 @@ device_tags = ["ID_MODEL"]
 tagexclude = ["serial", "wwid"]
 ```
 
-`skip_serial_number` alone does **not** suppress WWID in Telegraf 1.40.2;
+`skip_serial_number` alone does **not** suppress WWID in Telegraf 1.40.3;
 the tag filter is required. To explicitly export durable identifiers, set
 `skip_serial_number = false`, remove `serial` and `wwid` from `tagexclude`,
 and optionally add `ID_SERIAL_SHORT` to `device_tags`. Retain any unrelated
@@ -1577,7 +1577,7 @@ device is not automatically saturated or unhealthy. The chart deliberately
 does not clamp busy time to 100% or diagnose an SSD fault from it.
 SMART health, temperature, endurance, NVMe media errors and Linux RAID/ZFS
 health are not collected by these two inputs. Telegraf's
-[`smart`](https://github.com/influxdata/telegraf/tree/v1.40.2/plugins/inputs/smart)
+[`smart`](https://github.com/influxdata/telegraf/tree/v1.40.3/plugins/inputs/smart)
 (including NVMe), `mdstat` and `zfs` are possible later stages; SMART requires
 additional tools and a separately reviewed privileged collection path.
 

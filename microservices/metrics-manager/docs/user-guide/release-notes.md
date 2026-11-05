@@ -58,10 +58,10 @@ release entries, third-party version pins and Helm metadata are unchanged.
 ### Changed
 
 - **Plugin-first delivery preserved:** Updated the shared, SHA-256-verified
-  official Telegraf archive to 1.40.2 and the digest-pinned Go toolchain to
+  official Telegraf archive to 1.40.3 and the digest-pinned Go toolchain to
   1.27.3. Docker and the native package still use the same Go collectors and
   Telegraf binary, with version mirrors checked by tests.
-  The official Telegraf binary embeds Go 1.27.1; the Go 1.27.3 pin applies to
+  The official Telegraf binary embeds Go 1.27.3; the Go 1.27.3 pin applies to
   the native plugins/TUI, not to a rebuild of that third-party binary.
 - **Python dependencies:** Aligned runtime and development minimums with
   upstream, including FastAPI 0.143.1 and Uvicorn 0.54.0. OpenVINO remains an

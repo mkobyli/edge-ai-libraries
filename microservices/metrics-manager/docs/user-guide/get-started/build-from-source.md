@@ -40,7 +40,7 @@ This runs a multi-stage build:
 2. **Stage 2**: Compiles Telegraf from Go source with patched dependencies
 3. **Stage 3**: Installs Python dependencies (production only, no test packages)
 4. **Stage 4**: Creates a test image with test dependencies (optional)
-5. **Stage 5**: Creates the production image based on `python:3.12-slim` with Telegraf, qmassa, and supervisord
+5. **Stage 5**: Creates the production image based on digest-pinned `python:3.12-slim-trixie` (Debian 13) with Telegraf, qmassa, and supervisord
 
 **First build duration**: 3–10 minutes (depends on download speeds and CPU)
 

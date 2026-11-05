@@ -35,6 +35,7 @@
 
 # Toolchain base images (mirrors versions.env).
 ARG RUST_IMAGE=docker.io/library/rust:1.88
+ARG PYTHON_IMAGE=docker.io/library/python:3.12-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54
 ARG GO_IMAGE=docker.io/library/golang:1.27@sha256:0c050feb47802ae436b9030833694a0b80160d08e3b3049ad30bf7c9e724e09d
 
 # -----------------------------------------------------------------------------
@@ -46,20 +47,8 @@ FROM ${RUST_IMAGE} AS qmassa-builder
 ARG QMASSA_VERSION=2.1.0
 ARG QMMD_VERSION=0.2.0
 
-# Proxy settings (passed from docker-compose build args)
-ARG http_proxy
-ARG HTTP_PROXY
-ARG https_proxy
-ARG HTTPS_PROXY
-ARG no_proxy
-ARG NO_PROXY
-
-ENV http_proxy=${http_proxy} \
-    HTTP_PROXY=${HTTP_PROXY} \
-    https_proxy=${https_proxy} \
-    HTTPS_PROXY=${HTTPS_PROXY} \
-    no_proxy=${no_proxy} \
-    NO_PROXY=${NO_PROXY}
+# Use Docker's predefined proxy build arguments without redeclaring or
+# persisting them, so build-environment values stay out of image history.
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -94,23 +83,9 @@ RUN cargo install --locked --git https://github.com/ulissesf/qmassa --tag qmassa
 FROM debian:12-slim AS telegraf-builder
 
 # Mirrors versions.env.
-ARG TELEGRAF_VERSION=1.40.2
-ARG TELEGRAF_SHA256=fcdc579a09227fa3e2e3e208d3cf75cfd03d42ae141a4b23b18659a94428bfa3
+ARG TELEGRAF_VERSION=1.40.3
+ARG TELEGRAF_SHA256=cbb95c43303db6e75e129a4eb8888ab1468009e61f6615e64a1cb82f50b0f4ce
 ARG TELEGRAF_BASE_URL=https://dl.influxdata.com/telegraf/releases
-
-ARG http_proxy
-ARG HTTP_PROXY
-ARG https_proxy
-ARG HTTPS_PROXY
-ARG no_proxy
-ARG NO_PROXY
-
-ENV http_proxy=${http_proxy} \
-    HTTP_PROXY=${HTTP_PROXY} \
-    https_proxy=${https_proxy} \
-    HTTPS_PROXY=${HTTPS_PROXY} \
-    no_proxy=${no_proxy} \
-    NO_PROXY=${NO_PROXY}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -176,21 +151,7 @@ RUN set -eux; \
 # -----------------------------------------------------------------------------
 # Stage 4: Build Python dependencies
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim AS python-builder
-# Proxy settings (passed from docker-compose build args)
-ARG http_proxy
-ARG HTTP_PROXY
-ARG https_proxy
-ARG HTTPS_PROXY
-ARG no_proxy
-ARG NO_PROXY
-
-ENV http_proxy=${http_proxy} \
-    HTTP_PROXY=${HTTP_PROXY} \
-    https_proxy=${https_proxy} \
-    HTTPS_PROXY=${HTTPS_PROXY} \
-    no_proxy=${no_proxy} \
-    NO_PROXY=${NO_PROXY}
+FROM ${PYTHON_IMAGE} AS python-builder
 
 # Install uv for fast package installation
 RUN pip install --no-cache-dir uv==0.7.12
@@ -246,27 +207,12 @@ CMD ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]
 # -----------------------------------------------------------------------------
 # Stage 6: Final image
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim AS production
+FROM ${PYTHON_IMAGE} AS production
 
 ARG INSTALL_OPENVINO=false
 
 ARG METRICS_MANAGER_UID=10001
 ARG METRICS_MANAGER_GID=10001
-
-# Proxy settings (passed from docker-compose build args)
-ARG http_proxy
-ARG HTTP_PROXY
-ARG https_proxy
-ARG HTTPS_PROXY
-ARG no_proxy
-ARG NO_PROXY
-
-ENV http_proxy=${http_proxy} \
-    HTTP_PROXY=${HTTP_PROXY} \
-    https_proxy=${https_proxy} \
-    HTTPS_PROXY=${HTTPS_PROXY} \
-    no_proxy=${no_proxy} \
-    NO_PROXY=${NO_PROXY}
 
 # Copy qmassa and qmmd binaries from Rust build stage
 COPY --from=qmassa-builder /usr/local/cargo/bin/qmassa /usr/local/bin/qmassa
@@ -289,7 +235,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 # - hwinfo: extended hardware information probing
 # Install supervisor via pip to avoid pulling Debian's python3.13 (CVE-2026-7210).
 # perl-base is not needed at runtime; purging it removes several known CVEs.
-RUN apt-get update && \
+RUN set -eu; \
+    apt-get update; \
+    apt-get upgrade --yes --no-install-recommends; \
     packages="dmidecode pciutils util-linux hwinfo"; \
     if [ "$INSTALL_OPENVINO" = "true" ]; then \
         packages="$packages vainfo intel-media-va-driver"; \
@@ -309,7 +257,7 @@ RUN mkdir -p /etc/telegraf /etc/telegraf/telegraf.d /var/log/telegraf \
         /etc/supervisor/conf.d && \
     touch /etc/supervisor/conf.d/placeholder.conf
 
-# Clear proxy from final image (not needed at runtime, set via environment)
+# Preserve empty runtime defaults without retaining build-time proxy values.
 ENV http_proxy= \
     HTTP_PROXY= \
     https_proxy= \
