@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Get Started
 
 This guide provides step-by-step instructions to install and run Metrics Manager on your machine using Docker Compose.
@@ -24,7 +29,7 @@ docker pull intel/metrics-manager:2026.1.0
 
 The image is based on `python:3.12-slim` and includes:
 
-- Telegraf 1.39.3 (system metrics agent)
+- Telegraf 1.40.2 (system metrics agent)
 - qmassa 2.1.0 (Intel® GPU telemetry)
 - Native Go collectors: `mm-plugin-cpu`, `mm-plugin-gpu`, `mm-plugin-npu`,
   `mm-plugin-proc`, `mm-plugin-membw`, plus the opt-in `mm-plugin-rapl`

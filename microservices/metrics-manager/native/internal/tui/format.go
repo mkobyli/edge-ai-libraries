@@ -129,16 +129,13 @@ func formatBandwidthMiBps(r Reading) string {
 	return fmt.Sprintf("%.0f MiB/s", r.Value)
 }
 
-// formatMegabytes renders a reading already expressed in megabytes.
-//
-// It stays in the unit the plugin reported rather than converting to binary
-// multiples, so the number on screen matches the one in the metric.
-func formatMegabytes(r Reading) string {
+// formatMebibytes renders a reading already expressed in MiB.
+func formatMebibytes(r Reading) string {
 	if s, ok := placeholder(r); ok {
 		return s
 	}
 
-	return fmt.Sprintf("%.0f MB", r.Value)
+	return fmt.Sprintf("%.0f MiB", r.Value)
 }
 
 // formatCount renders a whole-number reading such as a core count.

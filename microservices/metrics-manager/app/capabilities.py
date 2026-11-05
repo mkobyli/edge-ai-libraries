@@ -29,21 +29,74 @@ from typing import Any, Literal
 # ============================================================================
 # Unified Intel GPU Device Registry (Single Source of Truth)
 # ============================================================================
-# Map: pci_id (lowercase "vendor:device" hex) -> device_info dict
-# device_info includes: name, architecture, pci_id, sw_capabilities_template
-# sw_capabilities_template guides OpenVINO/inference support classification
+# PCI IDs and minimum kernels follow Linux DRM pciids.h / xe_pci.c;
+# architectures follow intel/compute-runtime devices_base.inl.
+# Minimum kernel means the ID is present, not that runtime support is enabled.
+# Marketing names follow pci.ids where available.
 _INTEL_GPU_DEVICE_REGISTRY: dict[str, dict[str, Any]] = {
-    # ========== Xe2 Architecture (Latest, Full OpenVINO GPU Support) ==========
-    "8086:e212": {"name": "Intel Arc B50", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.14"},
-    "8086:e211": {"name": "Intel Arc B60", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.14"},
+    # ========== Xe2 Architecture (Battlemage discrete) ==========
+    "8086:e202": {"name": "Intel Graphics (Battlemage)", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.11"},
+    "8086:e209": {"name": "Intel Arc B580", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.17"},
     "8086:e20b": {"name": "Intel Arc B580", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.11"},
     "8086:e20c": {"name": "Intel Arc B570", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.11"},
-    "8086:6420": {"name": "Intel Graphics (Lunar Lake)", "arch": "Xe2", "category": "igpu", "min_kernel": "6.10"},
-    "8086:6422": {"name": "Intel Graphics (Lunar Lake)", "arch": "Xe2", "category": "igpu", "min_kernel": "6.10"},
+    "8086:e20d": {"name": "Intel Graphics (Battlemage)", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.11"},
+    "8086:e210": {"name": "Intel Graphics (Battlemage)", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.15"},
+    "8086:e211": {"name": "Intel Arc Pro B60", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.16"},
+    "8086:e212": {"name": "Intel Arc Pro B50", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.11"},
+    "8086:e215": {"name": "Intel Graphics (Battlemage)", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.15"},
+    "8086:e216": {"name": "Intel Graphics (Battlemage)", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.15"},
+    "8086:e220": {"name": "Intel Graphics (Battlemage)", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.17"},
+    "8086:e221": {"name": "Intel Graphics (Battlemage)", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.17"},
+    "8086:e222": {"name": "Intel Arc Pro B65", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.17"},
+    "8086:e223": {"name": "Intel Arc Pro B70", "arch": "Xe2", "category": "dgpu", "min_kernel": "6.17"},
+    # Xe3p: Crescent Island and Nova Lake-P remain force-probe gated upstream.
+    "8086:674c": {"name": "Intel Graphics (Crescent Island)", "arch": "Xe3p", "category": "dgpu", "min_kernel": "6.19"},
+    "8086:674d": {"name": "Intel Graphics (Crescent Island)", "arch": "Xe3p", "category": "dgpu", "min_kernel": "6.19"},
+    "8086:674e": {"name": "Intel Graphics (Crescent Island)", "arch": "Xe3p", "category": "dgpu", "min_kernel": "6.19"},
+    "8086:674f": {"name": "Intel Graphics (Crescent Island)", "arch": "Xe3p", "category": "dgpu", "min_kernel": "6.19"},
+    "8086:6750": {"name": "Intel Graphics (Crescent Island)", "arch": "Xe3p", "category": "dgpu", "min_kernel": "7.2"},
+    "8086:d750": {"name": "Intel Graphics (Nova Lake-P)", "arch": "Xe3p", "category": "igpu", "min_kernel": "7.1"},
+    "8086:d751": {"name": "Intel Graphics (Nova Lake-P)", "arch": "Xe3p", "category": "igpu", "min_kernel": "7.1"},
+    "8086:d752": {"name": "Intel Graphics (Nova Lake-P)", "arch": "Xe3p", "category": "igpu", "min_kernel": "7.1"},
+    "8086:d753": {"name": "Intel Graphics (Nova Lake-P)", "arch": "Xe3p", "category": "igpu", "min_kernel": "7.1"},
+    "8086:d754": {"name": "Intel Graphics (Nova Lake-P)", "arch": "Xe3p", "category": "igpu", "min_kernel": "7.1"},
+    "8086:d755": {"name": "Intel Graphics (Nova Lake-P)", "arch": "Xe3p", "category": "igpu", "min_kernel": "7.1"},
+    "8086:d756": {"name": "Intel Graphics (Nova Lake-P)", "arch": "Xe3p", "category": "igpu", "min_kernel": "7.1"},
+    "8086:d757": {"name": "Intel Graphics (Nova Lake-P)", "arch": "Xe3p", "category": "igpu", "min_kernel": "7.1"},
+    "8086:d75f": {"name": "Intel Graphics (Nova Lake-P)", "arch": "Xe3p", "category": "igpu", "min_kernel": "7.1"},
+    # Nova Lake-S: force-probe removal is not yet released at this snapshot.
+    "8086:d740": {"name": "Intel Graphics (Nova Lake-S)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.19"},
+    "8086:d741": {"name": "Intel Graphics (Nova Lake-U)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.19"},
+    "8086:d742": {"name": "Intel Graphics (Nova Lake-H)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.19"},
+    "8086:d743": {"name": "Intel Graphics (Nova Lake-HX)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.19"},
+    "8086:d745": {"name": "Intel Graphics (Nova Lake-HX)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.19"},
+    # Keep the upstream registry grouping for d74a/d74b (kernel NVL-S).
+    "8086:d74a": {"name": "Intel Graphics (Nova Lake-S)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.19"},
+    "8086:d74b": {"name": "Intel Graphics (Nova Lake-S)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.19"},
+    "8086:6420": {"name": "Intel Graphics (Lunar Lake)", "arch": "Xe2", "category": "igpu", "min_kernel": "6.8"},
+    "8086:64a0": {"name": "Intel Graphics (Lunar Lake)", "arch": "Xe2", "category": "igpu", "min_kernel": "6.8"},
+    "8086:64b0": {"name": "Intel Graphics (Lunar Lake)", "arch": "Xe2", "category": "igpu", "min_kernel": "6.8"},
+    # Panther Lake requires force-probe before Linux 6.17.
+    "8086:b080": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.13"},
+    "8086:b081": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.13"},
+    "8086:b082": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.13"},
+    "8086:b083": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.15"},
+    "8086:b084": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.17"},
+    "8086:b085": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.17"},
+    "8086:b086": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.17"},
+    "8086:b087": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.17"},
+    "8086:b08f": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.15"},
+    "8086:b090": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.13"},
+    "8086:b0a0": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.13"},
+    "8086:b0b0": {"name": "Intel Graphics (Panther Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.14"},
+    "8086:fd80": {"name": "Intel Graphics (Wildcat Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.17"},
+    "8086:fd81": {"name": "Intel Graphics (Wildcat Lake)", "arch": "Xe3", "category": "igpu", "min_kernel": "6.17"},
     # ========== Xe-LPG Architecture (Arrow Lake, Meteor Lake, Full OV GPU) ==========
     "8086:7d51": {"name": "Intel Graphics (Arrow Lake-H)", "arch": "Xe-LPG", "category": "igpu", "min_kernel": "6.9"},
+    "8086:7dd1": {"name": "Intel Graphics (Arrow Lake-H)", "arch": "Xe-LPG", "category": "igpu", "min_kernel": "6.9"},
     "8086:7d67": {"name": "Intel Graphics (Arrow Lake-S)", "arch": "Xe-LPG", "category": "igpu", "min_kernel": "6.7"},
     "8086:7d41": {"name": "Intel Graphics (Arrow Lake-U)", "arch": "Xe-LPG", "category": "igpu", "min_kernel": "6.9"},
+    "8086:b640": {"name": "Intel Graphics (Arrow Lake-S)", "arch": "Xe-LPG", "category": "igpu", "min_kernel": "6.13"},
     "8086:7dd5": {"name": "Intel Graphics (Meteor Lake-G)", "arch": "Xe-LPG", "category": "igpu", "min_kernel": "6.6"},
     "8086:7d55": {"name": "Intel Graphics (Meteor Lake-H)", "arch": "Xe-LPG", "category": "igpu", "min_kernel": "6.6"},
     "8086:7d60": {"name": "Intel Graphics (Meteor Lake-S)", "arch": "Xe-LPG", "category": "igpu", "min_kernel": "6.6"},
@@ -431,8 +484,8 @@ def _get_media_codecs(
         if pci_id and pci_id in _INTEL_GPU_DEVICE_REGISTRY:
             arch = _INTEL_GPU_DEVICE_REGISTRY[pci_id].get("arch")
 
-            # Xe2 (Battlemage, Lunar Lake): Full modern codec support
-            if arch == "Xe2":
+            # Xe2 and newer share the modern codec capabilities.
+            if arch in ("Xe2", "Xe3", "Xe3p"):
                 codecs.extend([
                     "h264_encode", "h264_decode",
                     "h265_encode", "h265_decode",
@@ -516,7 +569,7 @@ def _get_precision_support(
             arch = _INTEL_GPU_DEVICE_REGISTRY[pci_id].get("arch")
 
             # All modern Xe architectures support fp32, fp16, int8
-            if arch in ("Xe2", "Xe-LPG", "Xe-HPG"):
+            if arch in ("Xe2", "Xe3", "Xe3p", "Xe-LPG", "Xe-HPG"):
                 precisions.extend([
                     "fp32_compute", "fp16_compute", "int8_compute"
                 ])
@@ -535,10 +588,10 @@ def _get_precision_support(
             "fp32_compute", "fp16_compute", "int8_compute", "bfloat16_compute"
         ])
 
-        # Xe2/Xe-LPG also support int4 for extreme quantization
+        # Modern Xe architectures also support int4 quantization.
         if pci_id and pci_id in _INTEL_GPU_DEVICE_REGISTRY:
             arch = _INTEL_GPU_DEVICE_REGISTRY[pci_id].get("arch")
-            if arch in ("Xe2", "Xe-LPG"):
+            if arch in ("Xe2", "Xe3", "Xe3p", "Xe-LPG"):
                 precisions.append("int4_compute")
 
     elif category == "npu":
@@ -626,7 +679,7 @@ def _get_device_sw_capabilities(
             capabilities.append("openvino_gpu_inference")
         elif pci_id and pci_id in _INTEL_GPU_DEVICE_REGISTRY:
             arch = _INTEL_GPU_DEVICE_REGISTRY[pci_id].get("arch")
-            if arch in ("Xe2", "Xe-LPG", "Xe-HPG", "Xe"):
+            if arch in ("Xe2", "Xe3", "Xe3p", "Xe-LPG", "Xe-HPG", "Xe"):
                 capabilities.append("openvino_gpu_inference")
 
         # Other inference runtimes (CPU fallback on integrated GPU)
@@ -652,7 +705,7 @@ def _get_device_sw_capabilities(
             capabilities.append("openvino_gpu_inference")
         elif pci_id and pci_id in _INTEL_GPU_DEVICE_REGISTRY:
             arch = _INTEL_GPU_DEVICE_REGISTRY[pci_id].get("arch")
-            if arch in ("Xe2", "Xe-LPG", "Xe-HPG", "Xe"):
+            if arch in ("Xe2", "Xe3", "Xe3p", "Xe-LPG", "Xe-HPG", "Xe"):
                 capabilities.append("openvino_gpu_inference")
         elif not pci_id:
             capabilities.append("openvino_gpu_inference")

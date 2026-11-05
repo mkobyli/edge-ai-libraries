@@ -199,6 +199,10 @@ contents:
     dst: /usr/share/doc/metrics-manager/README.md
     file_info: { mode: 0644 }
 
+  - src: dist/doc/images/*
+    dst: /usr/share/doc/metrics-manager/images/
+    file_info: { mode: 0644 }
+
   - src: dist/doc/third_party_program.txt
     dst: /usr/share/doc/metrics-manager/third_party_program.txt
     file_info: { mode: 0644 }

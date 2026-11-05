@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # API Reference
 
 **Version: 2026.1.0**
@@ -241,7 +246,24 @@ curl -X POST http://localhost:8186/write \
 
 ### D. OpenTelemetry (OTLP) - `POST /api/v1/metrics/otlp`
 
-OpenTelemetry metrics format (protocol buffer or JSON).
+This endpoint accepts OTLP JSON metrics.
+
+| Point type | Stored fields | Aggregation tag |
+| --- | --- | --- |
+| Gauge | Numeric `value` from `asDouble` or `asInt` | None |
+| Sum | Numeric `value` from `asDouble` or `asInt` | `temporality=delta` or `cumulative`, when specified |
+| Histogram | `count`; finite `sum`, `min`, `max` when present; `avg=sum/count` when sum exists and count is positive | `temporality=delta` or `cumulative`, when specified |
+
+Histogram bucket counts and boundaries are not retained; this is summary
+storage, not a full Prometheus bucket histogram. The previously accepted scalar
+`asDouble`/`asInt` histogram representation remains supported. JSON integer strings
+are converted without losing integer precision. String, integer, double and boolean
+resource/point attributes become text tags; point attributes override resource tags.
+
+Malformed numeric points are skipped with a warning, without dropping valid
+siblings. Non-finite or overflowing histogram statistics are omitted with a
+warning while retaining the count. A request with no accepted points returns
+HTTP 400. Series with different tags remain separate in storage and export.
 
 ```bash
 curl -X POST http://localhost:9090/api/v1/metrics/otlp \
@@ -529,12 +551,12 @@ containing credentials cannot leak into metrics.
 | Prometheus Name   | Field         | Description                                                                     |
 | ----------------- | ------------- | ------------------------------------------------------------------------------- |
 | `npu_power`       | `power`       | NPU power draw in watts (derived from `VPU_ENERGY` delta)                       |
-| `npu_frequency`   | `frequency`   | NPU display frequency in Hz                                                     |
+| `npu_frequency`   | `frequency`   | NPU DPU clock in Hz, decoded from the PLL ratio                                  |
 | `npu_temperature` | `temperature` | NPU SoC temperature in °C (integer)                                             |
-| `npu_bandwidth`   | `bandwidth`   | NoC memory bandwidth delta in MB/s                                              |
+| `npu_bandwidth`   | `bandwidth`   | NoC counter delta divided by actual elapsed seconds, in MB/s                      |
 | `npu_tile_config` | `tile_config` | Active tile configuration                                                       |
-| `npu_utilization` | `utilization` | % NPU utilization over the last interval (0–100)                                |
-| `npu_memory_mb`   | `memory_mb`   | NPU memory usage in MB, from the driver's `npu_memory_utilization` attribute; `-1` where the driver does not expose it |
+| `npu_utilization` | `utilization` | % NPU utilization over the last interval (0–100); omitted without two usable busy-counter samples |
+| `npu_memory_mb`   | `memory_mb`   | NPU memory usage in MiB, from `npu_memory_utilization`; omitted when unavailable |
 | `npu_frequency_max_mhz` | `frequency_max_mhz` | Frequency ceiling the driver reports, omitted where it is not published |
 
 **Requirements:**
@@ -549,6 +571,21 @@ need no privilege. Both were measured present on Meteor Lake and Panther Lake
 alike; an earlier version of this plugin assumed memory usage arrived only
 from Panther Lake onwards and reported `-1` on Meteor Lake while the attribute
 sat there with a perfectly good value.
+
+**Migration from the legacy NPU scale:** `npu_frequency` keeps its name but now
+reports actual Hz (for example, `1600000000` for 1600 MHz). Previous values were
+1e6 too small on MTL/LNL/PTL; ARL also used the wrong PLL formula and was 25% low
+relative to the MHz value. Queries that previously treated the value as MHz must
+now divide by `1e6`. The native TUI already expects Hz and renders frequency
+charts in MHz. The MTL/ARL formula is `ratio * 50e6 * 2 / 3`; LNL/PTL use
+`ratio * 50e6 / 2`.
+
+The bandwidth calculation corrects one 32-bit counter wrap between samples.
+A reset or multiple wraps cannot be distinguished from a single wrap.
+Unavailable utilization/memory fields are omitted rather than represented by
+zero or `-1`. After a busy-counter read failure, utilization resumes only after
+a fresh baseline and a second successful reading; a measured zero remains zero.
+Memory availability is determined by sysfs presence, not the CPU generation.
 
 **Per-process NPU usage is not available.** The NPU registers an accelerator
 device at `/dev/accel/accel0`, but on kernel 6.17 `intel_vpu` publishes no

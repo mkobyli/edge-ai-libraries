@@ -26,7 +26,8 @@ BUILD_ARGS := \
 	--build-arg TELEGRAF_SHA256=$(TELEGRAF_SHA256) \
 	--build-arg QMASSA_VERSION=$(QMASSA_VERSION) \
 	--build-arg QMMD_VERSION=$(QMMD_VERSION) \
-	--build-arg RUST_IMAGE=$(RUST_IMAGE)
+	--build-arg RUST_IMAGE=$(RUST_IMAGE) \
+	--build-arg GO_IMAGE=$(GO_IMAGE)
 
 # Helm packaging configuration. Charts are pushed to the same OCI path as
 # the container image; the chart version carries a `-helm` suffix so the
@@ -84,6 +85,7 @@ versions:
 sync-versions:
 	@sed -i.bak -E \
 		-e 's|^ARG RUST_IMAGE=.*|ARG RUST_IMAGE=$(RUST_IMAGE)|' \
+		-e 's|^ARG GO_IMAGE=.*|ARG GO_IMAGE=$(GO_IMAGE)|' \
 		-e 's|^ARG QMASSA_VERSION=.*|ARG QMASSA_VERSION=$(QMASSA_VERSION)|' \
 		-e 's|^ARG QMMD_VERSION=.*|ARG QMMD_VERSION=$(QMMD_VERSION)|' \
 		-e 's|^ARG TELEGRAF_VERSION=.*|ARG TELEGRAF_VERSION=$(TELEGRAF_VERSION)|' \

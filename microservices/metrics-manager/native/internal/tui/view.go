@@ -852,7 +852,7 @@ func (m Model) npuSection() string {
 	b.WriteString(field("power", formatWatts(npu.PowerW)))
 	b.WriteString(field("temperature", m.thresholdTemperature("npu.temperatureC", npu.TempC)))
 	b.WriteString(field("bandwidth", formatBandwidth(npu.BandwidthMBps)))
-	b.WriteString(field("memory", formatMegabytes(npu.MemoryMB)))
+	b.WriteString(field("memory", formatMebibytes(npu.MemoryMB)))
 	b.WriteString(field("tile config", formatCount(npu.TileConfig)))
 	if npu.PowerState.OK {
 		b.WriteString(field("power state", npuPowerState(npu.PowerState)))

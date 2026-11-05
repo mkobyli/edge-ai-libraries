@@ -109,6 +109,7 @@ say "collecting documentation and licences"
 # /usr/share/doc cannot drift apart.
 cp "$COMPONENT_DIR/docs/user-guide/get-started/bare-metal-package.md" \
     "$STAGE_DIR/doc/README.md"
+cp -R "$COMPONENT_DIR/docs/user-guide/get-started/images" "$STAGE_DIR/doc/images"
 cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/doc/LICENSE"
 
 # The third-party listing is generated rather than maintained by hand so that

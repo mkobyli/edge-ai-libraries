@@ -176,24 +176,13 @@ func (t *Telemetry) read(offset, msb, lsb uint) uint64 {
 	return (data & msbMask & ^lsbMask) >> lsb
 }
 
-// FreqMHz returns the NPU frequency in MHz.
-//
-// Meteor Lake encodes the work point on a different scale from every later
-// generation.
-func (t *Telemetry) FreqMHz() float64 {
+// FrequencyHz decodes the DPU PLL ratio using the intel_vpu buttress formulas.
+func (t *Telemetry) FrequencyHz() float64 {
 	raw := float64(t.read(uint(t.regs.workpoint), 7, 0))
-	if t.gen == GenMTL {
-		return 2 * raw / 3 / 10
+	if t.gen == GenMTL || t.gen == GenARL {
+		return raw * 50_000_000 * 2 / 3
 	}
-	return 0.05 * raw
-}
-
-// DisplayFreqHz returns the frequency as reported by the monitoring tool.
-//
-// The halving is part of the tool's presentation, not a unit conversion; it is
-// kept so the metric matches what npu-monitor-tool displays.
-func (t *Telemetry) DisplayFreqHz() float64 {
-	return t.FreqMHz() * 1000 / 2
+	return raw * 50_000_000 / 2
 }
 
 // TileConfig returns the active NPU tile configuration.
@@ -217,8 +206,8 @@ func (t *Telemetry) EnergyJoules() float64 {
 	return float64(whole) + fraction
 }
 
-// BandwidthMBs returns the accumulated network-on-chip bandwidth counter.
-func (t *Telemetry) BandwidthMBs() float64 {
+// BandwidthMB returns the accumulated 32-bit network-on-chip counter in MB.
+func (t *Telemetry) BandwidthMB() float64 {
 	return float64(t.read(uint(t.regs.memoryBW), 31, 0)) / 1e3
 }
 
