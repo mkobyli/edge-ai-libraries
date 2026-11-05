@@ -62,9 +62,10 @@ class TestReleaseVersion:
 
     def test_compose_defaults_preserve_tag_override(self, release_version):
         compose = yaml.safe_load((REPO_ROOT / "compose.yaml").read_text(encoding="utf-8"))
-        for name in ("metrics-manager", "metrics-manager-test"):
+        for name in ("metrics-manager", "metrics-manager-host-nic", "metrics-manager-test"):
             service = compose["services"][name]
-            assert service["image"] == "${REGISTRY:-}" + name + ":${TAG:-" + release_version + "}"
+            image = "metrics-manager" if name == "metrics-manager-host-nic" else name
+            assert service["image"] == "${REGISTRY:-}" + image + ":${TAG:-" + release_version + "}"
             assert service["build"]["args"]["VERSION"] == "${TAG:-" + release_version + "}"
 
     def test_docker_build_defaults(self, release_version, dockerfile_text):

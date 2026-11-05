@@ -45,6 +45,18 @@ def log(level: str, message: str) -> None:
 
 
 def validate_environment(environment: Mapping[str, str]) -> dict[str, bool]:
+    ports = []
+    for key, default in (
+        ("METRICS_PORT", "9090"),
+        ("TELEGRAF_PORT", "9273"),
+        ("TELEGRAF_HTTP_PORT", "8186"),
+    ):
+        value = environment.get(key, default)
+        if not re.fullmatch(r"[1-9][0-9]{0,4}", value) or int(value) > 65535:
+            raise ConfigurationError(f"{key} must be an integer between 1 and 65535")
+        ports.append(int(value))
+    if len(set(ports)) != len(ports):
+        raise ConfigurationError("API, Prometheus and HTTP listener ports must be distinct")
     enabled = {}
     for name in (*OPTIONS, "HARDWARE_TELEMETRY_ENABLED"):
         key = name if name == "HARDWARE_TELEMETRY_ENABLED" else f"ENABLE_{name}"

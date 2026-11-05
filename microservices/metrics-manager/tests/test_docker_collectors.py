@@ -245,8 +245,8 @@ def test_compose_and_supervisor_wire_options():
     compose = yaml.safe_load((ROOT / "compose.yaml").read_text())
     environment = compose["services"]["metrics-manager"]["environment"]
     for option in collectors.OPTIONS:
-        assert f"ENABLE_{option}=${{ENABLE_{option}-false}}" in environment
-    assert "TURBOSTAT_INTERVAL=${TURBOSTAT_INTERVAL-5}" in environment
+        assert environment[f"ENABLE_{option}"] == f"${{ENABLE_{option}-false}}"
+    assert environment["TURBOSTAT_INTERVAL"] == "${TURBOSTAT_INTERVAL-5}"
     # Do not require an optional host tool to exist for the default deployment.
     assert "HOST_TURBOSTAT_BIN" not in str(compose["services"]["metrics-manager"]["volumes"])
     supervisor = configparser.ConfigParser(interpolation=None)

@@ -108,6 +108,12 @@ curl -s http://localhost:9273/metrics | head
 
 ### Using Docker Compose
 
+The default service uses bridge networking. For host NIC counters, use the
+optional `metrics-manager-host-nic` service under `host-nic-telemetry`.
+Stop the bridge service first and name the target service explicitly:
+activating the profile alone selects both. See
+[deployment variants, port settings and exposure](./docs/user-guide/get-started/native-docker-collectors.md#compose-deployment-variants).
+
 ```bash
 docker compose up --build
 

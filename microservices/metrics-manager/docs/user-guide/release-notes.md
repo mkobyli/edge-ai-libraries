@@ -7,6 +7,14 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Unreleased
 
+Added an opt-in `host-nic-telemetry` Compose profile with service
+`metrics-manager-host-nic`, sharing the default native image and collectors.
+Only its network addition defaults on; explicit `ENABLE_NETWORK=false` wins.
+The bridge deployment remains the default. Host-NIC listener ports, API relay
+and scrape URLs, and healthchecks follow `HOST_*_PORT` settings consistently.
+Switch services explicitly: profile activation does not stop the default
+service, and host networking exposes listeners directly on host interfaces.
+
 Docker now supports native optional collector flags using explicit `true`/`false`
 values, with all additions disabled by default and the existing baseline
 unchanged. Mounted Telegraf `.conf` drop-ins are loaded from a private startup

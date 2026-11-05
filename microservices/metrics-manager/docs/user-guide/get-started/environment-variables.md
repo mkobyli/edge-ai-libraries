@@ -65,6 +65,7 @@ These variables configure the Telegraf locations for the application to use:
 |----------|---------|-------------|
 | `TELEGRAF_CONFIG_PATH` | `/etc/telegraf/telegraf.conf` | Main Telegraf config inside the container, read by the entrypoint and passed to Telegraf |
 | `TELEGRAF_PORT` | `9273` | Telegraf Prometheus endpoint port (where SSE poller fetches system metrics) |
+| `TELEGRAF_HTTP_PORT` | `8186` | Docker-only Telegraf HTTP listener port; used by the shipped configuration |
 | `TELEGRAF_HTTP_ENDPOINT` | `http://localhost:8186/write` | Telegraf HTTP listener endpoint used to persist custom metrics in InfluxDB Line Protocol. Must be accessible from the app container |
 
 ## SSE Poller Settings
@@ -84,9 +85,24 @@ These variables are used ONLY by `compose.yaml` and are NOT read by the applicat
 |----------|---------|-------------|
 | `TELEGRAF_CONFIG` | `./telegraf.conf` | Host path to Telegraf config file (mounted into container) |
 | `TELEGRAF_CONFIG_DIR` | `./telegraf.d` | Host directory mounted at `/etc/telegraf/telegraf.d`; `.conf` files are snapshotted and loaded at startup |
-| `HOST_METRICS_PORT` | `9090` | Host port mapping for Metrics Manager API |
-| `HOST_TELEGRAF_PORT` | `9273` | Host port mapping for Telegraf Prometheus endpoint |
-| `HOST_TELEGRAF_HTTP_PORT` | `8186` | Host port mapping for Telegraf HTTP listener |
+| `HOST_METRICS_PORT` | `9090` | API host mapping in bridge mode; actual API listener in host-NIC mode |
+| `HOST_TELEGRAF_PORT` | `9273` | Prometheus host mapping in bridge mode; actual listener in host-NIC mode |
+| `HOST_TELEGRAF_HTTP_PORT` | `8186` | HTTP ingest host mapping in bridge mode; actual listener in host-NIC mode |
+
+The default `metrics-manager` service uses bridge networking.
+`metrics-manager-host-nic` is opt-in via `host-nic-telemetry` and shares the host
+network. Stop the other variant and name the desired service explicitly:
+activating the profile alone selects both. See
+[switching variants and exposure](./native-docker-collectors.md#compose-deployment-variants).
+The existing `test` profile is only a development test runner.
+
+Compose supplies matching listener ports and local scrape/ingestion URLs for
+each variant; internal API/Prometheus/HTTP ports must be distinct integers
+from 1 through 65535. The entrypoint derives local URLs from port values for
+plain Docker unless explicitly overridden. If running Telegraf directly with
+the Docker configuration, export `TELEGRAF_PORT` and `TELEGRAF_HTTP_PORT` first.
+Custom configurations must match these listeners themselves; they are never
+rewritten.
 
 ## Optional Docker Collectors
 
@@ -102,7 +118,7 @@ They control bundled additions, not the baseline or user-supplied inputs.
 | `ENABLE_TURBOSTAT` | `false` | Turbostat diagnostics with a bounded executable/MSR preflight |
 | `ENABLE_TEMPERATURE` | `false` | High-resolution package temperature and min/max/mean |
 | `ENABLE_INTERRUPTS` | `false` | Numbered device IRQs with per-CPU series |
-| `ENABLE_NETWORK` | `false` | Network traffic and NIC driver counters |
+| `ENABLE_NETWORK` | `false` (bridge), `true` (host-NIC) | Network traffic and NIC driver counters; explicit `false` overrides either default |
 | `ENABLE_NETWORK_VIRTUAL` | `false` | Separate veth/lxc driver counters |
 | `ENABLE_STORAGE` | `false` | Filesystem usage and disk I/O |
 | `TURBOSTAT_INTERVAL` | `5` | Positive integer seconds fitting a Telegraf duration |

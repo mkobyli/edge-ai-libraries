@@ -235,10 +235,12 @@ See [Environment Variables](./get-started/environment-variables.md) for all avai
 For optional per-CPU powerstat, high-resolution temperature, IRQ, network,
 storage, RAPL and Turbostat collection, follow
 [Additional collectors in the native-enabled Docker image](./get-started/native-docker-collectors.md).
-This image uses Telegraf configuration, not the collector `ENABLE_*` switches
-from Python-reader images or the bare-metal configuration helper. The guide
-includes a complete Compose recipe and explains why mounting `telegraf.d/`
-alone does not enable inputs.
+Use this image's native-consistent `ENABLE_*` flags or mounted `.conf` drop-ins,
+not legacy Python-reader switch names or the bare-metal configuration helper.
+The guide also covers the optional `host-nic-telemetry` deployment variant,
+explicit service switching, and host-network port exposure. Bridge mode
+remains the default; the host-NIC variant enables network collection unless
+explicitly disabled.
 
 ### With Custom Metrics Directory (Volume Mount)
 

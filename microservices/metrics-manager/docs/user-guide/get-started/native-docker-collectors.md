@@ -19,7 +19,9 @@ and base `intel_powerstat` package-power/C-state inputs. GPU throttle/frequency
 detail is already part of the native GPU collector. Optional flags do not
 disable this baseline.
 
-All the following flags default to **false**. Docker accepts only lowercase
+The following flags default to **false** in the default bridge deployment.
+The opt-in host-NIC variant defaults only `ENABLE_NETWORK` to **true**; an
+explicit `false` overrides it. Docker accepts only lowercase
 `true` or `false`: `auto`, empty strings, numeric values and other spellings
 are startup errors. Bare-metal `auto` still means "leave existing configuration
 unchanged"; it has no Docker equivalent.
@@ -100,6 +102,99 @@ docker compose up -d --no-build --force-recreate metrics-manager
 
 An ordinary `docker compose restart` does not apply changed environment values.
 
+## Compose deployment variants
+
+There are exactly two runtime variants; both use the same image, native plugins,
+configuration mounts and existing hardware access settings:
+
+| Service | Profile | Network | Automatic network addition |
+|---|---|---|---|
+| `metrics-manager` | Default (no profile) | Bridge | Off |
+| `metrics-manager-host-nic` | `host-nic-telemetry` | Host | On unless `ENABLE_NETWORK=false` |
+
+The `test` profile remains a separate development test runner, not a third
+deployment variant. There are no per-collector profiles.
+
+**Choose one runtime service explicitly.** Enabling a profile alone does not
+disable or stop the default service. Do not use an unqualified
+`docker compose --profile host-nic-telemetry up`: it selects both variants.
+Do not run the two collectors simultaneously against the same host; this can
+duplicate measurements, share custom scripts, and cause port conflicts.
+
+Start or keep the bridge variant:
+
+```bash
+docker compose up -d --build metrics-manager
+```
+
+Switch from bridge to host-NIC:
+
+```bash
+docker compose stop metrics-manager
+docker compose --profile host-nic-telemetry \
+  up -d --build --force-recreate metrics-manager-host-nic
+docker compose --profile host-nic-telemetry logs --tail=100 metrics-manager-host-nic
+```
+
+Switch back:
+
+```bash
+docker compose --profile host-nic-telemetry stop metrics-manager-host-nic
+docker compose up -d --no-build --force-recreate metrics-manager
+```
+
+`make up` and `make logs` still target the bridge service. Use the explicit
+Compose commands for host-NIC. Changing a profile or stopping the other service
+is not performed automatically.
+
+An existing `.env` with `ENABLE_NETWORK=false` intentionally keeps network
+collection off in either variant. Remove/comment that assignment to accept
+per-variant defaults, or set `ENABLE_NETWORK=true`. The updated `.env.example`
+leaves this flag commented. If you have custom `net`/`ethtool` inputs, keep the
+flag false to avoid a startup conflict with the automatic input.
+Virtual NIC driver collection still requires `ENABLE_NETWORK_VIRTUAL=true`.
+
+### Ports, URLs and exposure
+
+In bridge mode, `HOST_METRICS_PORT`, `HOST_TELEGRAF_PORT` and
+`HOST_TELEGRAF_HTTP_PORT` only map host ports to fixed container ports
+9090/9273/8186. This behavior is unchanged.
+
+In host-NIC mode, the same variables set the **actual listener ports**.
+Compose supplies matching API/Telegraf ports, ingestion and scraping URLs, and
+the healthcheck uses the runtime API port. There is no `ports` mapping and no
+Compose bridge network on this service.
+
+For example, set three distinct unused ports in `.env`:
+
+```dotenv
+HOST_METRICS_PORT=19090
+HOST_TELEGRAF_PORT=19273
+HOST_TELEGRAF_HTTP_PORT=18186
+```
+
+Recreate the selected service, then verify:
+
+```bash
+curl -fsS http://127.0.0.1:19090/health
+curl -fsS http://127.0.0.1:19273/metrics
+```
+
+Empty, malformed, out-of-range or duplicate internal listener ports fail
+startup. Ports occupied by another service still cause bind errors: stop that
+service or choose other ports, then inspect logs to confirm all listeners.
+A custom main Telegraf configuration must use `${TELEGRAF_PORT}` and
+`${TELEGRAF_HTTP_PORT}` (as the shipped file does), or explicitly match the
+chosen ports. Mounted custom files are not rewritten.
+
+**Host networking is Linux-only here and exposes the shipped listeners on all
+host interfaces**, including the unauthenticated HTTP ingestion listener.
+Docker publishing/loopback restrictions and bridge isolation do not apply.
+Apply host firewall/access controls before starting; do not expose the service
+to untrusted networks. Read-only `/sys` and `/run` mounts do not reduce this
+network exposure. Docker port mappings also retain their existing all-interface
+default in bridge mode.
+
 ## Turbostat: opt-in host binary
 
 Defaults are `ENABLE_TURBOSTAT=false`, `TURBOSTAT_INTERVAL=5` seconds and
@@ -146,6 +241,10 @@ entrypoint. `TURBOSTAT_BIN` is the container path. Changing it also requires
 changing the mount target. No Turbostat mount is required for the default stack,
 and no per-collector Compose profile is introduced.
 
+For the host-NIC variant, change the override's service key to
+`metrics-manager-host-nic` and use that explicit service name together with
+`--profile host-nic-telemetry` when starting it.
+
 The entrypoint runs the mounted executable's `--version` **inside the container**
 with a three-second timeout and checks read access to CPU 0's MSR interface.
 Missing executables, incompatible libraries, timeouts or inaccessible MSRs emit
@@ -178,9 +277,10 @@ does not prove that Telegraf or every hardware input works.
   and perf-event permissions, not an external `perf` executable.
 - **Network:** bridge-mode inputs observe the container's network namespace,
   not physical host NICs. Neither `pid: host` nor `/sys` changes that. Use the
-  bare-metal package or an explicitly configured host-network deployment for
-  host NICs. Host networking requires resolving listener conflicts and exposure;
-  Docker port remapping no longer applies.
+  bare-metal package or the `host-nic-telemetry` variant for host NICs.
+  Host networking requires resolving listener conflicts and exposure as above;
+  Docker port remapping no longer applies. Review interface selection rather
+  than adding physical/bridge/veth counters together.
 - **Storage:** disk I/O counters and visible mounted filesystems are different
   scopes. Select the intended devices/mounts instead of summing physical disks,
   partitions and device-mapper layers. The current example requests model/serial

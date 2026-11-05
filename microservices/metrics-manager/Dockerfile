@@ -356,6 +356,7 @@ RUN chmod +x /entrypoint.sh && \
 # Environment variables with defaults
 ENV METRICS_PORT=9090
 ENV TELEGRAF_PORT=9273
+ENV TELEGRAF_HTTP_PORT=8186
 ENV HARDWARE_TELEMETRY_ENABLED=true
 ENV QMASSA_FIFO_PATH=/app/qmassa.fifo
 ENV LOG_LEVEL=INFO
@@ -382,7 +383,7 @@ LABEL org.opencontainers.image.title="metrics-manager" \
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:9090/health', timeout=8)" || exit 1
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.environ['METRICS_PORT'] + '/health', timeout=8)" || exit 1
 
 # Use supervisor to manage both Telegraf and Python service
 CMD ["/entrypoint.sh"]
