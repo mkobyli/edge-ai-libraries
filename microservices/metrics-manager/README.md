@@ -192,6 +192,9 @@ make build TAG=dev      # → metrics-manager:dev
 REGISTRY=intel/ make build              # → intel/metrics-manager:2026.3.0
 ```
 
+`make clean` removes volumes, including stored custom metrics scripts. Use
+`make down` for routine shutdown; back up volume contents before cleanup.
+
 ### With Docker Compose directly
 
 The Python build and runtime stages share the digest-pinned `PYTHON_IMAGE`
@@ -247,6 +250,11 @@ REGISTRY=intel/ TAG=2026.3.0-rc1 docker compose up --no-build -d metrics-manager
 After validation and authorization to publish, push each explicit tag;
 do not publish the stable `2026.3.0` or `latest` tags for this RC:
 
+The [release validation scope](./docs/user-guide/get-started/testing.md#release-validation-scope)
+distinguishes functional, hardware and security checks. The 2026.3.0 RC
+publication gate requires resolution of CRITICAL/HIGH findings in the final
+artifacts; unresolved Debian findings keep publication pending.
+
 ```bash
 docker push intel/metrics-manager:2026.3.0-rc1
 docker push intel/metrics-manager:2026.3.0-extended-rc1
@@ -272,11 +280,9 @@ docker push intel/metrics-manager:2026.3.0-extended-rc1
    curl -s http://localhost:9090/health | jq .version
    ```
 
-5. Commit and (optionally) tag:
-
-   ```bash
-   git add -A && git commit -m "release: 2026.3.0" && git tag v2026.3.0
-   ```
+5. Stage only the reviewed changes and commit them. Create a stable release
+   tag separately, only after final-release validation and authorization.
+   Do not create the stable `v2026.3.0` tag for an RC-only publication.
 
 #### Why so many files?
 

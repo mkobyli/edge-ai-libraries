@@ -9,9 +9,11 @@ This guide covers how to run tests for Metrics Manager.
 
 ## Prerequisites
 
-- Service is running: `docker compose up -d`
-- Or local setup with uvicorn and Telegraf running
-- `curl` or similar HTTP client
+- Unit and configuration-wiring tests do not require a running Metrics Manager
+  service or Telegraf daemon.
+- Docker-based test runs require Docker and Compose; local runs require the
+  Python test environment described below.
+- Manual API checks require a running service and `curl` or a similar client.
 
 ---
 
@@ -20,7 +22,7 @@ This guide covers how to run tests for Metrics Manager.
 ### Build Test Image
 
 ```bash
-docker compose build
+docker compose --profile test build metrics-manager-test
 ```
 
 ### Run All Tests
@@ -29,7 +31,9 @@ docker compose build
 docker compose --profile test run --rm metrics-manager-test
 ```
 
-Expected output: `179 passed in ~2s`
+The test count and duration depend on the checkout and selected tests. A
+successful run exits with status zero; inspect failures and warnings rather
+than matching a historical summary count.
 
 ### Run with Coverage Report
 
@@ -48,9 +52,10 @@ require a local Python environment.
 
 ### Prerequisites
 
-- **Python 3.10+** (`python3 --version`)
-- **uv** (fast package manager): `pip install uv`
-- **Telegraf** installed and running on the system
+- **Python 3.12+** (`python3 --version`)
+- **uv**: follow the [uv installation instructions](https://docs.astral.sh/uv/getting-started/installation/)
+- For binary-backed collector selection tests, the pinned Telegraf executable;
+  it does not need to run as a service.
 
 ### Setup
 
@@ -67,25 +72,10 @@ require a local Python environment.
    uv sync --group test
    ```
 
-3. **Configure the environment:**
-
-   ```bash
-   cp .env.example .env
-   ```
-
-   Edit `.env` to point to your local Telegraf:
-
-   ```bash
-   TELEGRAF_PORT=9273
-   TELEGRAF_HTTP_ENDPOINT=http://localhost:8186/write
-   PROMETHEUS_TELEGRAF_ENDPOINT=http://localhost:9273
-   ```
-
-4. **Start Telegraf on host:**
-
-   ```bash
-   telegraf --config telegraf.conf
-   ```
+3. **Select optional binary-backed tests:** see
+   [Telemetry selection regression tests](#telemetry-selection-regression-tests).
+   The ordinary suite uses isolated fixtures and does not require starting
+   Telegraf with the container configuration on your host.
 
 ### Run Tests
 
@@ -152,6 +142,34 @@ older release's binaries or automatic metric/configuration migration.
 Real systemd startup, restart/upgrade behavior, reboot and privileged hardware
 collection must additionally be exercised on a disposable VM or explicitly
 approved test host. Container tests do not validate systemd sandbox enforcement.
+
+## Release validation scope
+
+Keep the following checks separate when recording release evidence:
+
+- Test both explicitly tagged [RC image variants](../../../README.md#building-both-release-candidate-variants)
+  with bridge and host networking, custom ports, API ingestion, Prometheus/SSE
+  output, custom configuration/scripts and orderly shutdown.
+- Toggle optional collectors, verify that startup snapshots do not retain
+  disabled inputs, and verify visible rejection of invalid flags or overlapping
+  custom inputs. Missing Turbostat or inaccessible hardware must be reported,
+  not interpreted as successful hardware collection.
+- Unprivileged containers without host devices/PID access can validate API,
+  networking and degraded behavior. They do not prove privileged GPU/NPU/PMU
+  collection or OpenVINO hardware execution. Host-network tests also need
+  explicit approval and controlled listener addresses/ports.
+- A real installed-version upgrade and systemd stop/start/restart test is
+  distinct from the synthetic package upgrade fixture. Record actual service
+  users/capabilities, socket/FIFO permissions and fresh telemetry after restart.
+  Boot after a reboot is a separate check requiring host-owner approval.
+- Scan the final images and package payload, and inventory the locked Rust
+  dependencies used to build qmassa/qmmd. A scanner that does not recognize an
+  embedded dependency ecosystem is not evidence that it is vulnerability-free.
+
+For the 2026.3.0 RC publication gate, CRITICAL/HIGH findings must be resolved;
+remaining Debian findings keep publication pending. Passing functional tests
+does not satisfy this security gate, and scanner exclusions are not fixes.
+UNKNOWN findings are unscored, not proof of safety.
 
 ## Telemetry selection regression tests
 
@@ -354,9 +372,12 @@ tests/test_metrics.py::...               PASSED
 tests/test_rate_limit.py::...            PASSED
 tests/test_sse.py::...                   PASSED
 tests/test_versions.py::...              PASSED
-tests/test_telegraf_integration.py::...  SKIPPED (requires Docker)
-========================= 179 passed, 1 skipped in 1.70s ==============
+tests/test_telegraf_integration.py::...  PASSED
 ```
+
+This is an illustrative excerpt. `test_telegraf_integration.py` checks wiring
+without launching Docker. Tests needing an external Telegraf binary may skip
+when it is not supplied; record those skips separately from completed checks.
 
 ---
 
@@ -389,10 +410,10 @@ cancellation and cleanup when the application lifespan exits with an error.
 
 | Issue                          | Solution                                                          |
 | ------------------------------ | ----------------------------------------------------------------- |
-| `Module not found: app`        | Ensure you are in `metrics-manager/` directory and ran `uv sync`  |
-| `Connection refused on :9090`  | Telegraf not running. Start it: `telegraf --config telegraf.conf` |
-| `Test fixtures failed`         | Clear cache: `pytest --cache-clear`                               |
-| `telegraf_integration skipped` | Expected if not in Docker. Other tests still pass                 |
+| `Module not found: app`        | Run from `edge-ai-libraries/microservices/metrics-manager` in the environment created by `uv sync --group test`. |
+| `Connection refused on :9090`  | The API is not listening there. Check the API process and configured host port; Telegraf exports on 9273, not 9090. |
+| `Test fixtures failed`         | Re-run the failing test with `pytest -vv` and inspect its setup/teardown error. Do not suppress resource warnings. |
+| Binary-backed tests skipped  | Supply the pinned executable through `TELEGRAF_TEST_BINARY`; configuration-wiring tests do not require Docker. |
 
 ## Supporting Resources
 

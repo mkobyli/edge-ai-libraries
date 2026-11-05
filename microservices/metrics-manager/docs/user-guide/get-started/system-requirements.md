@@ -9,14 +9,18 @@
 - RHEL 9 or newer
 - Any Linux distribution with kernel 5.4+
 
-The service uses Linux-specific paths (`/sys`, `/proc`, `/dev/dri`) mounted into the container. It cannot collect system metrics on Windows or macOS hosts, but the REST API and SSE streaming work on any platform.
+The shipped Docker build and bare-metal package target **Linux/amd64**.
+Telemetry uses Linux-specific paths (`/sys`, `/proc`, `/dev/dri`). Running
+Docker inside a VM on another operating system exposes the VM's environment,
+not the physical host's Windows or macOS telemetry.
 
 The capabilities endpoint (`GET /api/v1/capabilities`) is available wherever the service runs, but hardware-enriched values depend on Linux host visibility (`/sys`, `/proc`, and optionally `/dev/dri`).
 
 **Hardware Platforms**
 
 - Any x86-64 processor (Intel or AMD)
-- Any ARM64 processor (with Docker installed)
+- ARM64 images/packages are not supplied by the current build: the Telegraf
+  archive and Debian package target are amd64.
 - Intel Arc GPU (optional, for GPU metrics via qmassa)
 - Intel NPU (MTL/ARL/LNL/PTL generations, optional, for NPU metrics)
 
@@ -50,8 +54,11 @@ The capabilities endpoint (`GET /api/v1/capabilities`) is available wherever the
 ### Intel Arc GPU (Recommended for GPU metrics)
 
 - Requires Intel Arc GPU to be installed on the system
-- No additional drivers needed in the container (GPU metrics read from sysfs)
-- The GPU plugin (`mm-plugin-gpu`) automatically detects the GPU and publishes metrics
+- Requires a compatible host kernel driver (`i915` or `xe`) and DRM access.
+- qmassa collects device data; `mm-plugin-gpu` parses its FIFO stream into
+  telemetry. Power and temperature can additionally require perf/MSR access.
+- The optional extended image adds userspace OpenVINO/VAAPI components; it
+  does not install or replace the host kernel driver.
 
 **Collected metrics:**
 
@@ -76,12 +83,17 @@ If GPU is absent, qmassa logs `No DRM devices found` and exits gracefully. Other
 **Collected metrics:**
 
 - NPU power draw (watts)
-- NPU frequency
-- NPU temperature
-- NPU utilization (%)
-- NPU bandwidth
+- NPU frequency (Hz)
+- NPU temperature (degrees Celsius)
+- NPU utilization (%), when supported
+- NPU bandwidth (bytes/second)
 - Tile configuration
-- Memory usage (MB) — reports `-1` on MTL/ARL (sysfs node does not exist)
+- Memory usage (bytes), when the required telemetry fields are present.
+  Unsupported readings are omitted; measured zero remains zero. The native
+  collector does not publish `-1` as a substitute for unavailable memory.
+
+See the [native metric migration guide](./native-metric-migration.md) for
+field names and TUI display conversions.
 
 If NPU is absent or driver is not loaded, the NPU reader logs a warning and enters idle mode. Other metrics continue normally.
 
