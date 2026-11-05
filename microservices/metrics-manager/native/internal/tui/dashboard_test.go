@@ -20,11 +20,11 @@ const hostExposition = `cpu_usage_user{cpu="cpu-total",host="itest"} 3.5
 cpu_usage_system{cpu="cpu-total",host="itest"} 1.25
 cpu_usage_idle{cpu="cpu-total",host="itest"} 95.25
 cpu_usage_user{cpu="cpu0",host="itest"} 9
-cpu_frequency_avg_frequency{host="itest"} 1090550
+cpu_frequency_avg_frequency_hz{host="itest"} 1090550000
 cpu_core_class_cores{class="P",host="itest",source="pmu"} 12
 cpu_core_class_cores{class="E",host="itest",source="pmu"} 8
 cpu_core_class_cores{class="LPE",host="itest",source="heuristic"} 2
-cpu_core_class_frequency_avg{class="P",host="itest",source="pmu"} 1200000
+cpu_core_class_frequency_avg_hz{class="P",host="itest",source="pmu"} 1200000000
 cpu_core_class_usage_user{class="P",host="itest",source="pmu"} 4.5
 cpu_core_class_usage_system{class="P",host="itest",source="pmu"} 2
 cpu_core_class_usage_idle{class="P",host="itest",source="pmu"} 93.5
@@ -49,21 +49,21 @@ gpu_engine_usage_usage{engine="copy",gpu_id="0",driver="i915",host="itest",type=
 gpu_engine_usage_usage{engine="video",gpu_id="0",driver="i915",host="itest",type="video"} 44
 gpu_engine_usage_usage{engine="video-enhance",gpu_id="0",driver="i915",host="itest",type="video-enhance"} 55
 gpu_frequency{gpu_id="0",driver="i915",host="itest",tile="gt0",type="cur_freq"} 700
-gpu_frequency_act_freq{gpu_id="0",driver="i915",host="itest",tile="gt0",type="cur_freq"} 650
-gpu_frequency_cur_freq{gpu_id="0",driver="i915",host="itest",tile="gt0",type="cur_freq"} 700
-gpu_frequency_min_freq{gpu_id="0",driver="i915",host="itest",tile="gt0",type="cur_freq"} 800
-gpu_frequency_max_freq{gpu_id="0",driver="i915",host="itest",tile="gt0",type="cur_freq"} 2300
-gpu_frequency_act_freq{gpu_id="0",driver="i915",host="itest",tile="gt1",type="cur_freq"} 150
-gpu_frequency_cur_freq{gpu_id="0",driver="i915",host="itest",tile="gt1",type="cur_freq"} 200
-gpu_frequency_min_freq{gpu_id="0",driver="i915",host="itest",tile="gt1",type="cur_freq"} 100
-gpu_frequency_max_freq{gpu_id="0",driver="i915",host="itest",tile="gt1",type="cur_freq"} 1300
-gpu_memory_smem_total{gpu_id="0",driver="i915",host="itest"} 1.0051622912e+11
-gpu_memory_smem_used{gpu_id="0",driver="i915",host="itest"} 0
-gpu_memory_vram_total{gpu_id="0",driver="i915",host="itest"} 0
-gpu_memory_vram_used{gpu_id="0",driver="i915",host="itest"} 0
-gpu_power{gpu_id="0",driver="i915",host="itest",type="gpu_cur_power"} 0.0002996
-gpu_power{gpu_id="0",driver="i915",host="itest",type="pkg_cur_power"} 19.86
-gpu_temperature{gpu_id="0",driver="i915",host="itest",sensor="pkg"} 42
+gpu_frequency_act_freq_hz{gpu_id="0",driver="i915",host="itest",tile="gt0",type="cur_freq"} 650000000
+gpu_frequency_cur_freq_hz{gpu_id="0",driver="i915",host="itest",tile="gt0",type="cur_freq"} 700000000
+gpu_frequency_min_freq_hz{gpu_id="0",driver="i915",host="itest",tile="gt0",type="cur_freq"} 800000000
+gpu_frequency_max_freq_hz{gpu_id="0",driver="i915",host="itest",tile="gt0",type="cur_freq"} 2300000000
+gpu_frequency_act_freq_hz{gpu_id="0",driver="i915",host="itest",tile="gt1",type="cur_freq"} 150000000
+gpu_frequency_cur_freq_hz{gpu_id="0",driver="i915",host="itest",tile="gt1",type="cur_freq"} 200000000
+gpu_frequency_min_freq_hz{gpu_id="0",driver="i915",host="itest",tile="gt1",type="cur_freq"} 100000000
+gpu_frequency_max_freq_hz{gpu_id="0",driver="i915",host="itest",tile="gt1",type="cur_freq"} 1300000000
+gpu_memory_smem_total_bytes{gpu_id="0",driver="i915",host="itest"} 1.0051622912e+11
+gpu_memory_smem_used_bytes{gpu_id="0",driver="i915",host="itest"} 0
+gpu_memory_vram_total_bytes{gpu_id="0",driver="i915",host="itest"} 0
+gpu_memory_vram_used_bytes{gpu_id="0",driver="i915",host="itest"} 0
+gpu_power_power_w{gpu_id="0",driver="i915",host="itest",type="gpu_cur_power"} 0.0002996
+gpu_power_power_w{gpu_id="0",driver="i915",host="itest",type="pkg_cur_power"} 19.86
+gpu_temperature_temperature_c{gpu_id="0",driver="i915",host="itest",sensor="pkg"} 42
 gpu_throttle_status{gpu_id="0",driver="i915",host="itest",tile="gt0"} 1
 gpu_throttle_pl1{gpu_id="0",driver="i915",host="itest",tile="gt0"} 0
 gpu_throttle_thermal{gpu_id="0",driver="i915",host="itest",tile="gt0"} 1
@@ -72,11 +72,11 @@ gpu_throttle_status{gpu_id="0",driver="i915",host="itest",tile="gt1"} 0
 gpu_throttle_pl1{gpu_id="0",driver="i915",host="itest",tile="gt1"} 0
 gpu_throttle_thermal{gpu_id="0",driver="i915",host="itest",tile="gt1"} 0
 gpu_throttle_vr_tdc{gpu_id="0",driver="i915",host="itest",tile="gt1"} 0
-npu_bandwidth{host="itest"} 12.5
-npu_frequency{host="itest"} 1.4e+09
-npu_memory_mb{host="itest"} -1
-npu_power{host="itest"} 1.75
-npu_temperature{host="itest"} 36
+npu_bandwidth_bytes_per_second{host="itest"} 12500000
+npu_frequency_hz{host="itest"} 1.4e+09
+npu_memory_bytes{host="itest"} -1048576
+npu_power_w{host="itest"} 1.75
+npu_temperature_c{host="itest"} 36
 npu_tile_config{host="itest"} 2
 npu_utilization{host="itest"} 63.5
 `
@@ -366,8 +366,8 @@ func TestBuildDashboardGPUTiles(t *testing.T) {
 }
 
 func TestBuildDashboardGPUIgnoresLegacyFrequencySeries(t *testing.T) {
-	// The plugin still publishes a bare gpu_frequency that duplicates
-	// cur_freq for backward compatibility. Reading it as the actual
+	// Older plugins published a bare gpu_frequency duplicating
+	// cur_freq. Ignore any such leftover series; reading it as the actual
 	// frequency would report the requested value twice.
 	gpu := gpuFixture(t, acceleratorExposition)
 
@@ -410,8 +410,8 @@ gpu_throttle_future_reason{gpu_id="0",tile="gt0"} 1
 func TestBuildDashboardGPUThrottleUnreportedWhenAbsent(t *testing.T) {
 	// No throttle series at all is not the same as nothing throttling, and
 	// must not be reported as the reassuring case.
-	gpu := gpuFixture(t, `gpu_temperature{gpu_id="0"} 42
-gpu_frequency_act_freq{gpu_id="0",tile="gt0"} 650
+	gpu := gpuFixture(t, `gpu_temperature_temperature_c{gpu_id="0"} 42
+gpu_frequency_act_freq_hz{gpu_id="0",tile="gt0"} 650000000
 `)
 
 	if gpu.Tiles[0].ThrottleReported {
@@ -436,8 +436,8 @@ func TestBuildDashboardGPUPowerMemoryAndTemperature(t *testing.T) {
 func TestBuildDashboardMultipleGPUs(t *testing.T) {
 	// Discrete cards appear as additional gpu_id values; nothing may assume
 	// a single GPU.
-	gpus := buildFixture(t, `gpu_temperature{gpu_id="0"} 42
-gpu_temperature{gpu_id="1"} 61
+	gpus := buildFixture(t, `gpu_temperature_temperature_c{gpu_id="0"} 42
+gpu_temperature_temperature_c{gpu_id="1"} 61
 gpu_engine_usage_usage{engine="render",gpu_id="1"} 90
 `).GPUs
 
@@ -472,12 +472,12 @@ func TestBuildDashboardNPUMemorySentinel(t *testing.T) {
 	// The plugin reports -1 where the sysfs node does not exist, which is
 	// the case on Meteor Lake and Arrow Lake. Showing "-1 MB" would dress a
 	// sentinel up as a measurement.
-	if got := buildFixture(t, acceleratorExposition).NPU.MemoryMB; got.OK {
+	if got := buildFixture(t, acceleratorExposition).NPU.MemoryMiB; got.OK {
 		t.Errorf("memory = %v, want absent", got.Value)
 	}
 
-	wantReading(t, "real memory", buildFixture(t, `npu_memory_mb{host="itest"} 512
-`).NPU.MemoryMB, 512)
+	wantReading(t, "real memory", buildFixture(t, `npu_memory_bytes{host="itest"} 536870912
+`).NPU.MemoryMiB, 512)
 }
 
 func TestBuildDashboardNPUAbsentOnHostWithout(t *testing.T) {
@@ -501,7 +501,7 @@ func TestBuildDashboardGPUDriver(t *testing.T) {
 
 	// The driver is read from the tag, not inferred, so a host on xe is
 	// reported as xe without any change here.
-	if got := gpuFixture(t, `gpu_temperature{gpu_id="0",driver="xe"} 42
+	if got := gpuFixture(t, `gpu_temperature_temperature_c{gpu_id="0",driver="xe"} 42
 `).Driver; got != "xe" {
 		t.Errorf("driver = %q, want xe", got)
 	}
@@ -510,7 +510,7 @@ func TestBuildDashboardGPUDriver(t *testing.T) {
 func TestBuildDashboardGPUDriverAbsent(t *testing.T) {
 	// Telemetry from an older plugin carries no driver tag. That must read
 	// as "unknown" rather than being guessed at.
-	if got := gpuFixture(t, `gpu_temperature{gpu_id="0"} 42
+	if got := gpuFixture(t, `gpu_temperature_temperature_c{gpu_id="0"} 42
 `).Driver; got != "" {
 		t.Errorf("driver = %q, want empty", got)
 	}
@@ -534,19 +534,19 @@ func TestBuildDashboardSharedMemoryUnavailableOnI915(t *testing.T) {
 
 func TestBuildDashboardSharedMemoryKeptOnReportingDriver(t *testing.T) {
 	// xe does populate the counter, so its zero is a measurement.
-	wantReading(t, "xe shared used", gpuFixture(t, `gpu_memory_smem_used{gpu_id="0",driver="xe"} 0
+	wantReading(t, "xe shared used", gpuFixture(t, `gpu_memory_smem_used_bytes{gpu_id="0",driver="xe"} 0
 `).SharedUsedBytes, 0)
 
 	// An i915 host that does start reporting the counter must not be
 	// suppressed either: the substitution applies only to a zero.
-	wantReading(t, "i915 non-zero shared used", gpuFixture(t, `gpu_memory_smem_used{gpu_id="0",driver="i915"} 4096
+	wantReading(t, "i915 non-zero shared used", gpuFixture(t, `gpu_memory_smem_used_bytes{gpu_id="0",driver="i915"} 4096
 `).SharedUsedBytes, 4096)
 }
 
 func TestBuildDashboardSharedMemoryAbsentStaysAbsent(t *testing.T) {
 	// No counter at all is not the same as one the driver cannot fill in,
 	// and must not be turned into the "unavailable" case.
-	got := gpuFixture(t, `gpu_temperature{gpu_id="0",driver="i915"} 42
+	got := gpuFixture(t, `gpu_temperature_temperature_c{gpu_id="0",driver="i915"} 42
 `).SharedUsedBytes
 	if got.OK {
 		t.Errorf("shared memory used = %v, want absent", got.Value)

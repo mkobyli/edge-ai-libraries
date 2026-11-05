@@ -460,8 +460,8 @@ func TestViewOmitsVRAMOnIntegratedGPU(t *testing.T) {
 		t.Error("a VRAM row was rendered for an integrated GPU")
 	}
 
-	wantContains(t, renderFixture(t, `gpu_memory_vram_total{gpu_id="0"} 8.589934592e+09
-gpu_memory_vram_used{gpu_id="0"} 1.073741824e+09
+	wantContains(t, renderFixture(t, `gpu_memory_vram_total_bytes{gpu_id="0"} 8.589934592e+09
+gpu_memory_vram_used_bytes{gpu_id="0"} 1.073741824e+09
 `), "vram")
 }
 

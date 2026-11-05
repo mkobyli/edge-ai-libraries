@@ -218,10 +218,14 @@ func (p *Parser) Parse(line []byte) ([]lineproto.Point, error) {
 		}
 
 		appendEngineUsage(dev, emit)
-		appendFrequencies(dev, emit)
+		if err := appendFrequencies(dev, emit); err != nil {
+			return nil, err
+		}
 		appendPower(dev, emit)
 		appendMemory(dev, emit)
-		appendSensors(dev, emit)
+		if err := appendSensors(dev, emit); err != nil {
+			return nil, err
+		}
 		if p.clientStats {
 			appendClients(dev, p.clientLimit, emit)
 		}
@@ -260,23 +264,22 @@ func appendEngineUsage(dev device, emit emitFunc) {
 // A part such as Meteor Lake has two tiles with different limits (gt0 up to
 // 2300 MHz, gt1 up to 1300 MHz), so reporting only the first would hide half
 // the GPU.
-func appendFrequencies(dev device, emit emitFunc) {
+func appendFrequencies(dev device, emit emitFunc) error {
 	for index, tile := range lastOf(dev.DevStats.Freqs) {
 		name := tileName(dev.FreqLimits, index)
 
-		// "value" repeats cur_freq under the name the Python reader used so
-		// existing dashboards keep working. act_freq is the frequency the
-		// hardware actually ran at, which is the more useful of the two: an
-		// idle GPU commonly reports cur_freq 800 while act_freq is 400.
+		fields, err := scaledNumberFields(map[string]*json.Number{
+			"cur_freq_hz": tile.CurFreq,
+			"act_freq_hz": tile.ActFreq,
+			"min_freq_hz": tile.MinFreq,
+			"max_freq_hz": tile.MaxFreq,
+		}, 1e6)
+		if err != nil {
+			return err
+		}
 		emit(MeasurementFrequency,
 			[]lineproto.Tag{{Key: "type", Value: "cur_freq"}, {Key: "tile", Value: name}},
-			numberFields(map[string]*json.Number{
-				"value":    tile.CurFreq,
-				"cur_freq": tile.CurFreq,
-				"act_freq": tile.ActFreq,
-				"min_freq": tile.MinFreq,
-				"max_freq": tile.MaxFreq,
-			}))
+			fields)
 
 		// Throttle reasons explain why act_freq sits below cur_freq. They are
 		// emitted as 0 or 1 rather than as line protocol booleans because the
@@ -291,6 +294,7 @@ func appendFrequencies(dev device, emit emitFunc) {
 		}
 		emit(MeasurementThrottle, []lineproto.Tag{{Key: "tile", Value: name}}, throttle)
 	}
+	return nil
 }
 
 func appendPower(dev device, emit emitFunc) {
@@ -298,7 +302,7 @@ func appendPower(dev device, emit emitFunc) {
 	for _, key := range sortedKeys(latest) {
 		emit(MeasurementPower,
 			[]lineproto.Tag{{Key: "type", Value: key}},
-			[]lineproto.Field{lineproto.NumberField("value", latest[key].String())})
+			[]lineproto.Field{lineproto.NumberField("power_w", latest[key].String())})
 	}
 }
 
@@ -314,42 +318,51 @@ func appendMemory(dev device, emit emitFunc) {
 
 	var fields []lineproto.Field
 	for _, key := range sortedKeys(latest) {
-		fields = append(fields, lineproto.NumberField(key, latest[key].String()))
+		fields = append(fields, lineproto.NumberField(key+"_bytes", latest[key].String()))
 	}
 	emit(MeasurementMemory, nil, fields)
 }
 
 // appendSensors reports hwmon temperature and fan readings. An integrated GPU
 // exposes a package temperature and no fans.
-func appendSensors(dev device, emit emitFunc) {
+func appendSensors(dev device, emit emitFunc) error {
 	for _, reading := range lastOf(dev.DevStats.Temps) {
 		if reading.Temp == nil {
 			continue
 		}
 		emit(MeasurementTemperature,
 			[]lineproto.Tag{{Key: "sensor", Value: reading.Name}},
-			[]lineproto.Field{lineproto.NumberField("value", reading.Temp.String())})
+			[]lineproto.Field{lineproto.NumberField("temperature_c", reading.Temp.String())})
 	}
 
 	for _, reading := range lastOf(dev.DevStats.Fans) {
 		if reading.Speed == nil {
 			continue
 		}
+		fields, err := scaledNumberFields(map[string]*json.Number{"speed_hz": reading.Speed}, 1.0/60)
+		if err != nil {
+			return err
+		}
 		emit(MeasurementFan,
 			[]lineproto.Tag{{Key: "fan", Value: reading.Name}},
-			[]lineproto.Field{lineproto.NumberField("value", reading.Speed.String())})
+			fields)
 	}
+	return nil
 }
 
-// numberFields renders the named values that are present, in a stable order.
-func numberFields(values map[string]*json.Number) []lineproto.Field {
+// scaledNumberFields converts present readings to base units in a stable order.
+func scaledNumberFields(values map[string]*json.Number, factor float64) ([]lineproto.Field, error) {
 	var fields []lineproto.Field
 	for _, key := range sortedKeys(values) {
 		if value := values[key]; value != nil {
-			fields = append(fields, lineproto.NumberField(key, value.String()))
+			number, err := value.Float64()
+			if err != nil {
+				return nil, fmt.Errorf("GPU field %s is outside the supported numeric range", key)
+			}
+			fields = append(fields, lineproto.FloatField(key, number*factor))
 		}
 	}
-	return fields
+	return fields, nil
 }
 
 // tileName returns the name qmassa gave tile index, falling back to a

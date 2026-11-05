@@ -9,6 +9,10 @@ This checkout targets **2026.3.0**, which is not yet released. Build locally
 until the corresponding image is published; registry commands below show the
 target release tag, not a guarantee that it is already available.
 
+**Breaking native metric migration:** 2026.3.0 uses explicit base-unit fields
+without legacy aliases. Upgrade collectors, TUI and custom queries together;
+see the [conversion and configuration guide](./docs/user-guide/get-started/native-metric-migration.md).
+
 A unified metrics collection, ingestion, and relay service that combines Telegraf-based system metrics with a flexible REST API for custom metrics. Supports multiple input formats including JSON, InfluxDB Line Protocol, and OpenTelemetry (OTLP).
 
 - **Get Started:** [Get Started Guide](docs/user-guide/get-started.md) — install and run in 5 minutes

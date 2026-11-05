@@ -155,12 +155,13 @@ from `telegraf.d` and restart the service to disable it.
 ### Metric names and network namespaces
 
 The native GPU collector already provides the container's additional GPU
-frequency and throttling readings under different Prometheus names:
+frequency and throttling readings under different Prometheus names. Native
+frequency fields use Hz; divide by `1e6` to compare with MHz:
 
 | Container name | Native name |
 |---|---|
-| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq` |
-| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq` |
+| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq_hz` |
+| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq_hz` |
 | `gpu_throttle_throttled` | `gpu_throttle_status` |
 | `gpu_throttle_throttle_pl1` | `gpu_throttle_pl1` |
 | `gpu_throttle_throttle_pl2` | `gpu_throttle_pl2` |
@@ -348,7 +349,7 @@ Run under `sudo` that will fail on the permissions — that is the expected way
 to tell an absent NPU from a permissions problem.
 
 **No memory bandwidth.** `mm-plugin-membw` reports system-wide DRAM read,
-write and total throughput in MiB/s (not GPU-only bandwidth). Check
+write and total throughput in decimal GB/s (not GPU-only bandwidth). Check
 `journalctl -u metrics-manager-membw.service` and
 `cat /proc/sys/kernel/perf_event_paranoid`. On kernels that set this value to
 4, `CAP_PERFMON` alone may be refused for uncore events; the service will stay

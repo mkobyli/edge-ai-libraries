@@ -5,6 +5,12 @@ SPDX-License-Identifier: Apache-2.0
 
 # Metrics Manager — bare-metal package
 
+**2026.3.0 breaking change:** native telemetry now uses explicit base-unit
+fields without old aliases. Upgrade the plugins and TUI together and migrate
+custom queries and DRAM chart settings using the
+[unit migration guide](./native-metric-migration.md), also installed beside
+this README.
+
 Collects CPU, memory, GPU and NPU telemetry on an Intel edge system, publishes
 it on a local Prometheus endpoint, and renders it in a terminal dashboard.
 
@@ -108,7 +114,7 @@ The quickest way to trust a reading is to make it move.
 
 **Memory bandwidth.** Watch the `DRAM bandwidth` row in the Memory panel while
 writing a few gigabytes into RAM. Its `read`, `write` and `total` columns should
-jump from tens of MiB/s to thousands and settle back. If the row is absent, the service may be
+jump from a fraction of a GB/s to several GB/s and settle back. If the row is absent, the service may be
 running but unable to open perf counters; see
 [No memory bandwidth](#when-something-is-missing).
 
@@ -139,7 +145,7 @@ read them:
 ```bash
 NPU=$(ls -d /sys/bus/pci/drivers/intel_vpu/0000:* | head -1)
 cat "$NPU"/npu_memory_utilization "$NPU"/npu_max_frequency_mhz
-curl -s http://127.0.0.1:9273/metrics | grep -E '^npu_(memory_mb|frequency_max)'
+curl -s http://127.0.0.1:9273/metrics | grep -E '^npu_(memory_bytes|frequency_max_hz)'
 ```
 
 ### Stopping it without removing it
@@ -351,7 +357,7 @@ What each panel shows:
 
 These additional panels are in Overview. If the extra rows exceed the terminal
 height, scroll the Overview. The Memory row uses
-`memory_bandwidth_*_mibps` when `mm-plugin-membw` can read the controller
+`memory_bandwidth_*_bytes_per_second` when `mm-plugin-membw` can read the controller
 counters. RAPL power uses
 `rapl_power_power_w{domain="..."}` from the optional `mm-plugin-rapl` service.
 The RAPL panel appears only after that service is manually enabled and
@@ -365,12 +371,12 @@ modified. If Details does not list the new plots, add these entries to its
 restart `mm-tui`:
 
 ```json
-{"metric": "memory.readMiBps", "title": "DRAM read", "unit": "MiB/s"},
-{"metric": "memory.writeMiBps", "title": "DRAM write", "unit": "MiB/s"},
+{"metric": "memory.readGBps", "title": "DRAM read", "unit": "GB/s"},
+{"metric": "memory.writeGBps", "title": "DRAM write", "unit": "GB/s"},
 {"metric": "rapl.powerW", "title": "RAPL power", "unit": "W"}
 ```
 
-The existing `memory.bandwidthMiBps` entry is the total bandwidth chart.
+The existing `memory.bandwidthGBps` entry is the total bandwidth chart.
 
 The Trends tab retains the most recent five minutes by default. It shows CPU
 utilisation, memory usage, CPU temperature, and utilisation and temperature for
@@ -452,7 +458,7 @@ No metric is substituted silently.
 
 The default selection includes CPU total and per-class P/E/LP-E usage,
 temperature, frequency and package power; RAM use and DRAM read, write and
-total bandwidth (MiB/s); RAPL power for each published domain (W);
+total bandwidth (decimal GB/s); RAPL power for each published domain (W);
 per-GPU aggregate/engine utilisation, temperature, per-tile actual frequency,
 graphics power and dedicated VRAM percentage; NPU utilisation, temperature,
 frequency, power and memory. Frequency charts use MHz. NPU memory uses MiB
@@ -1300,12 +1306,13 @@ of monitored interfaces or readings. No matching links means no such series.
 Adding this drop-in does not modify `inputs.net`; avoid summing physical,
 bridge and virtual traffic as if each represented independent traffic.
 
-GPU frequency and throttling data also exist natively under different names:
+GPU frequency and throttling data also exist natively under different names.
+The native frequency fields are Hz, not MHz; divide by `1e6` for MHz comparisons:
 
 | Container name | Native name |
 | --- | --- |
-| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq` |
-| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq` |
+| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq_hz` |
+| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq_hz` |
 | `gpu_throttle_throttled` | `gpu_throttle_status` |
 | `gpu_throttle_throttle_pl1` | `gpu_throttle_pl1` |
 | `gpu_throttle_throttle_pl2` | `gpu_throttle_pl2` |
@@ -1571,7 +1578,7 @@ six-row charts. Supported metrics are:
 - `cpu.totalPercent`
 - `cpu.temperatureC`
 - `memory.usedPercent`
-- `memory.bandwidthMiBps`
+- `memory.bandwidthGBps`
 - `gpu.utilizationPercent`
 - `gpu.temperatureC`
 - `npu.utilizationPercent`
@@ -1972,7 +1979,7 @@ can assess whether a less restrictive **host-wide** perf policy is acceptable;
 do not grant this service broad `CAP_SYS_ADMIN` merely to make the metric
 appear. Restart `metrics-manager-membw.service` after changing the host policy:
 the idling collector must reopen its counters. When available, it publishes
-`memory_bandwidth_{read,write,total}_mibps` (system-wide MiB/s), corresponding
+`memory_bandwidth_{read,write,total}_bytes_per_second` (system-wide bytes/s, displayed as GB/s), corresponding
 to tcmi's DRAM read/write/total GB/s after unit conversion.
 
 A machine whose memory controller exposes no free-running counters cannot

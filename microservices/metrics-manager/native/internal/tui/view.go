@@ -611,12 +611,12 @@ func (m Model) memorySection() string {
 	valid := func(r Reading) bool {
 		return r.OK && !math.IsNaN(r.Value) && !math.IsInf(r.Value, 0)
 	}
-	if valid(mem.ReadMiBps) || valid(mem.WriteMiBps) || valid(mem.TotalMiBps) {
+	if valid(mem.ReadGBps) || valid(mem.WriteGBps) || valid(mem.TotalGBps) {
 		value := func(r Reading) string {
 			if !valid(r) {
 				return "-"
 			}
-			return formatBandwidthMiBps(r)
+			return formatBandwidthGBps(r)
 		}
 		b.WriteString(responsiveTable([]column{
 			{title: "metric", width: 18, left: true},
@@ -624,7 +624,7 @@ func (m Model) memorySection() string {
 			{title: "write", width: 14},
 			{title: "total", width: 14},
 		}, [][]string{{
-			"DRAM bandwidth", value(mem.ReadMiBps), value(mem.WriteMiBps), value(mem.TotalMiBps),
+			"DRAM bandwidth", value(mem.ReadGBps), value(mem.WriteGBps), value(mem.TotalGBps),
 		}}, m.panelWidth()))
 	}
 
@@ -852,7 +852,7 @@ func (m Model) npuSection() string {
 	b.WriteString(field("power", formatWatts(npu.PowerW)))
 	b.WriteString(field("temperature", m.thresholdTemperature("npu.temperatureC", npu.TempC)))
 	b.WriteString(field("bandwidth", formatBandwidth(npu.BandwidthMBps)))
-	b.WriteString(field("memory", formatMebibytes(npu.MemoryMB)))
+	b.WriteString(field("memory", formatMebibytes(npu.MemoryMiB)))
 	b.WriteString(field("tile config", formatCount(npu.TileConfig)))
 	if npu.PowerState.OK {
 		b.WriteString(field("power state", npuPowerState(npu.PowerState)))

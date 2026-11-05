@@ -61,8 +61,8 @@ func TestHistorySeparatesMultipleGPUs(t *testing.T) {
 }
 
 func TestNPUClockAndUnavailableReadings(t *testing.T) {
-	dashboard := buildFixture(t, "npu_frequency{host=\"h\"} 1600000000\n")
-	if !dashboard.NPU.Present || dashboard.NPU.Utilization.OK || dashboard.NPU.MemoryMB.OK {
+	dashboard := buildFixture(t, "npu_frequency_hz{host=\"h\"} 1600000000\n")
+	if !dashboard.NPU.Present || dashboard.NPU.Utilization.OK || dashboard.NPU.MemoryMiB.OK {
 		t.Fatalf("NPU availability = %+v", dashboard.NPU)
 	}
 	wantReading(t, "frequency Hz", dashboard.NPU.FrequencyHz, 1_600_000_000)

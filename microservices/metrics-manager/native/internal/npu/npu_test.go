@@ -211,8 +211,8 @@ func buildNPUSysfs(t *testing.T, guid string, buffer []byte, busyUS, memoryBytes
 	return root
 }
 
-// TestCollectMatchesPythonFormat checks the upstream reader's units and fields.
-func TestCollectMatchesPythonFormat(t *testing.T) {
+// TestCollectBaseUnits checks the native 2026.3.0 wire contract.
+func TestCollectBaseUnits(t *testing.T) {
 	regs := registerSets[GenPTL]
 	root := buildNPUSysfs(t, "0x3086000",
 		telemetryBuffer(4096, map[int]uint64{
@@ -249,8 +249,8 @@ func TestCollectMatchesPythonFormat(t *testing.T) {
 		t.Fatalf("Append() error: %v", err)
 	}
 
-	want := "npu,host=test-host power=4.000,frequency=1000000000.0,temperature=45i," +
-		"bandwidth=128.750,tile_config=2i,utilization=0i,memory_mb=512.00,power_state=-1i 1725062401000000000\n"
+	want := "npu,host=test-host power_w=4,frequency_hz=1000000000,temperature_c=45i," +
+		"bandwidth_bytes_per_second=128750000,tile_config=2i,utilization=0i,memory_bytes=536870912,power_state=-1i 1725062401000000000\n"
 	if got := string(rendered); got != want {
 		t.Errorf("Collect()\n got: %s\nwant: %s", got, want)
 	}
@@ -264,10 +264,10 @@ func TestBandwidthRateAndRollover(t *testing.T) {
 		interval time.Duration
 		want     string
 	}{
-		{"two seconds", 90, 100_000, 2 * time.Second, "bandwidth=5.000"},
-		{"half second", 90, 100_000, time.Second / 2, "bandwidth=20.000"},
-		{"wrap", float64(uint64(1)<<32)/1e3 - 5, 10_000, time.Second, "bandwidth=15.000"},
-		{"idle", 100, 100_000, time.Second, "bandwidth=0.000"},
+		{"two seconds", 90e6, 100_000, 2 * time.Second, "bandwidth_bytes_per_second=5000000,"},
+		{"half second", 90e6, 100_000, time.Second / 2, "bandwidth_bytes_per_second=20000000,"},
+		{"wrap", float64(uint64(1)<<32)*1e3 - 5e6, 10_000, time.Second, "bandwidth_bytes_per_second=15000000,"},
+		{"idle", 100e6, 100_000, time.Second, "bandwidth_bytes_per_second=0,"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			regs := registerSets[GenPTL]
@@ -277,6 +277,7 @@ func TestBandwidthRateAndRollover(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			start := time.Unix(100, 0)
 			c.prevTime, c.prevBandwidth = start, tt.previous
 			c.now = func() time.Time { return start.Add(tt.interval) }
@@ -292,6 +293,31 @@ func TestBandwidthRateAndRollover(t *testing.T) {
 				t.Fatalf("got %s, want %s", line, tt.want)
 			}
 		})
+	}
+}
+
+func TestMemoryAndCeilingUseUnroundedBaseUnits(t *testing.T) {
+	root := buildNPUSysfs(t, "0x3086000", make([]byte, 4096), "", "1048577")
+	device := filepath.Join(root, "bus/pci/drivers/intel_vpu/0000:00:0b.0")
+	writeFile(t, filepath.Join(device, "npu_max_frequency_mhz"), []byte("1800"))
+	c, err := NewCollector(root, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := c.prevTime
+	c.now = func() time.Time { return start.Add(time.Second) }
+	points, err := c.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, err := points[0].Append(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"memory_bytes=1048577,", "frequency_max_hz=1800000000 "} {
+		if !strings.Contains(string(line), want) {
+			t.Fatalf("missing %q in %s", want, line)
+		}
 	}
 }
 
@@ -345,13 +371,13 @@ func TestOptionalReadFailureAndRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(line), "utilization=") != tt.wantBusy ||
-			strings.Contains(string(line), "memory_mb=") != tt.wantMemory {
+			strings.Contains(string(line), "memory_bytes=") != tt.wantMemory {
 			t.Fatalf("unexpected optional fields: %s", line)
 		}
 		if tt.wantBusy && !strings.Contains(string(line), "utilization=50i") {
 			t.Fatalf("recovery must use a fresh busy-time baseline: %s", line)
 		}
-		if i == 1 && !strings.Contains(string(line), "memory_mb=0.00") {
+		if i == 1 && !strings.Contains(string(line), "memory_bytes=0") {
 			t.Fatalf("a measured zero is not missing: %s", line)
 		}
 	}
@@ -480,7 +506,7 @@ func TestUnsupportedAttributesDegradeGracefully(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Append() error: %v", err)
 	}
-	for _, absent := range []string{"utilization=", "memory_mb="} {
+	for _, absent := range []string{"utilization=", "memory_bytes="} {
 		if strings.Contains(string(rendered), absent) {
 			t.Errorf("Collect() = %s, must omit %s", rendered, absent)
 		}
@@ -508,8 +534,8 @@ func TestMemoryUtilisationReadWhereverExposed(t *testing.T) {
 		t.Fatal("MemoryUtilisationSupported() = false on Meteor Lake, want the exposed attribute to be read")
 	}
 
-	if got, ok := collector.memoryMB(); !ok || got != 512 {
-		t.Errorf("memoryMB() = %v, %t, want 512, true", got, ok)
+	if got, ok := collector.memoryBytes(); !ok || got != 536870912 {
+		t.Errorf("memoryBytes() = %v, %t, want 536870912, true", got, ok)
 	}
 }
 
@@ -527,8 +553,8 @@ func TestMemoryUtilisationAbsentStaysUnavailable(t *testing.T) {
 	if collector.MemoryUtilisationSupported() {
 		t.Error("MemoryUtilisationSupported() = true with no attribute present, want false")
 	}
-	if got, ok := collector.memoryMB(); ok {
-		t.Errorf("memoryMB() = %v, true, want unavailable", got)
+	if got, ok := collector.memoryBytes(); ok {
+		t.Errorf("memoryBytes() = %v, true, want unavailable", got)
 	}
 }
 

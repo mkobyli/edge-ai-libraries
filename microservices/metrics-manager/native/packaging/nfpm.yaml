@@ -199,6 +199,11 @@ contents:
     dst: /usr/share/doc/metrics-manager/README.md
     file_info: { mode: 0644 }
 
+  - src: dist/doc/native-metric-migration.md
+    dst: /usr/share/doc/metrics-manager/native-metric-migration.md
+    file_info:
+      mode: 0644
+
   - src: dist/doc/images/*
     dst: /usr/share/doc/metrics-manager/images/
     file_info: { mode: 0644 }

@@ -4,17 +4,50 @@
 package membw
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
-// The perf file descriptors these counters need cannot be opened in a unit
-// test, so what is covered here is everything around them: reading the event
-// definitions sysfs publishes, and refusing the ones that cannot be trusted to
-// mean what the caller assumes.
+func TestCollectConvertsSysfsMiBScaleToBytesPerSecond(t *testing.T) {
+	start := time.Unix(100, 0)
+	c := &Collector{hostname: "h", sampled: start, now: func() time.Time {
+		return start.Add(2 * time.Second)
+	}}
+	for name, delta := range map[string]uint64{"read": 32, "write": 16} {
+		path := filepath.Join(t.TempDir(), name)
+		var raw [8]byte
+		binary.LittleEndian.PutUint64(raw[:], 10+delta)
+		if err := os.WriteFile(path, raw[:], 0o600); err != nil {
+			t.Fatal(err)
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		c.counters = append(c.counters, counter{
+			canonical: name, event: name, scale: 1.0 / 16384,
+			fd: int(file.Fd()), previous: 10, primed: true,
+		})
+	}
+	points, err := c.Collect()
+	if err != nil || len(points) != 1 {
+		t.Fatalf("Collect() = %v, %v", points, err)
+	}
+	line, err := points[0].Append(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "memory_bandwidth,host=h read_bytes_per_second=1024,write_bytes_per_second=512,total_bytes_per_second=1536 102000000000\n"
+	if string(line) != want {
+		t.Fatalf("got %s, want %s", line, want)
+	}
+}
 
 func TestReadConfigParsesAnEventDefinition(t *testing.T) {
 	for definition, want := range map[string]uint64{
@@ -68,8 +101,8 @@ func TestReadConfigReportsAMissingFile(t *testing.T) {
 // TestFieldNameCarriesTheUnit guards the names that end up on the endpoint.
 func TestFieldNameCarriesTheUnit(t *testing.T) {
 	for canonical, want := range map[string]string{
-		"read":  "read_mibps",
-		"write": "write_mibps",
+		"read":  "read_bytes_per_second",
+		"write": "write_bytes_per_second",
 	} {
 		if got := fieldName(canonical); got != want {
 			t.Errorf("fieldName(%q) = %q, want %q", canonical, got, want)

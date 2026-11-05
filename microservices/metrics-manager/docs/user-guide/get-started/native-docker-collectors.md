@@ -295,13 +295,15 @@ Enabling equivalent hardware coverage does not guarantee identical names/labels:
 
 | Python-reader name | Native-enabled image name |
 |---|---|
-| `dram_bw_{read,write,total}_gbps` | `memory_bandwidth_{read,write,total}_mibps` |
-| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq` |
-| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq` |
+| `dram_bw_{read,write,total}_gbps` | `memory_bandwidth_{read,write,total}_bytes_per_second` |
+| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq_hz` |
+| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq_hz` |
 | `gpu_throttle_throttled` | `gpu_throttle_status` |
 | `gpu_throttle_throttle_{pl1,pl2,prochot,thermal}` | `gpu_throttle_{pl1,pl2,prochot,thermal}` |
 
-Native memory bandwidth currently uses **MiB/s**, not decimal GB/s:
-`GB/s = MiB/s * 1048576 / 1000000000`. Sampling windows and data sources can
+Native memory bandwidth exports **bytes/s** and the TUI displays decimal GB/s:
+`GB/s = bytes/s / 1000000000`. Native GPU frequencies export Hz rather than MHz.
+See the [2026.3.0 migration table](./native-metric-migration.md).
+Sampling windows and data sources can
 differ. Native GPU detail uses `gpu_id`/`driver`/`tile` rather than `card`/`gt`.
 Adapt queries deliberately; do not assume exact series equivalence.

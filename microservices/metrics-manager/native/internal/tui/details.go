@@ -154,8 +154,8 @@ func (m Model) detailItems() []detailItem {
 		}
 		if len(keys) == 0 {
 			if (strings.HasPrefix(spec.Metric, "network.") || strings.HasPrefix(spec.Metric, "storage.") ||
-				strings.HasPrefix(spec.Metric, "rapl.") || spec.Metric == "memory.readMiBps" ||
-				spec.Metric == "memory.writeMiBps") && m.detailSelection.metric != spec.Metric {
+				strings.HasPrefix(spec.Metric, "rapl.") || spec.Metric == "memory.readGBps" ||
+				spec.Metric == "memory.writeGBps") && m.detailSelection.metric != spec.Metric {
 				continue
 			}
 			items = append(items, detailItem{

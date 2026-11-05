@@ -78,7 +78,7 @@ var eventPairs = []eventPair{
 
 // expectedUnit is the unit every known counter publishes. It is checked rather
 // than assumed: a counter measured in something else would be reported under a
-// field name claiming mebibytes per second, and the number would look
+// field name claiming bytes per second, and the number would look
 // perfectly ordinary while being wrong.
 const expectedUnit = "MiB"
 
@@ -286,7 +286,7 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 			continue
 		}
 
-		totals[counter.canonical] += float64(raw-counter.previous) * counter.scale / elapsed
+		totals[counter.canonical] += float64(raw-counter.previous) * counter.scale * (1 << 20) / elapsed
 		primed[counter.canonical] = true
 		counter.previous = raw
 	}
@@ -302,10 +302,10 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 		if !primed[event] {
 			continue
 		}
-		fields = append(fields, lineproto.FixedFloatField(fieldName(event), totals[event], 2))
+		fields = append(fields, lineproto.FloatField(fieldName(event), totals[event]))
 		total += totals[event]
 	}
-	fields = append(fields, lineproto.FixedFloatField("total_mibps", total, 2))
+	fields = append(fields, lineproto.FloatField("total_bytes_per_second", total))
 
 	return []lineproto.Point{{
 		Measurement: Measurement,
@@ -319,7 +319,7 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 // unit. It is built from the canonical name rather than the sysfs one, so the
 // endpoint looks the same whichever spelling the machine uses.
 func fieldName(canonical string) string {
-	return canonical + "_mibps"
+	return canonical + "_bytes_per_second"
 }
 
 // prime takes the first reading, which later deltas are measured against.

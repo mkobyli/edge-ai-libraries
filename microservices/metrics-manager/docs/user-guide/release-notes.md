@@ -7,6 +7,14 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Unreleased
 
+Native collectors now export explicit base-unit fields (bytes, bytes/s, Hz, W,
+degrees Celsius) without old-name aliases. CPU/GPU/NPU clocks, NPU memory/rates,
+GPU device/client memory names and DRAM throughput are migrated together with
+the TUI. DRAM display/charts now use decimal GB/s. Standard Telegraf fields,
+percentage semantics and existing alert thresholds are unchanged.
+See the [breaking-change migration guide](./get-started/native-metric-migration.md),
+also included in the bare-metal package, before upgrading custom queries/configs.
+
 Added an opt-in `host-nic-telemetry` Compose profile with service
 `metrics-manager-host-nic`, sharing the default native image and collectors.
 Only its network addition defaults on; explicit `ENABLE_NETWORK=false` wins.
@@ -32,7 +40,7 @@ release entries, third-party version pins and Helm metadata are unchanged.
 
 - **Native NPU measurements:** Corrected PLL decoding for MTL/ARL/LNL/PTL and
   bandwidth rates using actual elapsed time with single-wrap correction.
-  **Breaking unit correction:** `npu_frequency` now contains real Hz, not the
+  **Breaking unit correction:** `npu_frequency_hz` contains real Hz, not the
   legacy MHz-scale number. Divide by `1e6` in queries that need MHz. Unsupported
   utilization/memory readings are omitted instead of publishing artificial
   zero/negative values. Presence-based memory detection, busy-counter reset

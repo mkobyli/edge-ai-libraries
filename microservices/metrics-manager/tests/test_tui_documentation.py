@@ -35,3 +35,17 @@ def test_packaged_guide_keeps_relative_image_links():
     assert images == readme.parent / "images"
     build = (ROOT / "native/build.sh").read_text()
     assert 'cp -R "$COMPONENT_DIR/docs/user-guide/get-started/images" "$STAGE_DIR/doc/images"' in build
+
+
+def test_packaged_guide_includes_unit_migration():
+    name = "native-metric-migration.md"
+    assert f"](./{name})" in GUIDE.read_text()
+    migration = GUIDE.parent / name
+    assert migration.is_file()
+    assert "SPDX-License-Identifier: Apache-2.0" in migration.read_text()
+    spec = yaml.safe_load((ROOT / "native/packaging/nfpm.yaml").read_text())
+    contents = {entry.get("src"): entry["dst"] for entry in spec["contents"]}
+    assert contents[f"dist/doc/{name}"] == f"/usr/share/doc/metrics-manager/{name}"
+    build = (ROOT / "native/build.sh").read_text()
+    assert f'"$COMPONENT_DIR/docs/user-guide/get-started/{name}"' in build
+    assert f'"$STAGE_DIR/doc/{name}"' in build

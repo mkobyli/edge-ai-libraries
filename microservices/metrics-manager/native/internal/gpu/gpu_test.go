@@ -62,15 +62,15 @@ func TestParseRealSample(t *testing.T) {
 		"gpu_engine_usage,engine=video-enhance,type=video-enhance,host=test-host,gpu_id=0,driver=i915 usage=0.0 1725062400000000000",
 		// Both tiles are reported. gt1 has a lower ceiling than gt0 and was
 		// dropped entirely by the Python reader.
-		"gpu_frequency,type=cur_freq,tile=gt0,host=test-host,gpu_id=0,driver=i915 act_freq=800,cur_freq=800,max_freq=2300,min_freq=800,value=800 1725062400000000000",
+		"gpu_frequency,type=cur_freq,tile=gt0,host=test-host,gpu_id=0,driver=i915 act_freq_hz=800000000,cur_freq_hz=800000000,max_freq_hz=2300000000,min_freq_hz=800000000 1725062400000000000",
 		"gpu_throttle,tile=gt0,host=test-host,gpu_id=0,driver=i915 pl1=0i,pl2=0i,pl4=0i,prochot=0i,ratl=0i,status=0i,thermal=0i,vr_tdc=0i,vr_thermalert=0i 1725062400000000000",
-		"gpu_frequency,type=cur_freq,tile=gt1,host=test-host,gpu_id=0,driver=i915 act_freq=450,cur_freq=100,max_freq=1300,min_freq=100,value=100 1725062400000000000",
+		"gpu_frequency,type=cur_freq,tile=gt1,host=test-host,gpu_id=0,driver=i915 act_freq_hz=450000000,cur_freq_hz=100000000,max_freq_hz=1300000000,min_freq_hz=100000000 1725062400000000000",
 		"gpu_throttle,tile=gt1,host=test-host,gpu_id=0,driver=i915 pl1=0i,pl2=0i,pl4=0i,prochot=0i,ratl=0i,status=0i,thermal=0i,vr_tdc=0i,vr_thermalert=0i 1725062400000000000",
-		"gpu_power,type=gpu_cur_power,host=test-host,gpu_id=0,driver=i915 value=0.0 1725062400000000000",
-		"gpu_power,type=pkg_cur_power,host=test-host,gpu_id=0,driver=i915 value=0.0 1725062400000000000",
+		"gpu_power,type=gpu_cur_power,host=test-host,gpu_id=0,driver=i915 power_w=0.0 1725062400000000000",
+		"gpu_power,type=pkg_cur_power,host=test-host,gpu_id=0,driver=i915 power_w=0.0 1725062400000000000",
 		// smem_used is zero because i915 does not expose it; xe does.
-		"gpu_memory,host=test-host,gpu_id=0,driver=i915 smem_total=100516229120,smem_used=0,vram_total=0,vram_used=0 1725062400000000000",
-		"gpu_temperature,sensor=pkg,host=test-host,gpu_id=0,driver=i915 value=42.0 1725062400000000000",
+		"gpu_memory,host=test-host,gpu_id=0,driver=i915 smem_total_bytes=100516229120,smem_used_bytes=0,vram_total_bytes=0,vram_used_bytes=0 1725062400000000000",
+		"gpu_temperature,sensor=pkg,host=test-host,gpu_id=0,driver=i915 temperature_c=42.0 1725062400000000000",
 	}
 
 	got := render(t, points)
@@ -108,6 +108,30 @@ func TestParseRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestFractionalClockAndMemoryBaseUnits(t *testing.T) {
+	points, err := newTestParser().Parse([]byte(`{"timestamps":[1],"devs_state":[{
+			"dev_nodes":"renderD128","dev_stats":{
+			"freqs":[[{"cur_freq":700.25,"act_freq":0}]],
+			"mem_info":[{"smem_used":9007199254740993}]}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(render(t, points), "\n")
+	for _, want := range []string{
+		"act_freq_hz=0,cur_freq_hz=700250000",
+		"smem_used_bytes=9007199254740993",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %s in %s", want, got)
+		}
+	}
+	for _, legacy := range []string{"value=", "cur_freq=", "act_freq=", "smem_used="} {
+		if strings.Contains(got, legacy) {
+			t.Fatalf("legacy alias %s emitted", legacy)
+		}
+	}
+}
+
 // TestParseUsesMostRecentSample verifies the rolling window is read from the
 // end: qmassa resends the last 40 readings on every line.
 func TestParseUsesMostRecentSample(t *testing.T) {
@@ -122,7 +146,7 @@ func TestParseUsesMostRecentSample(t *testing.T) {
 	}
 
 	got := strings.Join(render(t, points), "\n")
-	for _, want := range []string{"usage=42", "value=2300", "value=9.5"} {
+	for _, want := range []string{"usage=42", "cur_freq_hz=2300000000", "power_w=9.5"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Parse() = %s, want it to contain %s", got, want)
 		}
@@ -310,7 +334,7 @@ func TestParseKeepsRawMemoryCountersOnI915(t *testing.T) {
 	for _, line := range render(t, points) {
 		if strings.HasPrefix(line, "gpu_memory,") {
 			found = true
-			if !strings.Contains(line, "smem_used=0") {
+			if !strings.Contains(line, "smem_used_bytes=0") {
 				t.Errorf("smem_used was not reported: %s", line)
 			}
 		}
@@ -591,7 +615,7 @@ func TestParseThrottleReasons(t *testing.T) {
 		t.Errorf("Parse() = %s, want it to contain %s", got, want)
 	}
 	// act_freq well below cur_freq is what makes the throttle flags useful.
-	if !strings.Contains(got, "act_freq=900,cur_freq=2300") {
+	if !strings.Contains(got, "act_freq_hz=900000000,cur_freq_hz=2300000000") {
 		t.Errorf("Parse() = %s, want both the requested and actual frequency", got)
 	}
 }
@@ -609,8 +633,8 @@ func TestParseFans(t *testing.T) {
 
 	got := strings.Join(render(t, points), "\n")
 	for _, want := range []string{
-		"gpu_fan,fan=fan1,host=test-host,gpu_id=0 value=1200",
-		"gpu_fan,fan=fan2,host=test-host,gpu_id=0 value=0",
+		"gpu_fan,fan=fan1,host=test-host,gpu_id=0 speed_hz=20",
+		"gpu_fan,fan=fan2,host=test-host,gpu_id=0 speed_hz=0",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Parse() = %s, want it to contain %s", got, want)
@@ -633,7 +657,7 @@ func TestParseForwardsUnknownKeys(t *testing.T) {
 	}
 
 	got := strings.Join(render(t, points), "\n")
-	for _, want := range []string{"type=vram_cur_power", "future_field=42", "smem_used=1024"} {
+	for _, want := range []string{"type=vram_cur_power", "future_field_bytes=42", "smem_used_bytes=1024"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Parse() = %s, want it to contain %s", got, want)
 		}
@@ -687,8 +711,8 @@ func TestParseClientStatsAggregatesPerProcess(t *testing.T) {
 	// pid 7 is summed across both of its clients and stays active because one
 	// of them is; pid 10 sorts after pid 7 numerically, not lexicographically.
 	want := strings.Join([]string{
-		"gpu_client,pid=7,comm=infer,host=test-host,gpu_id=0 active=1i,cpu=2,engine_compute=5,engine_render=15,smem_used=150,vram_used=0 1725062400000000000",
-		"gpu_client,pid=10,comm=other,host=test-host,gpu_id=0 active=0i,cpu=2,engine_render=1,smem_used=7,vram_used=0 1725062400000000000",
+		"gpu_client,pid=7,comm=infer,host=test-host,gpu_id=0 active=1i,cpu=2,engine_compute=5,engine_render=15,smem_used_bytes=150,vram_used_bytes=0 1725062400000000000",
+		"gpu_client,pid=10,comm=other,host=test-host,gpu_id=0 active=0i,cpu=2,engine_render=1,smem_used_bytes=7,vram_used_bytes=0 1725062400000000000",
 	}, "\n")
 
 	if got := strings.Join(render(t, points), "\n"); got != want {
