@@ -376,6 +376,7 @@ EXPOSE 9090 9273 8186
 # OCI image metadata - version is read from the VERSION file at build time
 # (single source of truth used by Makefile / docker compose).
 ARG VERSION=2026.3.0
+ENV SERVICE_VERSION=${VERSION}
 LABEL org.opencontainers.image.title="metrics-manager" \
       org.opencontainers.image.description="Unified metrics collection, ingestion, and relay service" \
       org.opencontainers.image.version="${VERSION}" \

@@ -205,6 +205,41 @@ TAG=2026.3.0-rc1 docker compose build metrics-manager
 docker compose up --build -d
 ```
 
+### Building both release-candidate variants
+
+Keep the project version at `2026.3.0` while validating RC images. Build the
+two variants with distinct tags so that one does not overwrite the other:
+
+```bash
+# Default: telemetry collectors and API, without OpenVINO or media VA drivers
+make build REGISTRY=intel/ TAG=2026.3.0-rc1 INSTALL_OPENVINO=false
+
+# Extended: the same collectors/API plus OpenVINO, vainfo and Intel media VA drivers
+make build REGISTRY=intel/ TAG=2026.3.0-extended-rc1 INSTALL_OPENVINO=true
+```
+
+The tag alone does not select the variant: always pass `INSTALL_OPENVINO`
+explicitly. Both commands build locally and do not push anything. The image's
+OCI version label, native collector versions, API version and structured log
+version use the build tag. The checked-in project/package version stays
+`2026.3.0`; a runtime `SERVICE_VERSION` override changes the API/log identity
+only, not the OCI label or native binaries.
+
+To run a locally built RC with Compose, use its matching tag and
+`--no-build` (choose one deployment variant as described above):
+
+```bash
+REGISTRY=intel/ TAG=2026.3.0-rc1 docker compose up --no-build -d metrics-manager
+```
+
+After validation and authorization to publish, push each explicit tag;
+do not publish the stable `2026.3.0` or `latest` tags for this RC:
+
+```bash
+docker push intel/metrics-manager:2026.3.0-rc1
+docker push intel/metrics-manager:2026.3.0-extended-rc1
+```
+
 ### Releasing a new version
 
 1. **Align the current release mirrors** — update `VERSION`, `pyproject.toml`,
@@ -243,7 +278,7 @@ read at a different time:
 | `pyproject.toml`                  | `pip install .`, `python -m build`                                 | Packaging                                                |
 | `.env` / `.env.example`           | `docker compose` (without Make)                                    | Build time                                               |
 | `compose.yaml`                    | `${TAG:-...}` and `VERSION:` build-arg fallbacks                   | Build time when no `TAG` env is set                      |
-| `Dockerfile`                      | Native collector version and OCI label defaults                   | Plain Docker builds without a `VERSION` build argument   |
+| `Dockerfile`                      | Native collector version, OCI label and `SERVICE_VERSION` defaults | Image build; `VERSION` build argument overrides them     |
 | `app/settings.py`                 | Pydantic default for `/health` `version` field                     | Runtime fallback when `SERVICE_VERSION` env var is unset |
 | `app/logging_config.py`           | Default `version` field in JSON log records                        | Runtime fallback                                         |
 | Current README and user guides   | Installation examples and API responses                            | Documentation                                            |

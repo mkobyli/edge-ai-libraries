@@ -72,6 +72,12 @@ class TestReleaseVersion:
         defaults = re.findall(r"^ARG VERSION=(\S+)$", dockerfile_text, re.MULTILINE)
         assert defaults == [release_version, release_version]
 
+    def test_docker_runtime_uses_build_version(self, dockerfile_text):
+        production = dockerfile_text.split(" AS production\n", 1)[1]
+        assert production.index("ARG VERSION=") < production.index("ENV SERVICE_VERSION=${VERSION}")
+        assert 'org.opencontainers.image.version="${VERSION}"' in production
+        assert "-X main.version=${VERSION}" in dockerfile_text
+
     @pytest.mark.parametrize("endpoint", ["/", "/health", "/api/health"])
     @pytest.mark.parametrize("override", [None, "custom-build"])
     def test_api_reports_release(self, endpoint, override, client, release_version, monkeypatch):
