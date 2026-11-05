@@ -47,6 +47,31 @@ METRICS_SAMPLE_INTERVAL: float = float(
     )
 )
 
+
+def resolve_metrics_trim_fraction(cli_value: str | float | None = None) -> float:
+    """Resolve and validate trimming with CLI > environment > YAML > default."""
+    value = (
+        cli_value
+        if cli_value is not None
+        else os.environ.get(
+            "PERF_METRICS_TRIM_FRACTION", _METRICS_CFG.get("trim_fraction", 0.1)
+        )
+    )
+    message = (
+        "metrics.trim_fraction (--metrics-trim-fraction / PERF_METRICS_TRIM_FRACTION) "
+        "must satisfy 0 <= value < 0.5"
+    )
+    if value is None:
+        raise ValueError(message)
+    try:
+        fraction = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(message) from None
+    if not 0 <= fraction < 0.5:
+        raise ValueError(message)
+    return fraction
+
+
 # --- benchmark section ---
 _BENCHMARK_CFG: dict[str, Any] = _PERF_YAML.get("benchmark", {})
 _EXECUTION_CFG: dict[str, Any] = _BENCHMARK_CFG.get("execution", {})
