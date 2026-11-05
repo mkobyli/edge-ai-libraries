@@ -1,4 +1,43 @@
+<!--
+SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Release Notes: Metrics Manager
+
+## Unreleased
+
+### Fixed
+
+- **Native NPU measurements:** Corrected PLL decoding for MTL/ARL/LNL/PTL and
+  bandwidth rates using actual elapsed time with single-wrap correction.
+  **Breaking unit correction:** `npu_frequency` now contains real Hz, not the
+  legacy MHz-scale number. Divide by `1e6` in queries that need MHz. Unsupported
+  utilization/memory readings are omitted instead of publishing artificial
+  zero/negative values. Presence-based memory detection, busy-counter reset
+  handling, power state and the frequency ceiling are retained.
+- **OTLP histogram ingestion:** Stores count and available finite summary
+  statistics, aggregation temporality and typed attributes; parses integer
+  strings without float conversion. Invalid numeric points are reported and
+  skipped independently. Histogram buckets are not stored. Tagged series remain
+  distinct through the API and Prometheus export.
+- **GPU capability registry:** Added the upstream Xe3/Xe3p platform entries and
+  corrected Battlemage, Lunar Lake and Arrow Lake IDs. These are inferred
+  capabilities; a listed minimum kernel does not guarantee that a device is
+  enabled or supported by the installed runtime.
+
+### Changed
+
+- **Plugin-first delivery preserved:** Updated the shared, SHA-256-verified
+  official Telegraf archive to 1.40.2 and the digest-pinned Go toolchain to
+  1.27.3. Docker and the native package still use the same Go collectors and
+  Telegraf binary, with version mirrors checked by tests.
+  The official Telegraf binary embeds Go 1.27.1; the Go 1.27.3 pin applies to
+  the native plugins/TUI, not to a rebuild of that third-party binary.
+- **Python dependencies:** Aligned runtime and development minimums with
+  upstream, including FastAPI 0.143.1 and Uvicorn 0.54.0. OpenVINO remains an
+  optional build extra. Dependency resolution still follows the existing
+  manifest-based build; this change does not introduce a Python lockfile.
 
 ## Version 2026.2.0
 
@@ -125,7 +164,7 @@ None at this release. See GitHub issues for feature requests and discussions.
 ### Current Image
 
 - Intel® Metrics Manager **2026.1.0**
-- Telegraf **1.39.3** (system metrics agent)
+- Telegraf **1.40.2** (system metrics agent)
 - qmassa **2.1.0** (Intel® GPU telemetry via named pipe)
 - qmmd **0.2.0** _(optional)_ — Lightweight Prometheus GPU exporter (bundled but **not started by default**; use only if you need a separate GPU metrics port)
 - Native Go collectors `mm-plugin-cpu` / `mm-plugin-gpu` / `mm-plugin-npu` in `/usr/libexec/metrics-manager/`

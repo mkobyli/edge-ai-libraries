@@ -175,13 +175,13 @@ func TestFormatBandwidth(t *testing.T) {
 	}
 }
 
-func TestFormatMegabytes(t *testing.T) {
+func TestFormatMebibytes(t *testing.T) {
 	// The reading stays in the unit the plugin reported, so the number on
 	// screen matches the number in the metric.
-	if got := formatMegabytes(reading(512)); got != "512 MB" {
-		t.Errorf("got %q, want 512 MB", got)
+	if got := formatMebibytes(reading(512)); got != "512 MiB" {
+		t.Errorf("got %q, want 512 MiB", got)
 	}
-	if got := formatMegabytes(Reading{}); got != absent {
+	if got := formatMebibytes(Reading{}); got != absent {
 		t.Errorf("got %q, want %q", got, absent)
 	}
 }

@@ -209,6 +209,34 @@ mm-tui
 | `PgUp` `PgDn`, `Space` | Scroll a screen |
 | `Home` `End`, `g` `G` | Jump to the top or the bottom |
 
+### Screenshots
+
+These sanitized examples show an earlier build. Hostnames and process/user
+identifiers have been replaced; measurement values are unchanged. Layout and
+available panels depend on terminal width, hardware and enabled collectors.
+The current NPU memory label is **MiB**, rather than the older **MB** label
+visible in the Overview capture.
+
+**Overview:** grouped hardware readings, process tables and optional network
+and filesystem telemetry.
+
+![Overview with CPU, memory, GPU, NPU, process, network and filesystem panels](./images/mm-tui-overview.png)
+
+**Trends (charts):** recent metric history, using a five-minute window by default.
+
+![Trends showing CPU, memory, GPU and NPU charts over five minutes](./images/mm-tui-charts.png)
+
+**Alerts:** diagnostic threshold episodes with current values, peaks and durations.
+Thresholds are diagnostic aids, not hardware safety limits.
+
+![Alerts showing active CPU and memory threshold episodes](./images/mm-tui-alerts.png)
+
+NPU frequency arrives from the plugin in Hz. Overview chooses Hz/kHz/MHz/GHz
+for readability, while frequency charts use MHz: `1600000000 Hz` becomes
+`1.60 GHz` in Overview and `1600 MHz` on a chart. NPU bandwidth is already
+an MB/s rate and is not differentiated again by the TUI. NPU memory is already
+in MiB. Unavailable readings remain unavailable rather than becoming zero.
+
 ### Built-in help
 
 Show startup options, their defaults and examples without starting the TUI
@@ -1189,7 +1217,7 @@ The TUI automatically displays interfaces when `net_*` metrics are available:
   derived Network rates.
 
 The updated example enables both native
-[`net` input](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/net)
+[`net` input](https://github.com/influxdata/telegraf/tree/v1.40.2/plugins/inputs/net)
 and `inputs.ethtool`. Copy it only if the destination does not already exist:
 
 ```bash
@@ -1222,7 +1250,7 @@ Keep `metric_version = 1` and `export_timestamp = true` in the existing
 `outputs.prometheus_client` configuration. Expected names include `net_bytes_recv`,
 `net_bytes_sent`, `net_packets_recv`, `net_err_in`, `net_drop_in` and `net_speed`,
 with `interface` and normally `host` labels and a final timestamp in milliseconds.
-The pinned Telegraf 1.39.3 exporter uses these names without an added `_total`.
+The pinned Telegraf 1.40.2 exporter uses these names without an added `_total`.
 No root service, capabilities or sandbox relaxation are required by this input.
 If samples are absent, inspect `journalctl -u metrics-manager-telegraf.service`
 and interface selection before changing service permissions.
@@ -1378,8 +1406,8 @@ Details metrics. No empty Network groups appear before an interface is observed.
 ### Optional Storage monitoring
 
 Storage is **opt-in**, like Network. This implementation uses the existing
-Telegraf 1.39.3 [`disk`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/disk)
-and [`diskio`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/diskio)
+Telegraf 1.40.2 [`disk`](https://github.com/influxdata/telegraf/tree/v1.40.2/plugins/inputs/disk)
+and [`diskio`](https://github.com/influxdata/telegraf/tree/v1.40.2/plugins/inputs/diskio)
 inputs, not a new native collector or a scan of the TUI machine.
 No service capabilities, device permissions or container mounts are changed.
 
@@ -1479,7 +1507,7 @@ device is not automatically saturated or unhealthy. The chart deliberately
 does not clamp busy time to 100% or diagnose an SSD fault from it.
 SMART health, temperature, endurance, NVMe media errors and Linux RAID/ZFS
 health are not collected by these two inputs. Telegraf's
-[`smart`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/smart)
+[`smart`](https://github.com/influxdata/telegraf/tree/v1.40.2/plugins/inputs/smart)
 (including NVMe), `mdstat` and `zfs` are possible later stages; SMART requires
 additional tools and a separately reviewed privileged collection path.
 

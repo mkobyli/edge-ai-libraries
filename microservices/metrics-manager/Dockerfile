@@ -35,7 +35,7 @@
 
 # Toolchain base images (mirrors versions.env).
 ARG RUST_IMAGE=docker.io/library/rust:1.88
-ARG GO_IMAGE=docker.io/library/golang:1.26.6
+ARG GO_IMAGE=docker.io/library/golang:1.27@sha256:0c050feb47802ae436b9030833694a0b80160d08e3b3049ad30bf7c9e724e09d
 
 # -----------------------------------------------------------------------------
 # Stage 1: Build qmassa for GPU metrics
@@ -94,8 +94,8 @@ RUN cargo install --locked --git https://github.com/ulissesf/qmassa --tag qmassa
 FROM debian:12-slim AS telegraf-builder
 
 # Mirrors versions.env.
-ARG TELEGRAF_VERSION=1.39.3
-ARG TELEGRAF_SHA256=2904d5332a27a1a3f7ccd990139af2e9bc3b393cf5f7c6ac13e26ebc18df1d52
+ARG TELEGRAF_VERSION=1.40.2
+ARG TELEGRAF_SHA256=fcdc579a09227fa3e2e3e208d3cf75cfd03d42ae141a4b23b18659a94428bfa3
 ARG TELEGRAF_BASE_URL=https://dl.influxdata.com/telegraf/releases
 
 ARG http_proxy

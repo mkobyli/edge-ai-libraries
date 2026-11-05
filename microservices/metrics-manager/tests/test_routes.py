@@ -231,6 +231,84 @@ _OTLP_EMPTY = {"resourceMetrics": []}
 
 
 class TestOtlpIngestion:
+    def test_histogram_round_trip_keeps_distinct_series(self, client: TestClient):
+        payload = {
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "latency_ms",
+                                    "histogram": {
+                                        "aggregationTemporality": 2,
+                                        "dataPoints": [
+                                            {
+                                                "count": str(count),
+                                                "sum": total,
+                                                "attributes": [
+                                                    {
+                                                        "key": "worker",
+                                                        "value": {"intValue": str(worker)},
+                                                    }
+                                                ],
+                                                "bucketCounts": ["1", "1"],
+                                                "explicitBounds": [5],
+                                            }
+                                            for worker, count, total in [(1, 2, 10), (2, 4, 40)]
+                                        ],
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        response = client.post("/api/v1/metrics/otlp", json=payload)
+        assert response.status_code == 202
+        assert response.json()["accepted"] == 2
+        stored = client.get("/api/v1/metrics?name=latency_ms").json()["metrics"]
+        assert {m["tags"]["worker"]: m["fields"] for m in stored} == {
+            "1": {"count": 2, "sum": 10.0, "avg": 5.0},
+            "2": {"count": 4, "sum": 40.0, "avg": 10.0},
+        }
+        assert all(m["tags"]["temporality"] == "cumulative" for m in stored)
+        exported = client.get("/metrics").text.splitlines()
+        counts = [line for line in exported if line.startswith("latency_ms_count{")]
+        assert len(counts) == 2
+        assert any('worker="1"' in line and line.split()[-2] == "2" for line in counts)
+        assert any('worker="2"' in line and line.split()[-2] == "4" for line in counts)
+
+    def test_invalid_otlp_point_does_not_drop_valid_siblings(self, client: TestClient):
+        payload = {
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "queue_length",
+                                    "gauge": {
+                                        "dataPoints": [{"asInt": "42"}, {"asInt": "invalid"}]
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        response = client.post("/api/v1/metrics/otlp", json=payload)
+        assert response.status_code == 202
+        assert response.json()["accepted"] == 1
+        stored = client.get("/api/v1/metrics?name=queue_length").json()["metrics"]
+        assert stored[0]["fields"] == {"value": 42}
+        payload["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["gauge"]["dataPoints"] = [
+            {"asInt": "invalid"}
+        ]
+        assert client.post("/api/v1/metrics/otlp", json=payload).status_code == 400
+
     def test_push_valid_otlp_returns_202(self, client: TestClient):
         response = client.post("/api/v1/metrics/otlp", json=_OTLP_GAUGE)
         assert response.status_code == 202

@@ -31,6 +31,7 @@ MIRRORED_KEYS = (
     "QMASSA_VERSION",
     "QMMD_VERSION",
     "RUST_IMAGE",
+    "GO_IMAGE",
 )
 
 # versions.env is deliberately restricted to bare `KEY=value` lines so that
