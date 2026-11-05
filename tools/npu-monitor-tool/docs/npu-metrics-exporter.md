@@ -26,7 +26,7 @@ $ curl http://localhost:8000/metrics
 npu_monitor_temperature{dev_id="0xad1d"} 35.0
 # HELP npu_monitor_freq_hz DPU Frequency [Hz]
 # TYPE npu_monitor_freq_hz gauge
-npu_monitor_freq_hz{dev_id="0xad1d"} 1.2e+09
+npu_monitor_freq_hz{dev_id="0xad1d"} 1600000000.0
 # HELP npu_memory_util NPU Memory Utilization [MB]
 # TYPE npu_memory_util gauge
 npu_memory_util{dev_id="0xad1d"} 292.140625
@@ -44,17 +44,34 @@ npu_monitor_power{dev_id="0xad1d"} 1.6932698651519054
 npu_tile_config{dev_id="0xad1d"} 2.0
 ```
 
-### Metric units
+## Units and Missing Readings
 
-| Metric                    | Unit | Notes                                                                                                                                                                       |
-|---------------------------|------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `npu_monitor_temperature` | °C   |                                                                                                                                                                             |
-| `npu_monitor_freq_hz`     | Hz   | NPU (DPU) clock decoded from `VPU_WORKPOINT` with the kernel's per-generation formula, e.g. `1.4e+09` for 1400 MHz. Grafana unit `rothz` scales it to MHz/GHz automatically |
-| `npu_memory_util`         | MB   | **Not exported** on platforms without the `npu_memory_utilization` sysfs node (e.g. MTL/ARL)                                                                                |
-| `npu_memory_bandwidth`    | MB/s | Rate over the actual scrape interval, 32-bit counter wrap corrected                                                                                                         |
-| `npu_util`                | %    | **Not exported** when the `npu_busy_time_us` sysfs node isn't available                                                                                                     |
-| `npu_monitor_power`       | W    |                                                                                                                                                                             |
-| `npu_tile_config`         | —    |                                                                                                                                                                             |
+`npu_monitor_freq_hz` exports the real DPU clock in Hz, using the same PLL formula
+as the standalone CLI: MTL/ARL ratio 48 gives 1,600,000,000 Hz. The dashboard
+divides this by 1,000,000 to show MHz. Metric names and the `dev_id` label are
+unchanged; historical values produced by the old frequency scaling cannot be
+compared directly to new samples.
+
+`npu_memory_bandwidth` is always MB/s: the scaled PMT counter delta divided by
+actual monotonic elapsed seconds, with 32-bit counter wraparound corrected.
+Memory usage retains its existing MB convention (bytes divided by `1024 * 1024`).
+Availability follows the driver's sysfs nodes, not a PTL-only restriction.
+
+Unavailable measurements are omitted, and an earlier Gauge sample is removed
+when its reading disappears or becomes invalid. A measured zero is still
+exported as zero. After a missing counter or a busy-time/energy reset, the first
+valid counter establishes a new baseline; the following valid sample can produce
+a rate. A non-positive interval omits the rate without changing the baseline.
+Other available metrics continue to be exported.
+
+The dashboard uses explicit MHz, MB/s, and 0-100% units. Missing values use `N/A`
+or Grafana's no-data state; time series do not connect gaps. Instant queries and
+the `last` reducer prevent stat/gauge panels from retaining a previous non-null
+reading. Prometheus stores historical samples, so use a post-update time range
+when comparing the corrected units.
+
+This standalone exporter does not replace or become a dependency of
+metrics-manager's native `mm-plugin-npu` collector.
 
 # Prometheus
 ```bash

@@ -13,8 +13,8 @@ to track and analyze NPU performance.
 - **Power Consumption Tracking**: Monitor power usage in watts
 - **Thermal Management**: Track NPU temperature in Celsius
 - **Utilization Metrics**: View processing unit utilization percentage
-- **Memory Monitoring**: Track memory usage in MB/GB (PTL and later)
-- **Frequency Information**: Display operating frequency in Hz
+- **Memory Monitoring**: Track available memory usage in MB/GB
+- **Frequency Information**: Display the DPU clock in MHz
 - **Bandwidth Analysis**: Monitor NPU DDR average bandwidth in MB/s or GB/s
 - **Tile Configuration**: View current tile configuration
 - **CSV Export**: Export metrics to CSV format for data analysis and visualization
@@ -33,12 +33,13 @@ The tool supports the following Intel CPU generations with integrated NPU:
 - **Arrow Lake (ARL)**
 - **Lunar Lake (LNL)**
 - **Panther Lake (PTL)**
+- **Wildcat Lake (WCL)**
 
 ### Requirements
 
 - Linux operating system
 - Intel NPU with `intel_vpu` driver loaded
-- Python 3
+- Python 3.10 or later
 - Root or appropriate permissions to access sysfs interfaces
 - PMT (Platform Monitoring Technology) support enabled. (spec: https://www.intel.com/content/www/us/en/content-details/710389/intel-platform-monitoring-technology-intel-pmt-technical-specification.html)
 
@@ -90,11 +91,40 @@ The CSV file will contain the following columns:
 - timestamp
 - power (W)
 - frequency (Hz)
-- bandwidth (MB/s or GB/s)
+- bandwidth (always MB/s, regardless of terminal display scaling)
 - tile_config
 - temperature (°C)
 - utilization (%)
 - memory_usage (MB)
+- device (PCI device ID)
+
+Unavailable readings are empty CSV cells and `N/A` on screen, not `0` or `-1`.
+Measured zero remains zero. Memory availability is detected through sysfs, without
+a CPU-generation restriction. Memory-traffic counters are unavailable on platforms
+that do not expose the corresponding PMT registers.
+
+### Units and Sampling
+
+The PLL reference clock is 50 MHz. MTL/ARL use `ratio * 50 MHz * 2 / 3`;
+LNL/PTL/WCL use `ratio * 50 MHz / 2`. For example, ARL ratio 48 is
+1,600,000,000 Hz, displayed as 1600 MHz. No display-specific scaling is applied.
+
+Bandwidth is the change in the scaled PMT memory-traffic counter divided by the
+actual monotonic elapsed time, not the requested sleep interval. Each register's
+32-bit wrap range is `2^32 / 1000` MB. A 20 MB increase over 2 seconds is 10 MB/s,
+including across wraparound. Utilization and power also use actual elapsed time.
+Missing counter readings or busy-time/energy resets require a new baseline before
+a rate is available. Non-positive elapsed time omits derived readings and keeps
+the previous baseline. The CLI interval must be finite and positive.
+
+CSV column names remain unchanged, but `frequency` now contains real Hz and
+`bandwidth` contains real MB/s rather than the counter delta. Historical values
+written by the older scaling are not directly comparable. Update the exporter and
+Grafana dashboard together, and compare measurements collected after the update.
+
+The CLI uses only the Python standard library. The standalone tool and its
+exporter are independent of metrics-manager's native Go plugin; neither becomes
+a dependency of that plugin.
 
 ### Command-Line Options
 
@@ -114,7 +144,7 @@ The CSV file will contain the following columns:
 |                                                                                               |
 +===============================================================================================+
 |       Power Usage        |      DPU Freq        | NPU DDR Average Bandwidth |    Tile Conf    |
-|                2.5 [W]   |        1400 [Hz]     |               123.45 [MB/s] |               4 |
+|                2.5 [W]   |       1600 [MHz]     |               123.45 [MB/s] |               4 |
 +===============================================================================================+
 |       NPU Temperature    |       NPU Utilization       |      Memory Usage                    |
 |              45 [°C]     |                       25%   |                         512.00 [MB] |
@@ -141,3 +171,17 @@ The tool requires root privileges or appropriate permissions to access:
 - `/sys/class/intel_pmt/` - PMT telemetry interface
 - `/sys/bus/pci/drivers/intel_vpu/` - NPU driver interface
 - `/sys/kernel/debug/accel/` - NPU debug interface
+
+### Offline Regression Tests
+
+No NPU, root access, or running Prometheus/Grafana instance is needed:
+
+```bash
+python3 -m pip install pytest -r requirements-exporter.txt
+python3 -m pytest -q tests/
+```
+
+Tests cover PLL ratios, counter wrap, real-time CSV rates, missing versus zero
+readings, counter recovery, actual Prometheus exposition and the Flask endpoint,
+and the dashboard's units and missing-data settings. Hardware validation is still
+needed to confirm readings on a particular platform.
