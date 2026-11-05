@@ -7,6 +7,11 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Unreleased
 
+Target version: **2026.3.0**. Application metadata, logging defaults, Compose
+tags, plain Docker build defaults and current documentation examples now use
+this version. Runtime and image-tag overrides remain supported. Historical
+release entries, third-party version pins and Helm metadata are unchanged.
+
 ### Fixed
 
 - **Native NPU measurements:** Corrected PLL decoding for MTL/ARL/LNL/PTL and
@@ -163,7 +168,7 @@ None at this release. See GitHub issues for feature requests and discussions.
 
 ### Current Image
 
-- Intel® Metrics Manager **2026.1.0**
+- Intel® Metrics Manager **2026.3.0** (unreleased target)
 - Telegraf **1.40.2** (system metrics agent)
 - qmassa **2.1.0** (Intel® GPU telemetry via named pipe)
 - qmmd **0.2.0** _(optional)_ — Lightweight Prometheus GPU exporter (bundled but **not started by default**; use only if you need a separate GPU metrics port)

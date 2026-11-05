@@ -15,14 +15,89 @@ builds while claiming the same version. These tests turn that drift into a CI
 failure. Run ``make sync-versions`` to fix a reported mismatch.
 """
 
+import json
+import logging
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
+
+from app.logging_config import JSONFormatter
+from app.settings import Settings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSIONS_ENV = REPO_ROOT / "versions.env"
 DOCKERFILE = REPO_ROOT / "Dockerfile"
+
+
+@pytest.fixture(scope="module")
+def release_version():
+    return (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+
+class TestReleaseVersion:
+    def test_python_metadata(self, release_version):
+        project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        assert project["project"]["version"] == release_version
+
+    def test_settings_and_log_defaults(self, release_version):
+        assert Settings.model_fields["service_version"].default == release_version
+        record = logging.LogRecord("test", logging.INFO, __file__, 1, "version check", (), None)
+        assert json.loads(JSONFormatter().format(record))["version"] == release_version
+
+    def test_runtime_version_override(self, monkeypatch):
+        monkeypatch.setenv("SERVICE_VERSION", "custom-build")
+        settings = Settings()
+        assert settings.service_version == "custom-build"
+        record = logging.LogRecord("test", logging.INFO, __file__, 1, "version check", (), None)
+        formatter = JSONFormatter(service_version=settings.service_version)
+        assert json.loads(formatter.format(record))["version"] == "custom-build"
+
+    def test_environment_example(self, release_version):
+        example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        assert re.findall(r"^TAG=(.+)$", example, re.MULTILINE) == [release_version]
+        assert re.findall(r"^#SERVICE_VERSION=(.+)$", example, re.MULTILINE) == [release_version]
+
+    def test_compose_defaults_preserve_tag_override(self, release_version):
+        compose = yaml.safe_load((REPO_ROOT / "compose.yaml").read_text(encoding="utf-8"))
+        for name in ("metrics-manager", "metrics-manager-test"):
+            service = compose["services"][name]
+            assert service["image"] == "${REGISTRY:-}" + name + ":${TAG:-" + release_version + "}"
+            assert service["build"]["args"]["VERSION"] == "${TAG:-" + release_version + "}"
+
+    def test_docker_build_defaults(self, release_version, dockerfile_text):
+        defaults = re.findall(r"^ARG VERSION=(\S+)$", dockerfile_text, re.MULTILINE)
+        assert defaults == [release_version, release_version]
+
+    @pytest.mark.parametrize("endpoint", ["/", "/health", "/api/health"])
+    @pytest.mark.parametrize("override", [None, "custom-build"])
+    def test_api_reports_release(self, endpoint, override, client, release_version, monkeypatch):
+        from app.settings import get_settings
+
+        expected = override or release_version
+        monkeypatch.setattr(get_settings(), "service_version", expected)
+        response = client.get(endpoint)
+        assert response.status_code == 200
+        assert response.json()["version"] == expected
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "docs/user-guide/api-reference.md",
+            "docs/user-guide/get-started.md",
+            "docs/user-guide/get-started/environment-variables.md",
+            "docs/user-guide/get-started/native-docker-collectors.md",
+            "README.md",
+        ],
+    )
+    def test_current_documentation_versions(self, path, release_version):
+        text = (REPO_ROOT / path).read_text(encoding="utf-8")
+        references = re.findall(r"(?<![\d.])2026\.\d+\.\d+(?![\d.]|-helm)", text)
+        assert references, f"No current version references found in {path}"
+        assert set(references) == {release_version}
+
 
 # Keys in versions.env that must be mirrored by an `ARG <KEY>=<value>` default.
 MIRRORED_KEYS = (

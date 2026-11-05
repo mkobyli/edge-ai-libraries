@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Environment Variables
 
 Configuration is managed via environment variables. All variables map directly to Pydantic Settings field names (case-insensitive). The `.env` file is loaded automatically by `docker compose up`.
@@ -9,7 +14,7 @@ Configuration is managed via environment variables. All variables map directly t
 | `HOST` | `0.0.0.0` | API server bind address |
 | `METRICS_PORT` | `9090` | Metrics Manager API port |
 | `SERVICE_NAME` | `metrics-manager` | Service name used in logs and health checks |
-| `SERVICE_VERSION` | `2026.1.0` | Service version reported in health endpoints |
+| `SERVICE_VERSION` | `2026.3.0` | Service version reported in health endpoints |
 | `ENVIRONMENT` | `production` | Deployment environment: `development`, `staging`, `production`. Production disables `/docs` and `/redoc` Swagger endpoints |
 | `LOG_LEVEL` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `LOG_FORMAT` | `json` | Log format: `json` (structured, for log aggregators) or `text` (human-readable) |
@@ -217,7 +222,7 @@ Any `*.conf` file dropped into `/etc/supervisor/conf.d/` is picked up automatica
 ### Pattern: Add a Program in Your Downstream Image
 
 ```dockerfile
-FROM intel/metrics-manager:2026.1.0
+FROM intel/metrics-manager:2026.3.0
 
 # Drop additional supervisord program units into the include directory.
 COPY my-extra-service.conf /etc/supervisor/conf.d/my-extra-service.conf

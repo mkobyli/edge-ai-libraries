@@ -64,7 +64,7 @@ your image. The example uses an existing image; it does not rebuild it.
 Set the tag of your native-enabled image, for example:
 
 ```bash
-export METRICS_MANAGER_IMAGE=metrics-manager:2026.1.0
+export METRICS_MANAGER_IMAGE=metrics-manager:2026.3.0
 docker image inspect "$METRICS_MANAGER_IMAGE" > /dev/null
 ```
 

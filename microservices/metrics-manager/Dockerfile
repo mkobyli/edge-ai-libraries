@@ -154,7 +154,7 @@ RUN set -eux; \
 # here instead of being silently rewritten into the image.
 FROM ${GO_IMAGE} AS go-builder
 
-ARG VERSION=unknown
+ARG VERSION=2026.3.0
 
 WORKDIR /src
 COPY native/ ./
@@ -226,6 +226,8 @@ RUN uv sync --group test --no-install-project
 # Copy source code, tests, and all config files read by wiring tests
 COPY app ./app
 COPY tests ./tests
+COPY docs ./docs
+COPY README.md ./
 COPY native ./native
 COPY helm ./helm
 COPY pyproject.toml ./
@@ -369,7 +371,7 @@ EXPOSE 9090 9273 8186
 
 # OCI image metadata - version is read from the VERSION file at build time
 # (single source of truth used by Makefile / docker compose).
-ARG VERSION=unknown
+ARG VERSION=2026.3.0
 LABEL org.opencontainers.image.title="metrics-manager" \
       org.opencontainers.image.description="Unified metrics collection, ingestion, and relay service" \
       org.opencontainers.image.version="${VERSION}" \
