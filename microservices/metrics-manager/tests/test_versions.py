@@ -78,6 +78,20 @@ class TestReleaseVersion:
         assert 'org.opencontainers.image.version="${VERSION}"' in production
         assert "-X main.version=${VERSION}" in dockerfile_text
 
+    def test_native_package_runtime_dependencies(self):
+        package = yaml.safe_load(
+            (REPO_ROOT / "native/packaging/nfpm.yaml").read_text(encoding="utf-8")
+        )
+        assert {
+            "adduser",
+            "systemd",
+            "kmod",
+            "libudev1",
+            "libcap2",
+            "libgcc-s1",
+            "libc6 (>= 2.34)",
+        } <= set(package["depends"])
+
     @pytest.mark.parametrize("endpoint", ["/", "/health", "/api/health"])
     @pytest.mark.parametrize("override", [None, "custom-build"])
     def test_api_reports_release(self, endpoint, override, client, release_version, monkeypatch):

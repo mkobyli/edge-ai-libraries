@@ -17,6 +17,11 @@ it on a local Prometheus endpoint, and renders it in a terminal dashboard.
 The package covers telemetry collection and the dashboard. The REST API and the
 SSE stream remain container-only.
 
+The amd64 package requires a systemd-based Debian/Ubuntu system with glibc
+2.34 or newer. Install it with `apt`, which resolves the declared runtime
+libraries and maintainer-script dependencies (`adduser`, `systemd`, `kmod`).
+Installing with `dpkg -i` alone does not fetch missing dependencies.
+
 ## Quick start
 
 ```bash
@@ -62,6 +67,11 @@ rebuilding it every time (but rebuild after changing a collector or adding
 ```bash
 SKIP_IMAGE_BUILD=1 ./native/build.sh
 ```
+
+Reuse an image built with the same version as the package. For the `2026.3.0`
+package, the default local source is `metrics-manager:2026.3.0`; the separate
+Docker Hub RC tags are not package inputs, because their embedded collector
+versions include the RC suffix. Building the package does not publish images.
 
 The package is amd64 only. qmassa is Rust, and cross-building it for arm64 has
 not been set up.

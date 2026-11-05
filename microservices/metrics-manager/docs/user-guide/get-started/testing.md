@@ -42,6 +42,10 @@ docker compose --profile test run --rm metrics-manager-test \
 
 ## Running Tests Locally
 
+For Debian package installation tests, see
+[Isolated Debian package tests](#isolated-debian-package-tests). They do not
+require a local Python environment.
+
 ### Prerequisites
 
 - **Python 3.10+** (`python3 --version`)
@@ -100,6 +104,54 @@ pytest tests/test_models.py -v
 ```
 
 ---
+
+## Isolated Debian package tests
+
+Build the package first using `./native/build.sh`. From the component directory,
+run both scenarios in fresh Ubuntu 24.04 containers:
+
+```bash
+(
+set -e
+for scenario in fresh upgrade; do
+  docker run --rm \
+    --cap-drop ALL \
+    --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+    --cap-add SETUID --cap-add SETGID \
+    --security-opt no-new-privileges \
+    --cpus 2 --memory 2g \
+    -e http_proxy -e https_proxy -e HTTP_PROXY -e HTTPS_PROXY \
+    -e no_proxy -e NO_PROXY \
+    -e DEBIAN_FRONTEND=noninteractive \
+    -e METRICS_MANAGER_PACKAGE_TEST=1 \
+    -v "$PWD/native/packaging/dist/metrics-manager_2026.3.0_amd64.deb:/packages/metrics-manager.deb:ro" \
+    -v "$PWD/native/tests/package-install-test.sh:/tests/package-install-test.sh:ro" \
+    ubuntu:24.04 \
+    bash /tests/package-install-test.sh /packages/metrics-manager.deb "$scenario"
+done
+)
+```
+
+These tests use real `apt`/`dpkg`, need network access to Ubuntu package
+repositories, and install declared dependencies plus `curl` inside disposable
+containers only. They do not mount host system directories, expose ports or
+grant kernel-module/service-management privileges. The script refuses an
+existing Metrics Manager installation or a running systemd instance.
+
+The fresh scenario checks dependency resolution, the service account, file/FIFO
+ownership and modes, binary versions, packaged documentation and offline
+systemd unit validation. It also runs the installed Telegraf as the service
+user and checks an HTTP-ingested sample at the loopback Prometheus endpoint.
+
+The upgrade scenario creates a **synthetic lower-version package fixture**
+from the current payload. It verifies that all five modified conffiles survive,
+incoming defaults appear as `.dpkg-dist`, and operator drop-ins/scripts remain
+unchanged. This tests package-manager upgrade semantics; it is not a test of an
+older release's binaries or automatic metric/configuration migration.
+
+Real systemd startup, restart/upgrade behavior, reboot and privileged hardware
+collection must additionally be exercised on a disposable VM or explicitly
+approved test host. Container tests do not validate systemd sandbox enforcement.
 
 ## Telemetry selection regression tests
 

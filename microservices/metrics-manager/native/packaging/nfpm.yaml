@@ -32,10 +32,16 @@ homepage: https://github.com/open-edge-platform/edge-ai-libraries
 license: Apache-2.0
 
 depends:
+  # Maintainer scripts create the account, runtime files and systemd services.
+  - adduser
+  - systemd
+  - kmod
   # qmassa links against both: libudev to enumerate the graphics devices and
   # libcap to inspect its own privileges.
   - libudev1
   - libcap2
+  - libgcc-s1
+  - libc6 (>= 2.34)
 
 contents:
   # --- Executables ----------------------------------------------------------
