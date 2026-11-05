@@ -206,9 +206,10 @@ func (t *Telemetry) EnergyJoules() float64 {
 	return float64(whole) + fraction
 }
 
-// BandwidthMB returns the accumulated 32-bit network-on-chip counter in MB.
-func (t *Telemetry) BandwidthMB() float64 {
-	return float64(t.read(uint(t.regs.memoryBW), 31, 0)) / 1e3
+// BandwidthBytes returns the accumulated network-on-chip transfer counter.
+// The 32-bit counter counts decimal kilobytes.
+func (t *Telemetry) BandwidthBytes() float64 {
+	return float64(t.read(uint(t.regs.memoryBW), 31, 0)) * 1e3
 }
 
 // readTrimmed reads a sysfs attribute and strips surrounding whitespace.

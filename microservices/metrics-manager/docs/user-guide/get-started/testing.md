@@ -1,12 +1,19 @@
+<!--
+SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Testing Guide
 
 This guide covers how to run tests for Metrics Manager.
 
 ## Prerequisites
 
-- Service is running: `docker compose up -d`
-- Or local setup with uvicorn and Telegraf running
-- `curl` or similar HTTP client
+- Unit and configuration-wiring tests do not require a running Metrics Manager
+  service or Telegraf daemon.
+- Docker-based test runs require Docker and Compose; local runs require the
+  Python test environment described below.
+- Manual API checks require a running service and `curl` or a similar client.
 
 ---
 
@@ -15,7 +22,7 @@ This guide covers how to run tests for Metrics Manager.
 ### Build Test Image
 
 ```bash
-docker compose build
+docker compose --profile test build metrics-manager-test
 ```
 
 ### Run All Tests
@@ -24,7 +31,9 @@ docker compose build
 docker compose --profile test run --rm metrics-manager-test
 ```
 
-Expected output: `179 passed in ~2s`
+The test count and duration depend on the checkout and selected tests. A
+successful run exits with status zero; inspect failures and warnings rather
+than matching a historical summary count.
 
 ### Run with Coverage Report
 
@@ -37,11 +46,16 @@ docker compose --profile test run --rm metrics-manager-test \
 
 ## Running Tests Locally
 
+For Debian package installation tests, see
+[Isolated Debian package tests](#isolated-debian-package-tests). They do not
+require a local Python environment.
+
 ### Prerequisites
 
-- **Python 3.10+** (`python3 --version`)
-- **uv** (fast package manager): `pip install uv`
-- **Telegraf** installed and running on the system
+- **Python 3.12+** (`python3 --version`)
+- **uv**: follow the [uv installation instructions](https://docs.astral.sh/uv/getting-started/installation/)
+- For binary-backed collector selection tests, the pinned Telegraf executable;
+  it does not need to run as a service.
 
 ### Setup
 
@@ -58,25 +72,10 @@ docker compose --profile test run --rm metrics-manager-test \
    uv sync --group test
    ```
 
-3. **Configure the environment:**
-
-   ```bash
-   cp .env.example .env
-   ```
-
-   Edit `.env` to point to your local Telegraf:
-
-   ```bash
-   TELEGRAF_PORT=9273
-   TELEGRAF_HTTP_ENDPOINT=http://localhost:8186/write
-   PROMETHEUS_TELEGRAF_ENDPOINT=http://localhost:9273
-   ```
-
-4. **Start Telegraf on host:**
-
-   ```bash
-   telegraf --config telegraf.conf
-   ```
+3. **Select optional binary-backed tests:** see
+   [Telemetry selection regression tests](#telemetry-selection-regression-tests).
+   The ordinary suite uses isolated fixtures and does not require starting
+   Telegraf with the container configuration on your host.
 
 ### Run Tests
 
@@ -95,6 +94,175 @@ pytest tests/test_models.py -v
 ```
 
 ---
+
+## Isolated Debian package tests
+
+Build the package first using `./native/build.sh`. From the component directory,
+run both scenarios in fresh Ubuntu 24.04 containers:
+
+```bash
+(
+set -e
+for scenario in fresh upgrade; do
+  docker run --rm \
+    --cap-drop ALL \
+    --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+    --cap-add SETUID --cap-add SETGID \
+    --security-opt no-new-privileges \
+    --cpus 2 --memory 2g \
+    -e http_proxy -e https_proxy -e HTTP_PROXY -e HTTPS_PROXY \
+    -e no_proxy -e NO_PROXY \
+    -e DEBIAN_FRONTEND=noninteractive \
+    -e METRICS_MANAGER_PACKAGE_TEST=1 \
+    -v "$PWD/native/packaging/dist/metrics-manager_2026.3.0_amd64.deb:/packages/metrics-manager.deb:ro" \
+    -v "$PWD/native/tests/package-install-test.sh:/tests/package-install-test.sh:ro" \
+    ubuntu:24.04 \
+    bash /tests/package-install-test.sh /packages/metrics-manager.deb "$scenario"
+done
+)
+```
+
+These tests use real `apt`/`dpkg`, need network access to Ubuntu package
+repositories, and install declared dependencies plus `curl` inside disposable
+containers only. They do not mount host system directories, expose ports or
+grant kernel-module/service-management privileges. The script refuses an
+existing Metrics Manager installation or a running systemd instance.
+
+The fresh scenario checks dependency resolution, the service account, file/FIFO
+ownership and modes, binary versions, packaged documentation and offline
+systemd unit validation. It also runs the installed Telegraf as the service
+user and checks an HTTP-ingested sample at the loopback Prometheus endpoint.
+
+The upgrade scenario creates a **synthetic lower-version package fixture**
+from the current payload. It verifies that all five modified conffiles survive,
+incoming defaults appear as `.dpkg-dist`, and operator drop-ins/scripts remain
+unchanged. This tests package-manager upgrade semantics; it is not a test of an
+older release's binaries or automatic metric/configuration migration.
+
+Real systemd startup, restart/upgrade behavior, reboot and privileged hardware
+collection must additionally be exercised on a disposable VM or explicitly
+approved test host. Container tests do not validate systemd sandbox enforcement.
+
+## Release validation scope
+
+Keep the following checks separate when recording release evidence:
+
+- Test both explicitly tagged [RC image variants](../../../README.md#building-both-release-candidate-variants)
+  with bridge and host networking, custom ports, API ingestion, Prometheus/SSE
+  output, custom configuration/scripts and orderly shutdown.
+- Toggle optional collectors, verify that startup snapshots do not retain
+  disabled inputs, and verify visible rejection of invalid flags or overlapping
+  custom inputs. Missing Turbostat or inaccessible hardware must be reported,
+  not interpreted as successful hardware collection.
+- Unprivileged containers without host devices/PID access can validate API,
+  networking and degraded behavior. They do not prove privileged GPU/NPU/PMU
+  collection or OpenVINO hardware execution. Host-network tests also need
+  explicit approval and controlled listener addresses/ports.
+- A real installed-version upgrade and systemd stop/start/restart test is
+  distinct from the synthetic package upgrade fixture. Record actual service
+  users/capabilities, socket/FIFO permissions and fresh telemetry after restart.
+  Boot after a reboot is a separate check requiring host-owner approval.
+- Scan the final images and package payload, and inventory the locked Rust
+  dependencies used to build qmassa/qmmd. A scanner that does not recognize an
+  embedded dependency ecosystem is not evidence that it is vulnerability-free.
+
+For the 2026.3.0 RC publication gate, CRITICAL/HIGH findings must be resolved;
+remaining Debian findings keep publication pending. Passing functional tests
+does not satisfy this security gate, and scanner exclusions are not fixes.
+UNKNOWN findings are unscored, not proof of safety.
+
+For extended images, also record the pinned Intel vendor package versions.
+An image/package scan does not automatically inventory every native dependency
+embedded in the GPU/NPU compilers. Absence of scanner findings for those vendor
+packages is not a complete audit of their bundled C/C++ components.
+
+## Telemetry selection regression tests
+
+The selection tests check the actual bundled Telegraf examples. To also run
+deterministic tests with the pinned Telegraf binary, use the existing project
+Python test environment from the component directory:
+
+```bash
+TELEGRAF_TEST_BINARY=/usr/bin/telegraf \
+  .venv/bin/python -m pytest tests/test_telemetry_selection.py tests/test_docker_collectors.py -q
+bash native/tests/configure-metrics-test.sh
+```
+
+Use the Telegraf version pinned in `versions.env`. Without
+`TELEGRAF_TEST_BINARY`, only the binary-dependent fixture tests are skipped;
+the static selection and Docker configuration tests still run.
+The fixtures use temporary procfs/sysfs/udev data and `telegraf --test`, not
+real host disks, mounts or network traffic. They verify primary/virtual NIC
+separation, exact custom mount/device selections, serial/WWID opt-in and IRQ
+field filtering. IRQ filtering uses line-protocol fixtures because that input
+has no procfs path override. No service, root privileges or hardware access
+is required. These checks complement, not replace, hardware validation.
+
+## Native memory-bandwidth validation
+
+From the native module, run:
+
+```bash
+go test ./internal/cpu ./internal/membw
+```
+
+Fixtures cover nonzero representative CPUs, multiple dies/controllers, duplicate
+PMU aliases, complete DDR subchannel pairs, aggregate-versus-subchannel selection,
+exact byte rates, invalid CPU masks, permission/open failures and short reads.
+Failed snapshots must not change any baseline or publish partial host totals;
+counter resets re-prime the entire set.
+
+The hardware smoke test also passed on a dual-socket Xeon 6972P with Linux 6.8:
+six IMC PMU types, representatives `0,96`, and two DDR subchannels per PMU.
+`strace -f -c -e trace=perf_event_open` confirmed **48 successful opens**:
+6 PMUs * 2 sockets * 2 subchannels * 2 directions. The unprivileged run under
+`perf_event_paranoid=4` failed visibly without publishing a measurement.
+The privileged `-once` run emitted read/write/total in bytes/s.
+
+For an independent counter check on that event layout:
+
+```bash
+sudo env LC_ALL=C perf stat -a --per-socket --no-big-num -x ';' \
+  -e 'uncore_imc/cas_count_read_sch0/,uncore_imc/cas_count_read_sch1/,uncore_imc/cas_count_write_sch0/,uncore_imc/cas_count_write_sch1/' \
+  -- sleep 2
+```
+
+Check `perf list` for the installed tool's event names. Perf 6.8 uses the
+aggregate `uncore_imc/` selector for these PMUs. Both sockets reported both
+directions/subchannels with 100% running time. Run perf and the collector
+**sequentially**, not together: they compete for counter slots. Separate time
+windows need not have identical rates; this smoke test establishes coverage
+and error handling, not peak-bandwidth calibration or a workload benchmark.
+The collector itself needs no external perf executable.
+No host perf policy, service permissions or capabilities were changed.
+
+## OpenVINO accelerator smoke test
+
+On an approved host with supported Intel GPU and NPU devices, run this from the
+component directory after building the extended image:
+
+```bash
+docker run --rm --network none --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --device /dev/dri --device /dev/accel \
+  --memory 3g --cpus 4 --pids-limit 256 \
+  --mount "type=bind,source=$PWD/tests/openvino_runtime_smoke.py,target=/validation/smoke.py,readonly" \
+  --entrypoint /opt/venv/bin/python \
+  intel/metrics-manager:2026.3.0-extended-rc1 /validation/smoke.py
+```
+
+This runs a small synthetic graph for five seconds on each of CPU, GPU and NPU,
+checks changing inputs against expected numerical outputs, and verifies the
+actual execution device. It does not use `AUTO` or CPU fallback. Missing devices,
+compilation failures and incorrect results produce a nonzero exit status.
+This is an explicit hardware test, not part of the ordinary pytest suite and
+not a performance benchmark or validation of every model/platform.
+
+The command grants only the device nodes needed for inference, not host PID,
+the Docker socket or privileged mode. The broader telemetry matrix additionally
+tests PMT/perf/MSR access using the separately approved telemetry deployment.
+Host kernel drivers and NPU firmware must already be compatible; this test
+does not install or modify them.
 
 ## Test Categories
 
@@ -237,9 +405,12 @@ tests/test_metrics.py::...               PASSED
 tests/test_rate_limit.py::...            PASSED
 tests/test_sse.py::...                   PASSED
 tests/test_versions.py::...              PASSED
-tests/test_telegraf_integration.py::...  SKIPPED (requires Docker)
-========================= 179 passed, 1 skipped in 1.70s ==============
+tests/test_telegraf_integration.py::...  PASSED
 ```
+
+This is an illustrative excerpt. `test_telegraf_integration.py` checks wiring
+without launching Docker. Tests needing an external Telegraf binary may skip
+when it is not supplied; record those skips separately from completed checks.
 
 ---
 
@@ -254,10 +425,17 @@ uv sync --group test --group dev
 # Run with auto-reload
 uvicorn app.main:app --reload --port 9090
 
-# Run linting and formatting
-black app/
-ruff check app/
+# Check the native/Docker Python scope (Helm validation is separate)
+.venv/bin/black --check --extend-exclude 'test_helm_chart\.py$' app tests docker_collectors.py
+.venv/bin/ruff check --exclude test_helm_chart.py app tests docker_collectors.py
+.venv/bin/mypy app docker_collectors.py
+.venv/bin/python -m pytest --ignore=tests/test_helm_chart.py
 ```
+
+Async fixtures use function-scoped event loops and close their stores/clients.
+Resource leaks and unraisable exceptions fail the suite rather than being
+silenced. Lifecycle regressions cover queued/active HTTP pushes, debounce
+cancellation and cleanup when the application lifespan exits with an error.
 
 ---
 
@@ -265,10 +443,10 @@ ruff check app/
 
 | Issue                          | Solution                                                          |
 | ------------------------------ | ----------------------------------------------------------------- |
-| `Module not found: app`        | Ensure you are in `metrics-manager/` directory and ran `uv sync`  |
-| `Connection refused on :9090`  | Telegraf not running. Start it: `telegraf --config telegraf.conf` |
-| `Test fixtures failed`         | Clear cache: `pytest --cache-clear`                               |
-| `telegraf_integration skipped` | Expected if not in Docker. Other tests still pass                 |
+| `Module not found: app`        | Run from `edge-ai-libraries/microservices/metrics-manager` in the environment created by `uv sync --group test`. |
+| `Connection refused on :9090`  | The API is not listening there. Check the API process and configured host port; Telegraf exports on 9273, not 9090. |
+| `Test fixtures failed`         | Re-run the failing test with `pytest -vv` and inspect its setup/teardown error. Do not suppress resource warnings. |
+| Binary-backed tests skipped  | Supply the pinned executable through `TELEGRAF_TEST_BINARY`; configuration-wiring tests do not require Docker. |
 
 ## Supporting Resources
 

@@ -21,22 +21,31 @@ See [System Requirements](./get-started/system-requirements.md) for detailed har
 
 ## Pre-built Image (Optional)
 
+This checkout targets the unreleased 2026.3.0 version. Until that image is
+published, use the build-from-source instructions. Registry examples below use
+the target release tag.
+
 Instead of building from source, you can pull the pre-built Docker image from the registry:
 
 ```bash
-docker pull intel/metrics-manager:2026.1.0
+docker pull intel/metrics-manager:2026.3.0
 ```
 
-The image is based on `python:3.12-slim` and includes:
+The image uses a digest-pinned `python:3.12-slim-trixie` base (Debian 13) and includes:
 
-- Telegraf 1.40.2 (system metrics agent)
+- Telegraf 1.40.3 (system metrics agent)
 - qmassa 2.1.0 (Intel® GPU telemetry)
 - Native Go collectors: `mm-plugin-cpu`, `mm-plugin-gpu`, `mm-plugin-npu`,
   `mm-plugin-proc`, `mm-plugin-membw`, plus the opt-in `mm-plugin-rapl`
 - Python 3.12 runtime with FastAPI
 - supervisord process manager
 
-**GPU/NPU Drivers:** No proprietary drivers are bundled in the image. GPU and NPU metrics are read directly from sysfs (`/sys/`) at runtime, so no additional setup is needed on the host beyond accessing `/dev/dri/*` for GPUs.
+**GPU/NPU prerequisites:** The host must provide the appropriate GPU/NPU drivers
+and telemetry interfaces. GPU collection uses qmassa and can require DRM,
+perf or MSR access; NPU telemetry requires supported PMT data and read
+permissions. Installing an image does not supply host kernel drivers.
+The extended build adds OpenVINO and VAAPI userspace tooling, not kernel
+drivers. See [hardware-specific requirements](./get-started/system-requirements.md#hardware-specific-notes).
 
 **Next:** You can now run the image directly with `docker run` (see [Running Without Docker Compose](#running-without-docker-compose-docker-run) below), or continue below to build from source using Docker Compose.
 
@@ -48,7 +57,7 @@ The image is based on `python:3.12-slim` and includes:
 
 ```bash
 git clone https://github.com/open-edge-platform/edge-ai-libraries.git -b main
-cd edge-ai-libraries/metrics-manager
+cd edge-ai-libraries/microservices/metrics-manager
 ```
 
 ### Step 2: Configure Environment
@@ -123,7 +132,7 @@ docker run --rm \
   -v /sys:/sys:ro \
   -v /run:/run:ro \
   --pid host \
-  intel/metrics-manager:2026.1.0
+  intel/metrics-manager:2026.3.0
 ```
 
 Then verify:
@@ -145,7 +154,7 @@ docker run --rm \
   -v /sys:/sys:ro \
   -v /run:/run:ro \
   --pid host \
-  intel/metrics-manager:2026.1.0
+  intel/metrics-manager:2026.3.0
 ```
 
 Verify GPU metrics:
@@ -165,7 +174,7 @@ docker run --rm --privileged \
   -v /sys:/sys:ro \
   -v /run:/run:ro \
   --pid host \
-  intel/metrics-manager:2026.1.0
+  intel/metrics-manager:2026.3.0
 ```
 
 Verify NPU metrics:
@@ -184,7 +193,7 @@ docker run --rm --privileged \
   -v /sys:/sys:ro \
   -v /run:/run:ro \
   --pid host \
-  intel/metrics-manager:2026.1.0
+  intel/metrics-manager:2026.3.0
 ```
 
 ### With Custom Ports
@@ -198,7 +207,7 @@ docker run --rm \
   -v /sys:/sys:ro \
   -v /run:/run:ro \
   --pid host \
-  intel/metrics-manager:2026.1.0
+  intel/metrics-manager:2026.3.0
 ```
 
 Then access on the new ports:
@@ -221,7 +230,7 @@ docker run --rm \
   -v /sys:/sys:ro \
   -v /run:/run:ro \
   --pid host \
-  intel/metrics-manager:2026.1.0
+  intel/metrics-manager:2026.3.0
 ```
 
 See [Environment Variables](./get-started/environment-variables.md) for all available variables.
@@ -231,10 +240,12 @@ See [Environment Variables](./get-started/environment-variables.md) for all avai
 For optional per-CPU powerstat, high-resolution temperature, IRQ, network,
 storage, RAPL and Turbostat collection, follow
 [Additional collectors in the native-enabled Docker image](./get-started/native-docker-collectors.md).
-This image uses Telegraf configuration, not the collector `ENABLE_*` switches
-from Python-reader images or the bare-metal configuration helper. The guide
-includes a complete Compose recipe and explains why mounting `telegraf.d/`
-alone does not enable inputs.
+Use this image's native-consistent `ENABLE_*` flags or mounted `.conf` drop-ins,
+not legacy Python-reader switch names or the bare-metal configuration helper.
+The guide also covers the optional `host-nic-telemetry` deployment variant,
+explicit service switching, and host-network port exposure. Bridge mode
+remains the default; the host-NIC variant enables network collection unless
+explicitly disabled.
 
 ### With Custom Metrics Directory (Volume Mount)
 
@@ -250,7 +261,7 @@ docker run --rm \
   -v /run:/run:ro \
   -v ./my-scripts:/app/custom-metrics \
   --pid host \
-  intel/metrics-manager:2026.1.0
+  intel/metrics-manager:2026.3.0
 ```
 
 Drop your scripts in `./my-scripts/` (they must be executable: `chmod +x script.sh`).
@@ -267,7 +278,7 @@ docker run -d \
   -v /sys:/sys:ro \
   -v /run:/run:ro \
   --pid host \
-  intel/metrics-manager:2026.1.0
+  intel/metrics-manager:2026.3.0
 ```
 
 Stop it:
@@ -360,26 +371,20 @@ TELEGRAF_CONFIG=./my-telegraf.conf
 
 ### Add Inputs on Top of Default Config
 
-The native-enabled container does not automatically load `telegraf.d/`.
-Append additional input definitions to a copy of the base config and mount
-that file. For example, enable the bundled native RAPL collector:
+The container loads `.conf` files recursively from the mounted `telegraf.d/`
+directory, or the directory selected by `TELEGRAF_CONFIG_DIR`. Startup copies
+them into a private snapshot without modifying the originals. Recreate the
+selected container after changing these files.
+
+For a bundled optional collector, prefer its enable flag. For example:
 
 ```bash
-cp telegraf.conf my-telegraf.conf
-
-cat >> my-telegraf.conf <<'EOF'
-
-[[inputs.execd]]
-  command = ["/usr/libexec/metrics-manager/mm-plugin-rapl"]
-  signal = "none"
-  restart_delay = "10s"
-  data_format = "influx"
-EOF
-
-TELEGRAF_CONFIG=./my-telegraf.conf docker compose up -d --no-build --force-recreate metrics-manager
+ENABLE_RAPL=true docker compose up -d --no-build --force-recreate metrics-manager
 ```
 
-Use a new file name if `my-telegraf.conf` already contains local edits.
+If custom configuration already declares the RAPL input, keep
+`ENABLE_RAPL=false`: the flag controls automatic additions, not your custom
+input. Enabling both is rejected as a conflict.
 RAPL requires readable host energy counters; package power can appear even
 when the hardware has no platform (`psys`) domain. See the complete
 [additional native Docker collectors guide](./get-started/native-docker-collectors.md)

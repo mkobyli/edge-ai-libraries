@@ -30,9 +30,12 @@
 package membw
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +43,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/open-edge-platform/edge-ai-libraries/microservices/metrics-manager/native/internal/cpu"
 	"github.com/open-edge-platform/edge-ai-libraries/microservices/metrics-manager/native/internal/lineproto"
 )
 
@@ -78,7 +82,7 @@ var eventPairs = []eventPair{
 
 // expectedUnit is the unit every known counter publishes. It is checked rather
 // than assumed: a counter measured in something else would be reported under a
-// field name claiming mebibytes per second, and the number would look
+// field name claiming bytes per second, and the number would look
 // perfectly ordinary while being wrong.
 const expectedUnit = "MiB"
 
@@ -89,6 +93,8 @@ type counter struct {
 	// spelling the machine uses.
 	canonical string
 	event     string
+	device    string
+	cpu       int
 
 	// scale converts a raw count into MiB, as published by sysfs alongside
 	// the event. It is 1/16384 on current parts, one count per 64 bytes,
@@ -125,6 +131,12 @@ var eventNames = []string{"read", "write"}
 // nothing is worse than one that says why. The usual reason is a missing
 // CAP_PERFMON, and that is worth an error message.
 func NewCollector(sysfsGlob, hostname string) (*Collector, error) {
+	return newCollector(sysfsGlob, hostname, unix.PerfEventOpen)
+}
+
+type perfOpener func(*unix.PerfEventAttr, int, int, int, int) (int, error)
+
+func newCollector(sysfsGlob, hostname string, open perfOpener) (_ *Collector, err error) {
 	devices, err := filepath.Glob(sysfsGlob)
 	if err != nil {
 		return nil, fmt.Errorf("bad device pattern %q: %w", sysfsGlob, err)
@@ -132,27 +144,67 @@ func NewCollector(sysfsGlob, hostname string) (*Collector, error) {
 	sort.Strings(devices)
 
 	collector := &Collector{hostname: hostname, now: time.Now}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, collector.Close())
+		}
+	}()
+
+	type controller struct {
+		device string
+		pairs  []eventPair
+		kind   uint32
+		cpus   []int
+	}
+	var controllers []controller
+	families := make(map[bool]bool)
+	seenPMUs := make(map[uint32]bool)
 
 	for _, device := range devices {
-		pair, found := discoverEvents(device)
+		pairs, found, err := discoverEvents(device)
+		if err != nil {
+			return nil, err
+		}
 		if !found {
 			continue
 		}
 
 		pmuType, err := readUint(filepath.Join(device, "type"))
 		if err != nil {
-			collector.Close()
 			return nil, err
 		}
+		if seenPMUs[uint32(pmuType)] {
+			continue
+		}
+		seenPMUs[uint32(pmuType)] = true
+		cpus, err := controllerCPUs(device)
+		if err != nil {
+			return nil, err
+		}
+		controllers = append(controllers, controller{device, pairs, uint32(pmuType), cpus})
+		canonical, err := filepath.EvalSymlinks(device)
+		if err != nil {
+			return nil, fmt.Errorf("resolving PMU %s: %w", device, err)
+		}
+		families[strings.Contains(filepath.Base(canonical), "free_running")] = true
+	}
+	if len(families) > 1 {
+		return nil, fmt.Errorf("both free-running and programmable IMC counters are available; use -devices to select one complete family after verifying coverage, rather than double-counting bandwidth")
+	}
 
-		for canonical, event := range map[string]string{"read": pair.read, "write": pair.write} {
-			opened, err := openCounter(device, canonical, event, uint32(pmuType))
-			if err != nil {
-				collector.Close()
-				return nil, err
+	// A PMU type identifies a kernel PMU, even if sysfs exposes aliases.
+	// Its cpumask lists one representative per die, not all eligible threads.
+	for _, controller := range controllers {
+		for _, cpuID := range controller.cpus {
+			for _, pair := range controller.pairs {
+				for i, event := range []string{pair.read, pair.write} {
+					opened, err := openCounter(controller.device, eventNames[i], event, controller.kind, cpuID, open)
+					if err != nil {
+						return nil, err
+					}
+					collector.counters = append(collector.counters, opened)
+				}
 			}
-
-			collector.counters = append(collector.counters, opened)
 		}
 	}
 
@@ -163,7 +215,6 @@ func NewCollector(sysfsGlob, hostname string) (*Collector, error) {
 
 	for i := range collector.counters {
 		if _, err := collector.counters[i].prime(); err != nil {
-			collector.Close()
 			return nil, err
 		}
 	}
@@ -173,26 +224,91 @@ func NewCollector(sysfsGlob, hostname string) (*Collector, error) {
 	return collector, nil
 }
 
-// discoverEvents returns the first known event pair the controller publishes.
-func discoverEvents(device string) (eventPair, bool) {
+// discoverEvents prefers an aggregate pair; otherwise every advertised DDR
+// subchannel must have both directions. Never add subchannels to an aggregate.
+func discoverEvents(device string) ([]eventPair, bool, error) {
+	entries, err := os.ReadDir(filepath.Join(device, "events"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("discovering events on %s: %w", device, err)
+	}
+	names := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		names[entry.Name()] = true
+	}
+	partial := false
 	for _, pair := range eventPairs {
-		if exists(device, pair.read) && exists(device, pair.write) {
-			return pair, true
+		if names[pair.read] && names[pair.write] {
+			return []eventPair{pair}, true, nil
+		}
+		partial = partial || names[pair.read] || names[pair.write]
+	}
+	channels := make(map[int]eventPair)
+	for name := range names {
+		for _, direction := range eventNames {
+			suffix, found := strings.CutPrefix(name, "cas_count_"+direction+"_sch")
+			if !found || strings.Contains(suffix, ".") {
+				continue
+			}
+			index, err := strconv.ParseUint(suffix, 10, 16)
+			if err != nil || strconv.FormatUint(index, 10) != suffix {
+				return nil, false, fmt.Errorf("invalid memory subchannel event %s on %s", name, device)
+			}
+			pair := channels[int(index)]
+			if direction == "read" {
+				pair.read = name
+			} else {
+				pair.write = name
+			}
+			channels[int(index)] = pair
 		}
 	}
-
-	return eventPair{}, false
+	if len(channels) > 0 {
+		indices := make([]int, 0, len(channels))
+		for index := range channels {
+			indices = append(indices, index)
+		}
+		slices.Sort(indices)
+		pairs := make([]eventPair, 0, len(indices))
+		for _, index := range indices {
+			pair := channels[index]
+			if pair.read == "" || pair.write == "" {
+				return nil, false, fmt.Errorf("incomplete memory read/write counter pair for subchannel %d on %s", index, device)
+			}
+			pairs = append(pairs, pair)
+		}
+		return pairs, true, nil
+	}
+	if partial {
+		return nil, false, fmt.Errorf("incomplete memory read/write counter pair on %s", device)
+	}
+	return nil, false, nil
 }
 
-// exists reports whether the controller publishes an event by that name.
-func exists(device, event string) bool {
-	_, err := os.Stat(filepath.Join(device, "events", event))
-
-	return err == nil
+func controllerCPUs(device string) ([]int, error) {
+	path := filepath.Join(device, "cpumask")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading PMU CPU affinity: %w", err)
+	}
+	// Unlike a hexadecimal bitmap, Intel uncore cpumask is a decimal cpulist.
+	for _, part := range strings.Split(strings.TrimSpace(string(raw)), ",") {
+		if strings.TrimSpace(part) == "" {
+			return nil, fmt.Errorf("empty PMU CPU affinity entry in %s", path)
+		}
+	}
+	cpus, err := cpu.ParseCPUList(string(raw))
+	if err != nil {
+		return nil, fmt.Errorf("invalid PMU CPU affinity in %s: %w", path, err)
+	}
+	slices.Sort(cpus)
+	return slices.Compact(cpus), nil
 }
 
 // openCounter opens one event of one controller.
-func openCounter(device, canonical, event string, pmuType uint32) (counter, error) {
+func openCounter(device, canonical, event string, pmuType uint32, cpuID int, open perfOpener) (counter, error) {
 	config, err := readConfig(filepath.Join(device, "events", event))
 	if err != nil {
 		return counter{}, err
@@ -206,27 +322,30 @@ func openCounter(device, canonical, event string, pmuType uint32) (counter, erro
 	if err != nil {
 		return counter{}, err
 	}
+	if scale <= 0 || math.IsNaN(scale) || math.IsInf(scale, 0) {
+		return counter{}, fmt.Errorf("invalid scale for %s on %s: must be positive and finite", event, device)
+	}
 
 	attr := unix.PerfEventAttr{
 		Type:   pmuType,
 		Size:   uint32(unsafeSizeofPerfEventAttr),
 		Config: config,
+		// Refuse multiplexed undercounts; an unschedulable pinned event reads EOF.
+		Bits: unix.PerfBitPinned,
 	}
 
-	// An uncore event belongs to a package rather than to a task, so it is
-	// opened for every process (pid -1) on one CPU of that package. CPU 0
-	// is in the only package on the parts this runs on; a multi-socket
-	// machine would need one open per socket.
-	fd, err := unix.PerfEventOpen(&attr, -1, 0, -1, unix.PERF_FLAG_FD_CLOEXEC)
+	fd, err := open(&attr, -1, cpuID, -1, unix.PERF_FLAG_FD_CLOEXEC)
 	if err != nil {
 		return counter{}, fmt.Errorf(
-			"cannot open %s on %s: %w (reading uncore counters needs CAP_PERFMON)",
-			event, filepath.Base(device), err)
+			"cannot open %s on %s CPU %d: %w (check CPU availability and perf permissions, including CAP_PERFMON)",
+			event, filepath.Base(device), cpuID, err)
 	}
 
 	return counter{
 		canonical: canonical,
 		event:     event,
+		device:    filepath.Base(device),
+		cpu:       cpuID,
 		scale:     scale,
 		fd:        fd,
 	}, nil
@@ -240,7 +359,10 @@ func openCounter(device, canonical, event string, pmuType uint32) (counter, erro
 func checkUnit(device, event string) error {
 	raw, err := os.ReadFile(filepath.Join(device, "events", event+".unit"))
 	if err != nil {
-		return nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("reading unit for %s on %s: %w", event, device, err)
 	}
 
 	if unit := strings.TrimSpace(string(raw)); unit != expectedUnit {
@@ -259,53 +381,45 @@ const unsafeSizeofPerfEventAttr = unix.PERF_ATTR_SIZE_VER1
 func (c *Collector) Collect() ([]lineproto.Point, error) {
 	now := c.now()
 	elapsed := now.Sub(c.sampled).Seconds()
-	c.sampled = now
-
-	// Controllers are summed: they serve one address space, and reporting
-	// them apart would invite adding up numbers that are already a total.
-	totals := make(map[string]float64, len(eventNames))
-	primed := make(map[string]bool, len(eventNames))
-
+	raw := make([]uint64, len(c.counters))
+	var baselineError error
+	if elapsed <= 0 {
+		baselineError = fmt.Errorf("non-positive memory bandwidth interval; resetting all counter baselines")
+	}
 	for i := range c.counters {
 		counter := &c.counters[i]
-
-		raw, err := counter.read()
+		value, err := counter.read()
 		if err != nil {
 			return nil, err
 		}
-
-		if !counter.primed || elapsed <= 0 {
-			counter.previous, counter.primed = raw, true
-			continue
+		raw[i] = value
+		if !counter.primed || value < counter.previous {
+			baselineError = fmt.Errorf("counter %s on %s CPU %d reset, wrapped or unprimed; resetting all counter baselines",
+				counter.event, counter.device, counter.cpu)
 		}
-		if raw < counter.previous {
-			// A free-running counter wraps rather than resetting. One
-			// interval of data is not worth reporting a negative rate
-			// for.
-			counter.previous = raw
-			continue
-		}
-
-		totals[counter.canonical] += float64(raw-counter.previous) * counter.scale / elapsed
-		primed[counter.canonical] = true
-		counter.previous = raw
 	}
-
-	if len(primed) == 0 {
-		// The first call has nothing to compare against.
-		return nil, nil
+	// Commit only a complete snapshot. A failed read leaves every baseline and
+	// its timestamp untouched, so recovery spans the same interval on all dies.
+	totals := make(map[string]float64, len(eventNames))
+	for i := range c.counters {
+		counter := &c.counters[i]
+		if baselineError == nil {
+			totals[counter.canonical] += float64(raw[i]-counter.previous) * counter.scale * (1 << 20) / elapsed
+		}
+		counter.previous, counter.primed = raw[i], true
+	}
+	c.sampled = now
+	if baselineError != nil {
+		return nil, baselineError
 	}
 
 	fields := make([]lineproto.Field, 0, len(eventNames)+1)
 	total := 0.0
 	for _, event := range eventNames {
-		if !primed[event] {
-			continue
-		}
-		fields = append(fields, lineproto.FixedFloatField(fieldName(event), totals[event], 2))
+		fields = append(fields, lineproto.FloatField(fieldName(event), totals[event]))
 		total += totals[event]
 	}
-	fields = append(fields, lineproto.FixedFloatField("total_mibps", total, 2))
+	fields = append(fields, lineproto.FloatField("total_bytes_per_second", total))
 
 	return []lineproto.Point{{
 		Measurement: Measurement,
@@ -319,7 +433,7 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 // unit. It is built from the canonical name rather than the sysfs one, so the
 // endpoint looks the same whichever spelling the machine uses.
 func fieldName(canonical string) string {
-	return canonical + "_mibps"
+	return canonical + "_bytes_per_second"
 }
 
 // prime takes the first reading, which later deltas are measured against.
@@ -338,8 +452,13 @@ func (c *counter) prime() (uint64, error) {
 func (c *counter) read() (uint64, error) {
 	var buf [8]byte
 
-	if _, err := unix.Read(c.fd, buf[:]); err != nil {
-		return 0, fmt.Errorf("reading %s: %w", c.event, err)
+	n, err := unix.Read(c.fd, buf[:])
+	if err != nil {
+		return 0, fmt.Errorf("reading %s on %s CPU %d: %w", c.event, c.device, c.cpu, err)
+	}
+	if n != len(buf) {
+		return 0, fmt.Errorf("reading %s on %s CPU %d: got %d bytes, want %d (check PMU scheduling and CPU availability)",
+			c.event, c.device, c.cpu, n, len(buf))
 	}
 
 	return uint64(buf[0]) | uint64(buf[1])<<8 | uint64(buf[2])<<16 | uint64(buf[3])<<24 |
@@ -348,14 +467,16 @@ func (c *counter) read() (uint64, error) {
 
 // Close releases the perf file descriptors.
 func (c *Collector) Close() error {
+	var errs []error
 	for _, counter := range c.counters {
-		if counter.fd > 0 {
-			_ = unix.Close(counter.fd)
+		if err := unix.Close(counter.fd); err != nil {
+			errs = append(errs, fmt.Errorf("closing %s on %s CPU %d: %w",
+				counter.event, counter.device, counter.cpu, err))
 		}
 	}
 	c.counters = nil
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // readConfig parses an event definition such as "event=0xff,umask=0x20" into

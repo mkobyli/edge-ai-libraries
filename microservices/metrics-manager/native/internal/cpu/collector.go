@@ -6,9 +6,7 @@
 //
 // It emits two measurements:
 //
-//	cpu_frequency_avg  the mean scaling_cur_freq across every CPU, in kHz.
-//	                   This is a drop-in replacement for the shell script it
-//	                   supersedes and is intentionally byte-identical to it.
+//	cpu_frequency_avg  the mean scaling_cur_freq across every CPU, in Hz.
 //
 //	cpu_core_class     the same frequency plus utilisation, broken down by
 //	                   core class (P / E / LPE) on Intel hybrid CPUs.
@@ -132,13 +130,11 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 
 	points := make([]lineproto.Point, 0, len(c.topology.Classes)+2)
 
-	// Overall average frequency. Emitted without tags or an explicit
-	// timestamp, exactly as the shell script it replaces did, so that the
-	// field type and the Prometheus series stay unchanged.
+	// Preserve arrival-time stamping for the overall average.
 	if avg, ok := meanFrequency(frequencies, nil); ok {
 		points = append(points, lineproto.Point{
 			Measurement: MeasurementFrequencyAvg,
-			Fields:      []lineproto.Field{lineproto.FloatField("frequency", float64(avg))},
+			Fields:      []lineproto.Field{lineproto.FloatField("frequency_hz", float64(avg)*1e3)},
 		})
 	}
 
@@ -146,7 +142,7 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 		fields := []lineproto.Field{lineproto.IntField("cores", int64(len(class.CPUs)))}
 
 		if avg, ok := meanFrequency(frequencies, class.CPUs); ok {
-			fields = append(fields, lineproto.FloatField("frequency_avg", float64(avg)))
+			fields = append(fields, lineproto.FloatField("frequency_avg_hz", float64(avg)*1e3))
 		}
 		fields = append(fields, c.usageFields(class.CPUs, current)...)
 

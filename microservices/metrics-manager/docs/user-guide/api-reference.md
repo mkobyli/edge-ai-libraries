@@ -5,9 +5,15 @@ SPDX-License-Identifier: Apache-2.0
 
 # API Reference
 
-**Version: 2026.1.0**
+**Version: 2026.3.0**
 
 This document describes all REST API endpoints, request/response formats, and examples.
+
+Custom metrics submitted through FastAPI are stored in memory and forwarded
+asynchronously to Telegraf. Acceptance is not a durable-delivery acknowledgement.
+Shutdown cancels pending debounce and HTTP push tasks before closing their
+shared session; it does not flush outstanding metrics. The store rejects new
+ingestion after shutdown begins.
 
 ---
 
@@ -22,7 +28,7 @@ curl http://localhost:9090/health
 ```json
 {
   "status": "healthy",
-  "version": "2026.1.0",
+  "version": "2026.3.0",
   "uptime_seconds": 3600.5,
   "checks": { "store": true }
 }
@@ -37,7 +43,7 @@ curl http://localhost:9090/api/health
 ```json
 {
   "status": "healthy",
-  "version": "2026.1.0",
+  "version": "2026.3.0",
   "uptime_seconds": 3600.5,
   "checks": { "store": true },
   "metrics_store": {
@@ -478,14 +484,18 @@ Collected every 1 second, available at `:9273/metrics` (Prometheus format).
 | `total`             | Total memory (bytes) |
 | `used`              | Used memory (bytes)  |
 
+Native field names below use the 2026.3.0 base-unit contract. See the
+[migration table](./get-started/native-metric-migration.md) for old names, conversion
+factors and TUI chart changes. Standard Telegraf metrics are unchanged.
+
 ### CPU Frequency (`cpu_frequency_avg`, `cpu_core_class`)
 
 Collected by `mm-plugin-cpu` in InfluxDB Line Protocol format.
 
 | Measurement          | Tags             | Fields                                                                  |
 | -------------------- | ---------------- | ----------------------------------------------------------------------- |
-| `cpu_frequency_avg`  | —                | `frequency` — mean current frequency across all CPUs, in kHz            |
-| `cpu_core_class`     | `class`, `source`| `cores`, `frequency_avg`, `usage_user`, `usage_system`, `usage_idle`    |
+| `cpu_frequency_avg`  | —                | `frequency_hz` — mean current frequency across all CPUs, in Hz |
+| `cpu_core_class`     | `class`, `source`| `cores`, `frequency_avg_hz`, `usage_user`, `usage_system`, `usage_idle` |
 
 `class` is `P`, `E` or `LPE`. `source` records how the class was identified
 (`pmu` when the kernel exposes a per-class PMU, `heuristic` when it was inferred
@@ -509,10 +519,11 @@ device (`i915` or `xe`).
 | Measurement        | Extra tags       | Fields                                                             |
 | ------------------ | ---------------- | ------------------------------------------------------------------ |
 | `gpu_engine_usage` | `engine`, `type` | `usage` — % busy for compute / render / copy / video / video-enhance |
-| `gpu_frequency`    | `tile`, `type`   | `value` (backward-compatible), `cur_freq`, `act_freq`, `min_freq`, `max_freq` |
-| `gpu_power`        | `type`           | `value` — `gpu_cur_power` and `pkg_cur_power`, in watts            |
-| `gpu_memory`       | —                | `smem_total`, `smem_used`, `vram_total`, `vram_used`                |
-| `gpu_temperature`  | `sensor`         | `value` — °C                                                       |
+| `gpu_frequency`    | `tile`, `type`   | `cur_freq_hz`, `act_freq_hz`, `min_freq_hz`, `max_freq_hz` — Hz |
+| `gpu_power`        | `type`           | `power_w` — `gpu_cur_power` and `pkg_cur_power` rails, in W |
+| `gpu_memory`       | —                | `smem_total_bytes`, `smem_used_bytes`, `vram_total_bytes`, `vram_used_bytes` |
+| `gpu_temperature`  | `sensor`         | `temperature_c` — °C |
+| `gpu_fan`          | `fan`            | `speed_hz` — rotations per second (RPM / 60) |
 | `gpu_throttle`     | `tile`           | `status`, `pl1`, `pl2`, `pl4`, `prochot`, `ratl`, `thermal`, `vr_tdc`, `vr_thermalert` |
 
 On a multi-tile part such as Meteor Lake, `gpu_frequency` and `gpu_throttle` are
@@ -524,40 +535,40 @@ The `driver` tag exists because `i915` and `xe` do not populate the same
 counters, and without it a consumer cannot tell a value the driver never fills
 in from one the hardware actually measured.
 
-- **`gpu_memory.smem_used` is always `0` on `i915`.** That driver does not
+- **`gpu_memory.smem_used_bytes` is always `0` on `i915`.** That driver does not
   expose per-device shared memory usage the way `xe` does. The raw zero is
   published rather than suppressed, so nothing is lost for a driver that does
-  report it, but a dashboard should treat `smem_used` as unavailable — not as
+  report it, but a dashboard should treat `smem_used_bytes` as unavailable — not as
   "no memory in use" — while `driver="i915"`. For example:
 
   ```promql
-  gpu_memory_smem_used{driver!="i915"}
+  gpu_memory_smem_used_bytes{driver!="i915"}
   ```
 
   The bundled TUI applies exactly this rule and renders the value as `n/a`.
 
-- **`vram_total` and `vram_used` are `0` on an integrated GPU**, which has no
+- **`vram_total_bytes` and `vram_used_bytes` are `0` on an integrated GPU**, which has no
   dedicated memory. `qmassa` reports zero rather than omitting the fields.
 
 **Per-process GPU usage (opt-in):** running the plugin with `-clients` adds a
 `gpu_client` measurement tagged by `pid` and `comm`, with per-process CPU,
-per-engine usage and memory. It is excluded from the Prometheus endpoint by
-default (`namedrop` in `telegraf.conf`) because one series per process is
-unbounded cardinality. The process command line is never read, so arguments
+per-engine usage and memory fields with `_bytes` suffixes. The shipped
+configuration enables it with a ten-client limit per GPU; increasing that
+limit increases exported cardinality. The process command line is never read, so arguments
 containing credentials cannot leak into metrics.
 
 ### Intel NPU (`npu`) via `mm-plugin-npu`
 
 | Prometheus Name   | Field         | Description                                                                     |
 | ----------------- | ------------- | ------------------------------------------------------------------------------- |
-| `npu_power`       | `power`       | NPU power draw in watts (derived from `VPU_ENERGY` delta)                       |
-| `npu_frequency`   | `frequency`   | NPU DPU clock in Hz, decoded from the PLL ratio                                  |
-| `npu_temperature` | `temperature` | NPU SoC temperature in °C (integer)                                             |
-| `npu_bandwidth`   | `bandwidth`   | NoC counter delta divided by actual elapsed seconds, in MB/s                      |
+| `npu_power_w` | `power_w` | NPU power draw in W (derived from `VPU_ENERGY` delta) |
+| `npu_frequency_hz` | `frequency_hz` | NPU DPU clock in Hz, decoded from the PLL ratio |
+| `npu_temperature_c` | `temperature_c` | NPU SoC temperature in °C (integer) |
+| `npu_bandwidth_bytes_per_second` | `bandwidth_bytes_per_second` | NoC transfer delta divided by actual elapsed seconds, in bytes/s |
 | `npu_tile_config` | `tile_config` | Active tile configuration                                                       |
 | `npu_utilization` | `utilization` | % NPU utilization over the last interval (0–100); omitted without two usable busy-counter samples |
-| `npu_memory_mb`   | `memory_mb`   | NPU memory usage in MiB, from `npu_memory_utilization`; omitted when unavailable |
-| `npu_frequency_max_mhz` | `frequency_max_mhz` | Frequency ceiling the driver reports, omitted where it is not published |
+| `npu_memory_bytes` | `memory_bytes` | NPU memory usage in bytes, from `npu_memory_utilization`; omitted when unavailable |
+| `npu_frequency_max_hz` | `frequency_max_hz` | Frequency ceiling in Hz, omitted where it is not published |
 
 **Requirements:**
 
@@ -565,14 +576,14 @@ containing credentials cannot leak into metrics.
 - `/sys/class/intel_pmt/` accessible inside the container (provided by `privileged: true` + `/sys:/sys:ro`)
 - Supported generations: Meteor Lake (MTL), Arrow Lake (ARL/ARL-H/ARL-S), Lunar Lake (LNL), Panther Lake (PTL)
 
-`npu_memory_mb` and `npu_frequency_max_mhz` come from the `intel_vpu` driver's
+`npu_memory_bytes` and `npu_frequency_max_hz` come from the `intel_vpu` driver's
 sysfs attributes rather than from PMT, and those are world-readable, so they
 need no privilege. Both were measured present on Meteor Lake and Panther Lake
 alike; an earlier version of this plugin assumed memory usage arrived only
 from Panther Lake onwards and reported `-1` on Meteor Lake while the attribute
 sat there with a perfectly good value.
 
-**Migration from the legacy NPU scale:** `npu_frequency` keeps its name but now
+**Migration from the legacy NPU scale:** `npu_frequency_hz`
 reports actual Hz (for example, `1600000000` for 1600 MHz). Previous values were
 1e6 too small on MTL/LNL/PTL; ARL also used the wrong PLL formula and was 25% low
 relative to the MHz value. Queries that previously treated the value as MHz must
@@ -622,9 +633,9 @@ accounting works because `i915` does implement those fields.
 
 | Prometheus Name                | Field         | Description                                    |
 | ------------------------------ | ------------- | ---------------------------------------------- |
-| `memory_bandwidth_read_mibps`  | `read_mibps`  | Read throughput at the memory controller       |
-| `memory_bandwidth_write_mibps` | `write_mibps` | Write throughput                               |
-| `memory_bandwidth_total_mibps` | `total_mibps` | Sum of the two                                 |
+| `memory_bandwidth_read_bytes_per_second` | `read_bytes_per_second` | Read throughput in bytes/s |
+| `memory_bandwidth_write_bytes_per_second` | `write_bytes_per_second` | Write throughput in bytes/s |
+| `memory_bandwidth_total_bytes_per_second` | `total_bytes_per_second` | Sum of the two, in bytes/s |
 
 This is **whole-system DRAM throughput, not per-device GPU bandwidth**.
 
@@ -647,13 +658,36 @@ The controller and its event names are discovered rather than assumed. Current
 client parts publish `data_read` and `data_write` on free-running counters,
 older ones `data_reads` and `data_writes`, and server parts
 `cas_count_read` and `cas_count_write`; the published scale and unit are read
-alongside them. Controllers exposing no counters are skipped, which is normal:
-a machine typically has several and only some carry events.
+alongside them. Platforms such as Xeon 6972P instead publish
+`cas_count_read_schN` / `cas_count_write_schN`: every advertised subchannel
+pair is summed. If an aggregate pair exists, it is used alone, never added to
+its subchannels. Controllers exposing no known bandwidth events are skipped,
+which is normal; incomplete read/write pairs or unreadable metadata fail
+explicitly rather than reducing the total silently.
+
+For each distinct PMU type, the collector opens a read/write pair on **every
+representative CPU** in that PMU's `cpumask` (a decimal CPU list). A list such
+as `0,48` covers two dies; it is not an instruction to choose only CPU 0.
+Duplicate CPU entries and PMU aliases are counted once. Distinct controllers
+and dies contribute to one host total; no socket labels or new series are added.
+The existing `-devices` glob restricts discovery and should cover the full
+intended set, not just one controller on a multisocket host.
+
+If both free-running and programmable IMC families expose usable pairs, the
+collector refuses to combine potentially overlapping coverage. Select one
+complete family with `-devices` only after checking its coverage. Missing or
+invalid `cpumask` is an error, never an implicit fallback to CPU 0.
+Events are pinned to avoid silent multiplexing undercounts. Open failures,
+short reads/unschedulable events, and counter resets/wraps produce diagnostics,
+not partial host totals. A transient read failure preserves the last complete
+baseline; the next complete sample spans the full elapsed interval. A reset
+re-primes all counters and skips that interval. Restart after topology changes
+so discovery and the representative CPU list are refreshed.
 
 **Requirements:**
 
-- A memory controller exposing free-running counters under
-  `/sys/bus/event_source/devices/uncore_imc_free_running_*`
+- Memory controllers exposing a supported read/write pair, scale and `cpumask`
+  under `/sys/bus/event_source/devices/uncore_imc*`
 - `CAP_PERFMON`, because the counters are read through `perf_event_open`. Where
   it is missing the collector says so and idles rather than reporting zeros
 

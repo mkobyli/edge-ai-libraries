@@ -143,20 +143,20 @@ func chartObservations(d Dashboard) []chartObservation {
 		{key: "cpu.temperature", metric: "cpu.temperatureC", label: "CPU", value: d.CPU.PackageTempC},
 		{key: "memory.used", metric: "memory.usedPercent", label: "Memory", value: d.Memory.UsedPercent},
 		{
-			key: "memory.bandwidth", metric: "memory.bandwidthMiBps",
-			label: "Memory", value: d.Memory.TotalMiBps,
+			key: "memory.bandwidth", metric: "memory.bandwidthGBps",
+			label: "Memory", value: d.Memory.TotalGBps,
 		},
 	}
-	if d.Memory.ReadMiBps.OK && !math.IsNaN(d.Memory.ReadMiBps.Value) && !math.IsInf(d.Memory.ReadMiBps.Value, 0) {
+	if d.Memory.ReadGBps.OK && !math.IsNaN(d.Memory.ReadGBps.Value) && !math.IsInf(d.Memory.ReadGBps.Value, 0) {
 		observations = append(observations, chartObservation{
-			key: "memory.bandwidth.read", metric: "memory.readMiBps",
-			label: "Memory", value: d.Memory.ReadMiBps,
+			key: "memory.bandwidth.read", metric: "memory.readGBps",
+			label: "Memory", value: d.Memory.ReadGBps,
 		})
 	}
-	if d.Memory.WriteMiBps.OK && !math.IsNaN(d.Memory.WriteMiBps.Value) && !math.IsInf(d.Memory.WriteMiBps.Value, 0) {
+	if d.Memory.WriteGBps.OK && !math.IsNaN(d.Memory.WriteGBps.Value) && !math.IsInf(d.Memory.WriteGBps.Value, 0) {
 		observations = append(observations, chartObservation{
-			key: "memory.bandwidth.write", metric: "memory.writeMiBps",
-			label: "Memory", value: d.Memory.WriteMiBps,
+			key: "memory.bandwidth.write", metric: "memory.writeGBps",
+			label: "Memory", value: d.Memory.WriteGBps,
 		})
 	}
 
@@ -195,7 +195,7 @@ func chartObservations(d Dashboard) []chartObservation {
 		chartObservation{key: "cpu.power", metric: "cpu.powerW", label: "CPU", value: d.CPU.PackagePowerW},
 		chartObservation{key: "npu.frequency", metric: "npu.frequencyMHz", label: "NPU", value: scaleReading(d.NPU.FrequencyHz, 1e6)},
 		chartObservation{key: "npu.power", metric: "npu.powerW", label: "NPU", value: d.NPU.PowerW},
-		chartObservation{key: "npu.memory", metric: "npu.memoryMiB", label: "NPU", value: d.NPU.MemoryMB},
+		chartObservation{key: "npu.memory", metric: "npu.memoryMiB", label: "NPU", value: d.NPU.MemoryMiB},
 	)
 	for _, class := range d.CPU.Classes {
 		observations = append(observations, chartObservation{

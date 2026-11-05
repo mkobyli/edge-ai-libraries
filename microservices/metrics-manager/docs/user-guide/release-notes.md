@@ -7,37 +7,91 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Unreleased
 
-### Fixed
+This upcoming release improves the **responsive native TUI**, introduces
+**explicit base-unit telemetry** and **optional Docker collectors with host-NIC
+networking**, and includes runtime fixes and documentation improvements.
 
-- **Native NPU measurements:** Corrected PLL decoding for MTL/ARL/LNL/PTL and
+Target version: **2026.3.0**. This section is not a publication announcement.
+Historical release entries and Helm metadata remain unchanged.
+
+**New**
+
+- **Host-NIC deployment**: adds the opt-in `host-nic-telemetry` Compose profile,
+  sharing the default native image and collectors. Its network collector
+  defaults on; an explicit false setting takes precedence. Listener ports,
+  relay/scrape URLs and healthchecks follow the configured host ports. Bridge
+  networking remains the default. Select one service explicitly: enabling a
+  profile does not stop the default service, and host networking exposes
+  listeners directly on host interfaces.
+- **Optional Docker collectors**: adds explicit collector flags while keeping
+  additions disabled in the default bridge deployment. Mounted Telegraf
+  drop-ins are loaded from a private startup snapshot; review previously
+  inactive files before upgrading. Conflicting automatic/custom inputs fail
+  startup instead of duplicating measurements. Optional Turbostat has a bounded
+  executable/MSR preflight and is skipped with a warning when unavailable.
+  Recreate containers to apply configuration changes.
+
+**Improved**
+
+- **Native TUI**: provides responsive Overview, Trends, Details and Alerts
+  views, configurable thresholds and process limits, and five-minute chart
+  history by default. Network and storage views distinguish unavailable or
+  stale readings from measured zeros.
+- **Native metric units**: migrates CPU/GPU/NPU clocks, NPU memory/rates, GPU
+  device/client memory and DRAM throughput to explicit bytes, bytes/second, Hz,
+  W and Celsius fields, without old-name aliases. DRAM display/charts use
+  decimal GB/s. Standard Telegraf fields, percentage semantics and existing
+  alert thresholds are unchanged. Upgrade collectors, TUI and custom queries
+  together using the [breaking-change migration guide](./get-started/native-metric-migration.md),
+  also included in the bare-metal package.
+- **Plugin-first delivery**: uses the shared, SHA-256-verified official
+  Telegraf 1.40.3 archive and native Go collector implementation across Docker
+  and the bare-metal package. The digest-pinned native Go toolchain is 1.27.3.
+  The official Telegraf binary also embeds Go 1.27.3; it is not rebuilt locally.
+- **Python dependencies**: aligns runtime and development dependencies with
+  upstream, including FastAPI 0.143.1 and Uvicorn 0.54.0. OpenVINO remains an
+  optional build extra. Resolution follows the existing manifest-based build;
+  this change does not introduce a Python lockfile.
+- **Security updates**: uses a shared, digest-pinned Debian 13 Python base and
+  applies available Debian package updates. Build proxy values are no longer
+  retained in image history; explicit runtime proxy configuration remains
+  supported. Available updates do not guarantee that remaining Debian
+  vulnerabilities have fixes. See the [release validation gate](./get-started/testing.md#release-validation-scope).
+- **RC identity**: separates the default `2026.3.0-rc1` and extended
+  `2026.3.0-extended-rc1` images. API/log identity and native binary versions
+  follow the build tag, while the project and Debian package stay at 2026.3.0.
+  A runtime service-version override affects API/log identity only.
+
+**Fixed**
+
+- **Native NPU measurements**: corrects PLL decoding for MTL/ARL/LNL/PTL and
   bandwidth rates using actual elapsed time with single-wrap correction.
-  **Breaking unit correction:** `npu_frequency` now contains real Hz, not the
+  **Breaking unit correction:** `npu_frequency_hz` contains real Hz, not the
   legacy MHz-scale number. Divide by `1e6` in queries that need MHz. Unsupported
   utilization/memory readings are omitted instead of publishing artificial
   zero/negative values. Presence-based memory detection, busy-counter reset
   handling, power state and the frequency ceiling are retained.
-- **OTLP histogram ingestion:** Stores count and available finite summary
+- **OTLP histogram ingestion**: stores count and available finite summary
   statistics, aggregation temporality and typed attributes; parses integer
   strings without float conversion. Invalid numeric points are reported and
   skipped independently. Histogram buckets are not stored. Tagged series remain
   distinct through the API and Prometheus export.
-- **GPU capability registry:** Added the upstream Xe3/Xe3p platform entries and
-  corrected Battlemage, Lunar Lake and Arrow Lake IDs. These are inferred
+- **GPU capability registry**: adds the upstream Xe3/Xe3p platform entries and
+  corrects Battlemage, Lunar Lake and Arrow Lake IDs. These are inferred
   capabilities; a listed minimum kernel does not guarantee that a device is
   enabled or supported by the installed runtime.
 
-### Changed
+- **Multisocket memory bandwidth**: honors each IMC PMU's CPU affinity instead
+  of assuming a single CPU can access counters on every socket.
+- **Asynchronous resource cleanup**: tracks and cancels pending HTTP pushes
+  before closing the forwarding session, including exceptional shutdown paths.
+  Timestamp handling preserves epoch zero and structured timestamp precision.
+- **CORS validation**: rejects malformed JSON arrays and non-string array
+  entries rather than silently treating them as another configuration format.
+- **Debian package dependencies**: declares the account-management, systemd,
+  module-loading and runtime-library prerequisites needed for installation.
 
-- **Plugin-first delivery preserved:** Updated the shared, SHA-256-verified
-  official Telegraf archive to 1.40.2 and the digest-pinned Go toolchain to
-  1.27.3. Docker and the native package still use the same Go collectors and
-  Telegraf binary, with version mirrors checked by tests.
-  The official Telegraf binary embeds Go 1.27.1; the Go 1.27.3 pin applies to
-  the native plugins/TUI, not to a rebuild of that third-party binary.
-- **Python dependencies:** Aligned runtime and development minimums with
-  upstream, including FastAPI 0.143.1 and Uvicorn 0.54.0. OpenVINO remains an
-  optional build extra. Dependency resolution still follows the existing
-  manifest-based build; this change does not introduce a Python lockfile.
+---
 
 ## Version 2026.2.0
 
@@ -64,6 +118,7 @@ SPDX-License-Identifier: Apache-2.0
 - **Documentation**: Capabilities endpoint documented in the API reference, updated system requirements, corrected links and release-branch references, improved cross-linking, and an expanded troubleshooting section.
 - **Test Coverage**: New tests for the capabilities endpoint and response model, plus additional route and application wiring tests.
 
+---
 
 ## Version 2026.1.0
 
@@ -157,23 +212,24 @@ None at this release. See GitHub issues for feature requests and discussions.
   - Prometheus-compatible output (`GET /metrics`, `:9273/metrics`)
   - Real-time SSE streaming (`GET /metrics/stream`)
 
----
-
 ## Versions and Dependencies
 
 ### Current Image
 
-- Intel® Metrics Manager **2026.1.0**
-- Telegraf **1.40.2** (system metrics agent)
+- Intel® Metrics Manager **2026.3.0** (unreleased target)
+- Telegraf **1.40.3** (official system metrics agent)
 - qmassa **2.1.0** (Intel® GPU telemetry via named pipe)
 - qmmd **0.2.0** _(optional)_ — Lightweight Prometheus GPU exporter (bundled but **not started by default**; use only if you need a separate GPU metrics port)
-- Native Go collectors `mm-plugin-cpu` / `mm-plugin-gpu` / `mm-plugin-npu` in `/usr/libexec/metrics-manager/`
+- Native Go collectors `mm-plugin-cpu`, `mm-plugin-gpu`, `mm-plugin-npu`,
+  `mm-plugin-proc`, `mm-plugin-membw` and opt-in `mm-plugin-rapl` in `/usr/libexec/metrics-manager/`
 - Python **3.12** runtime + FastAPI service
 - supervisord process supervisor
 
-> **Note on qmmd:** The default Metrics Manager already collects GPU metrics via `mm-plugin-gpu` and Telegraf. Enable qmmd only if you need a standalone Prometheus exporter on a separate port. See [Environment Variables](./get-started/environment-variables.md#optional-components) for details.
-
----
+> [!NOTE]
+> The default Metrics Manager already collects GPU metrics via qmassa,
+> `mm-plugin-gpu` and Telegraf. Enable qmmd only if you need a standalone
+> Prometheus exporter on a separate port. See
+> [Environment Variables](./get-started/environment-variables.md#optional-components).
 
 ## Support Matrix
 
@@ -183,8 +239,6 @@ None at this release. See GitHub issues for feature requests and discussions.
 | Kubernetes   | 1.25+   | Via Helm chart                         |
 | Python       | 3.12    | Included in image                      |
 | Linux Kernel | 5.4+    | Required for system metrics collection |
-
----
 
 ## Migration Guide
 
@@ -204,8 +258,6 @@ No breaking changes. All existing endpoints remain compatible.
 3. Restart: `docker compose up -d`
 4. No data migration needed (in-memory store)
 
----
-
 ## Supporting Resources
 
 - [Get Started Guide](./get-started.md)
@@ -214,11 +266,14 @@ No breaking changes. All existing endpoints remain compatible.
 - [How It Works](./how-it-works.md)
 - [Troubleshooting](./troubleshooting.md)
 
----
-
 ## Disclaimer
 
-This container image is intended for demo and evaluation purposes and is not hardened for production deployments out of the box. To receive expanded security maintenance from Canonical on the Python/Debian base layer, you may follow the relevant Ubuntu Pro / vendor guidance and rebuild the image from the published `Dockerfile`.
+This container image is intended for demo and evaluation purposes and is not
+hardened for production deployments out of the box. Its base layer uses Debian;
+follow [Debian security advisories](https://www.debian.org/security/) and rebuild
+and rescan the final images when updates are available. Ubuntu Pro coverage
+does not apply to this Debian image. Functional validation does not establish
+that all vulnerabilities are fixed or that a deployment is production-ready.
 
 ## License
 

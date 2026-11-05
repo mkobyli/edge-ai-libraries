@@ -382,11 +382,8 @@ func TestStorageConfigDefaultsValidationAndPackaging(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"[[inputs.disk]]", "[[inputs.diskio]]", `device_tags = ["ID_MODEL", "ID_SERIAL_SHORT"]`, `name = ["loop*", "ram*"]`, `precision = "1ns"`} {
+	for _, text := range []string{"[[inputs.disk]]", "[[inputs.diskio]]", `device_tags = ["ID_MODEL"]`, `skip_serial_number = true`, `tagexclude = ["serial", "wwid"]`, `name = ["loop*", "ram*"]`, `precision = "1ns"`} {
 		wantContains(t, string(example), text)
-	}
-	if strings.Contains(string(example), `tagexclude = ["serial", "wwid"]`) {
-		t.Fatal("storage example suppresses disk identification tags")
 	}
 	main, err := os.ReadFile("../../packaging/etc/telegraf.conf")
 	if err != nil {

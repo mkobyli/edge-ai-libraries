@@ -82,9 +82,9 @@ func TestMemoryPanelShowsDRAMBandwidthColumnsOnlyWithSamples(t *testing.T) {
 		t.Fatal("Memory contains an empty DRAM bandwidth row")
 	}
 
-	exposition := hostExposition + `memory_bandwidth_read_mibps{host="itest"} 2048
-memory_bandwidth_write_mibps{host="itest"} 128
-memory_bandwidth_total_mibps{host="itest"} 2176
+	exposition := hostExposition + `memory_bandwidth_read_bytes_per_second{host="itest"} 2147483648
+memory_bandwidth_write_bytes_per_second{host="itest"} 134217728
+memory_bandwidth_total_bytes_per_second{host="itest"} 2281701376
 `
 	dash := buildFixture(t, exposition)
 	if len(dash.Optional) != 0 {
@@ -94,15 +94,15 @@ memory_bandwidth_total_mibps{host="itest"} 2176
 	for _, want := range []string{"Memory", "DRAM bandwidth", "read", "write", "total"} {
 		wantContains(t, view, want)
 	}
-	if !regexp.MustCompile(`DRAM bandwidth\s+2\.00 GiB/s\s+128 MiB/s\s+2\.12 GiB/s`).MatchString(view) {
+	if !regexp.MustCompile(`DRAM bandwidth\s+2\.147 GB/s\s+0\.134 GB/s\s+2\.282 GB/s`).MatchString(view) {
 		t.Errorf("Memory DRAM row missing or values in wrong columns:\n%s", view)
 	}
 
-	partial := renderFixture(t, "memory_bandwidth_write_mibps 0\n")
-	if !regexp.MustCompile(`DRAM bandwidth\s+-\s+0 MiB/s\s+-`).MatchString(partial) {
+	partial := renderFixture(t, "memory_bandwidth_write_bytes_per_second 0\n")
+	if !regexp.MustCompile(`DRAM bandwidth\s+-\s+0\.000 GB/s\s+-`).MatchString(partial) {
 		t.Errorf("missing bandwidth reading not shown in its column:\n%s", partial)
 	}
-	for _, panel := range buildFixture(t, "memory_bandwidth_write_mibps 0\n").Optional {
+	for _, panel := range buildFixture(t, "memory_bandwidth_write_bytes_per_second 0\n").Optional {
 		if panel.Title == "DRAM bandwidth" {
 			t.Fatal("partial bandwidth created a second panel")
 		}

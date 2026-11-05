@@ -159,18 +159,14 @@ func idle(stop <-chan os.Signal, reason error) error {
 func emit(collector *membw.Collector, out *bufio.Writer) error {
 	points, err := collector.Collect()
 	if err != nil {
-		// A transient read failure must not kill the plugin, or the
-		// counters it primed would be lost to a restart.
-		fmt.Fprintln(os.Stderr, "mm-plugin-membw: skipping sample:", err)
-		return nil
+		return err
 	}
 
 	buf := make([]byte, 0, 256)
 	for _, point := range points {
 		rendered, err := point.Append(buf[:0])
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "mm-plugin-membw: skipping point:", err)
-			continue
+			return err
 		}
 		if _, err := out.Write(rendered); err != nil {
 			return err

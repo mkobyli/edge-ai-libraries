@@ -15,9 +15,11 @@ End-to-end Docker-based tests are documented at the bottom of this file.
 """
 
 import configparser
+import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TELEGRAF_CONF = REPO_ROOT / "telegraf.conf"
@@ -57,12 +59,16 @@ class TestDefaultTelegrafConfig:
 
     def test_prometheus_output_enabled(self, telegraf_text: str):
         assert "[[outputs.prometheus_client]]" in telegraf_text
-        assert ':9273"' in telegraf_text
+        config = tomllib.loads(telegraf_text)
+        assert config["outputs"]["prometheus_client"][0]["listen"] == ":${TELEGRAF_PORT}"
 
     def test_http_listener_for_custom_metrics_relay(self, telegraf_text: str):
         # /api/v1/metrics endpoints persist via Telegraf's HTTP listener on :8186.
         assert "[[inputs.http_listener_v2]]" in telegraf_text
-        assert ':8186"' in telegraf_text
+        config = tomllib.loads(telegraf_text)
+        assert (
+            config["inputs"]["http_listener_v2"][0]["service_address"] == ":${TELEGRAF_HTTP_PORT}"
+        )
 
     def test_custom_metrics_directory_input(self, telegraf_text: str):
         # The default config must execute user scripts dropped into /app/custom-metrics.
@@ -83,7 +89,10 @@ def test_qmassa_service_can_read_other_users_gpu_clients():
 
     assert "ProtectProc" not in service
     assert set(service["CapabilityBoundingSet"].split()) == {
-        "CAP_SYS_RAWIO", "CAP_PERFMON", "CAP_SYS_PTRACE", "CAP_DAC_READ_SEARCH"
+        "CAP_SYS_RAWIO",
+        "CAP_PERFMON",
+        "CAP_SYS_PTRACE",
+        "CAP_DAC_READ_SEARCH",
     }
 
 
@@ -91,7 +100,12 @@ class TestHostnameOverrideWiring:
     """METRICS_MANAGER_HOSTNAME must be wired through compose + the native plugins."""
 
     def test_compose_passes_env_var(self, compose_text: str):
-        assert "METRICS_MANAGER_HOSTNAME=${METRICS_MANAGER_HOSTNAME:-}" in compose_text
+        services = yaml.safe_load(compose_text)["services"]
+        for name in ("metrics-manager", "metrics-manager-host-nic"):
+            assert (
+                services[name]["environment"]["METRICS_MANAGER_HOSTNAME"]
+                == "${METRICS_MANAGER_HOSTNAME:-}"
+            )
 
     @pytest.mark.parametrize("plugin", ["mm-plugin-gpu", "mm-plugin-npu"])
     def test_native_plugin_reads_env_var(self, plugin: str):
@@ -139,9 +153,7 @@ class TestSupervisordOrdering:
         ms_section = supervisord_text.split("[program:metrics-manager]", 1)[1].split(
             "[program:", 1
         )[0]
-        tg_section = supervisord_text.split("[program:telegraf]", 1)[1].split(
-            "[program:", 1
-        )[0]
+        tg_section = supervisord_text.split("[program:telegraf]", 1)[1].split("[program:", 1)[0]
 
         def _priority(section: str) -> int:
             for line in section.splitlines():
@@ -168,9 +180,9 @@ class TestImageDirectories:
         # silently re-introduce an unused mount.
         for path in (DOCKERFILE, ENTRYPOINT):
             text = path.read_text(encoding="utf-8")
-            assert "collector-signals" not in text, (
-                f"{path.name} still references the removed collector-signals directory"
-            )
+            assert (
+                "collector-signals" not in text
+            ), f"{path.name} still references the removed collector-signals directory"
 
 
 # -----------------------------------------------------------------------------
