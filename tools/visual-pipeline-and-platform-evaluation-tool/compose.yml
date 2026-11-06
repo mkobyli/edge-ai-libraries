@@ -104,7 +104,7 @@ x-vippet: &vippet
 
 services:
   vippet-ui:
-    image: docker.io/intel/vippet-ui:${DOCKER_TAG}
+    image: ${VIPPET_UI_IMAGE:-docker.io/intel/vippet-ui:${DOCKER_TAG}}
     build:
       context: .
       dockerfile: ui/Dockerfile
@@ -181,7 +181,7 @@ services:
     ports:
       - "7860:7860"
   metrics-manager:
-    image: docker.io/intel/metrics-manager:2026.2.0-rc2
+    image: ${METRICS_MANAGER_IMAGE:-docker.io/intel/metrics-manager:2026.2.0-rc2}
     container_name: metrics-manager
     init: true
     ports:

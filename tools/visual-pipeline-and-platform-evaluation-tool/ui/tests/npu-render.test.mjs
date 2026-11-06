@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -40,6 +41,21 @@ before(async () => {
 
 after(async () => {
   await server?.close();
+});
+
+test("API proxy identifies SSE from the request URL without response.req", () => {
+  const proxy = new EventEmitter();
+  server.config.server.proxy["/api"].configure(proxy);
+  for (const url of ["/api/v1/jobs/test/stream", "/api/v1/health", undefined]) {
+    const response = { headers: { "content-type": "text/event-stream" } };
+    proxy.emit("proxyRes", response, { url });
+    assert.deepEqual(response.headers, {
+      "content-type": "text/event-stream",
+      ...(url?.includes("/stream")
+        ? { "cache-control": "no-cache", "x-accel-buffering": "no" }
+        : {}),
+    });
+  }
 });
 
 test("NPU hooks, history and indicators preserve zero and missing measurements", () => {

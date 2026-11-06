@@ -30,7 +30,7 @@ export const useUndoRedo = (options: UseUndoRedoOptions = {}) => {
   const [historyIndex, setHistoryIndex] = useState(-1);
 
   const isUndoRedoAction = useRef(false);
-  const historyTimerRef = useRef<number | null>(null);
+  const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHistoryStateRef = useRef<{
     nodes: ReactFlowNode[];
     edges: ReactFlowEdge[];

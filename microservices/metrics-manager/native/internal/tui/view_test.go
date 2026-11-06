@@ -53,6 +53,7 @@ func TestNPUSnapshotAvailabilityAndFrequencyLimit(t *testing.T) {
 		{"measured", "npu_utilization 50\nnpu_memory_mb 512\n", "50.0%", "512 MB", true},
 		{"zero", "npu_utilization 0\nnpu_memory_mb 0\n", "0.0%", "0 MB", true},
 		{"unavailable", "", absent, absent, false},
+		{"recovered", "npu_utilization 25\nnpu_memory_mb 128\n", "25.0%", "128 MB", true},
 	} {
 		t.Run(step.name, func(t *testing.T) {
 			model, _ = update(t, model, snapshotMsg(source.Snapshot{
@@ -497,6 +498,9 @@ gpu_memory_vram_used{gpu_id="0"} 1.073741824e+09
 }
 
 func TestViewRendersNPUPanel(t *testing.T) {
+	if strings.Contains(acceleratorExposition, "npu_memory_mb") {
+		t.Fatal("fixture must omit unsupported memory instead of emitting a sentinel")
+	}
 	view := renderFixture(t, acceleratorExposition)
 
 	wantContains(t, view, "NPU")
@@ -504,7 +508,6 @@ func TestViewRendersNPUPanel(t *testing.T) {
 	wantContains(t, view, "1.40 GHz")
 	wantContains(t, view, "1.75 W")
 	wantContains(t, view, "12.5 MB/s")
-	// The -1 sentinel means the counter does not exist on this platform.
 	wantContains(t, view, "memory        "+absent)
 }
 

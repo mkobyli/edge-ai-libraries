@@ -200,16 +200,35 @@ def test_exports_keep_json_numbers_statuses_and_warnings_separate(
 def test_npu_settle_sample_preserves_cpu_gpu_and_global_count() -> None:
     monitor = HardwareMonitor()
     monitor._samples = [
-        {"npu_utilization": 90, "cpu_util_pct": 60, "gpu_render_util_pct": 30},
-        {"npu_utilization": 0, "cpu_util_pct": 0, "gpu_render_util_pct": 0},
-        {"npu_utilization": 0, "cpu_util_pct": 0, "gpu_render_util_pct": 0},
+        {
+            "npu_utilization": 90,
+            "npu_frequency_mhz": 1600,
+            "npu_power": 4,
+            "cpu_util_pct": 60,
+            "gpu_render_util_pct": 30,
+        },
+        {
+            "npu_utilization": 0,
+            "npu_frequency_mhz": 0,
+            "npu_power": 0,
+            "cpu_util_pct": 0,
+            "gpu_render_util_pct": 0,
+        },
+        {
+            "npu_utilization": 0,
+            "npu_frequency_mhz": 0,
+            "npu_power": 0,
+            "cpu_util_pct": 0,
+            "gpu_render_util_pct": 0,
+        },
     ]
 
     stats = monitor._aggregate(["CPU", "GPU", "NPU"])
 
-    assert stats["npu_utilization_avg"] == 0
-    assert stats["npu_utilization_min"] == 0
-    assert stats["npu_utilization_max"] == 0
+    for metric in ("npu_utilization", "npu_frequency_mhz", "npu_power"):
+        assert stats[f"{metric}_avg"] == 0
+        assert stats[f"{metric}_min"] == 0
+        assert stats[f"{metric}_max"] == 0
     assert stats["npu_settle_samples_dropped"] == 1
     assert stats["sample_count"] == 3
     assert stats["npu_sample_count"] == 2
@@ -219,6 +238,8 @@ def test_npu_settle_sample_preserves_cpu_gpu_and_global_count() -> None:
     assert stats["cpu_util_pct_avg"] == pytest.approx(20)
     assert stats["gpu_render_util_pct_avg"] == pytest.approx(10)
     assert monitor._samples[0]["npu_utilization"] == 90
+    assert monitor._samples[0]["npu_frequency_mhz"] == 1600
+    assert monitor._samples[0]["npu_power"] == 4
 
 
 @pytest.mark.parametrize("frequency", [None, 0, 1_600_000_000])
