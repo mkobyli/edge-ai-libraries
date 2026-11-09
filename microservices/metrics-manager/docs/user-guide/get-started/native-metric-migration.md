@@ -5,14 +5,19 @@ SPDX-License-Identifier: Apache-2.0
 
 # Native metric migration for 2026.3.0
 
-The unreleased 2026.3.0 native collectors use bytes, bytes/second, Hz, W and
-degrees Celsius with explicit unit-bearing field names. This is a **breaking,
+The unreleased 2026.3.0 native CPU/GPU/DRAM collectors use bytes, bytes/second,
+Hz, W and degrees Celsius with explicit unit-bearing field names. NPU retains
+its planned names: `npu_power` (W), `npu_frequency` (actual Hz),
+`npu_temperature` (degrees Celsius), `npu_bandwidth` (decimal MB/s),
+`npu_memory_mb` (binary MiB) and `npu_frequency_max_mhz` (MHz).
+This is a **breaking,
 one-time contract migration** for Docker and the bare-metal package. Old names
 are not emitted as aliases and the new TUI does not fall back to old scales.
 Upgrade collectors, TUI and dashboards together.
 
-ViPPET UI selectors, benchmark harness ingestion and built-in benchmark power
-ingestion use these new names. Deploy a matching UI image with the new collector;
+ViPPET UI selectors and benchmark harness ingestion use the names in this guide;
+the built-in benchmark retains its existing report schema.
+Deploy a matching UI image with the corrected collector;
 an older collector image is not compatible. Harness report columns retain their
 existing units: CPU/GPU/NPU frequency in MHz, NPU memory in MiB under the legacy
 `npu_memory_mb` report key, and NPU bandwidth in decimal MB/s. Trimming, settle
@@ -42,19 +47,21 @@ Tags, device/tile identities and collector selection behavior are preserved.
 | `gpu_fan` (RPM) | `gpu_fan_speed_hz` (rotations/second) | 1/60 |
 | `gpu_memory_{smem_total,smem_used,vram_total,vram_used}` | Same names with `_bytes` appended | 1 |
 | `gpu_client_{smem_used,smem_rss,vram_used,vram_rss}` | Same names with `_bytes` appended | 1 |
-| `npu_power` | `npu_power_w` | 1 |
-| `npu_frequency` (already corrected Hz) | `npu_frequency_hz` | 1 |
-| `npu_temperature` | `npu_temperature_c` | 1 |
-| `npu_bandwidth` (decimal MB/s) | `npu_bandwidth_bytes_per_second` | 1,000,000 |
-| `npu_memory_mb` (actually MiB) | `npu_memory_bytes` | 1,048,576 |
-| `npu_frequency_max_mhz` | `npu_frequency_max_hz` | 1,000,000 |
+| `npu_power_w` (intermediate branch contract) | `npu_power` | 1 |
+| `npu_frequency_hz` (already corrected Hz) | `npu_frequency` | 1 |
+| `npu_temperature_c` (intermediate branch contract) | `npu_temperature` | 1 |
+| `npu_bandwidth_bytes_per_second` | `npu_bandwidth` | 1/1,000,000 |
+| `npu_memory_bytes` | `npu_memory_mb` (MiB) | 1/1,048,576 |
+| `npu_frequency_max_hz` | `npu_frequency_max_mhz` | 1/1,000,000 |
 | `memory_bandwidth_{read,write,total}_mibps` | `memory_bandwidth_{read,write,total}_bytes_per_second` | 1,048,576 |
 
-Line-protocol measurement names stay unchanged; their fields are renamed
-accordingly. For example, `npu` now has `frequency_hz` and `memory_bytes`;
+Line-protocol measurement names stay unchanged; their fields follow the table.
+For example, `npu` has `frequency` and `memory_mb`;
 `gpu_power` has `power_w` instead of `value`. There is no second GPU
 `value` field repeating requested frequency.
 
+NPU names and units already matching the planned contract need no rename or
+rescaling. The intermediate branch's unit-suffixed names are not aliases.
 The NPU frequency factor assumes the already-corrected native Hz calculation.
 Earlier uncorrected builds reported values 1e6 too small and also used the
 wrong Arrow Lake PLL formula; their historical data needs separate correction,
@@ -75,7 +82,8 @@ Examples for external dashboards:
 
 ```promql
 gpu_frequency_act_freq_hz / 1e6
-npu_memory_bytes / 1048576
+npu_frequency / 1e6
+npu_memory_mb
 memory_bandwidth_total_bytes_per_second / 1e9
 gpu_fan_speed_hz * 60
 ```
@@ -90,7 +98,10 @@ decimal places of MiB before export.
 ## Upgrade checklist
 
 1. Upgrade the native plugins and TUI together, for every producer read by that
-   TUI. Restart/recreate the selected services so old collector processes stop.
+   TUI. Rebuild the native Metrics Manager image and matching ViPPET UI image
+   from this checkout with fresh tags, or rebuild/install the bare-metal package.
+   Restart/recreate the selected services so old collector processes stop;
+   a restart alone does not rebuild an image. Preserve local configuration.
 2. Replace old names in PromQL, recording/alert rules and custom ingestion
    clients. Rescale numeric thresholds using the table; do not splice old and
    new raw values into one history without conversion.

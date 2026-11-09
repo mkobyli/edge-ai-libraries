@@ -41,7 +41,7 @@ func wantContains(t *testing.T, view, want string) {
 }
 
 func TestNPUSnapshotAvailabilityAndFrequencyLimit(t *testing.T) {
-	base := "npu_frequency_hz 1600000000\nnpu_frequency_max_hz 1600000000\nnpu_power_w 2\n"
+	base := "npu_frequency 1600000000\nnpu_frequency_max_mhz 1600\nnpu_power 2\n"
 	model := testModel(nil)
 	for _, step := range []struct {
 		name       string
@@ -50,10 +50,10 @@ func TestNPUSnapshotAvailabilityAndFrequencyLimit(t *testing.T) {
 		wantMemory string
 		available  bool
 	}{
-		{"measured", "npu_utilization 50\nnpu_memory_bytes 536870912\n", "50.0%", "512 MiB", true},
-		{"zero", "npu_utilization 0\nnpu_memory_bytes 0\n", "0.0%", "0 MiB", true},
+		{"measured", "npu_utilization 50\nnpu_memory_mb 512\n", "50.0%", "512 MiB", true},
+		{"zero", "npu_utilization 0\nnpu_memory_mb 0\n", "0.0%", "0 MiB", true},
 		{"unavailable", "", absent, absent, false},
-		{"recovered", "npu_utilization 25\nnpu_memory_bytes 134217728\n", "25.0%", "128 MiB", true},
+		{"recovered", "npu_utilization 25\nnpu_memory_mb 128\n", "25.0%", "128 MiB", true},
 	} {
 		t.Run(step.name, func(t *testing.T) {
 			model, _ = update(t, model, snapshotMsg(source.Snapshot{

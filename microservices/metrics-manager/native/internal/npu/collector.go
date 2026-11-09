@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -117,7 +116,7 @@ func NewCollector(sysfsRoot, hostname string) (*Collector, error) {
 func (c *Collector) BusyTimeSupported() bool { return c.busyPath != "" }
 
 // MemoryUtilisationSupported reports whether NPU memory usage is exposed. When
-// false, the memory_bytes field is omitted.
+// false, the memory_mb field is omitted.
 func (c *Collector) MemoryUtilisationSupported() bool { return c.memoryPath != "" }
 
 // Gen reports the detected SoC generation.
@@ -151,17 +150,17 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 	c.prevBandwidth = bandwidth
 
 	fields := []lineproto.Field{
-		lineproto.FloatField("power_w", power),
-		lineproto.FloatField("frequency_hz", c.telemetry.FrequencyHz()),
-		lineproto.IntField("temperature_c", int64(c.telemetry.TemperatureC())),
-		lineproto.FloatField("bandwidth_bytes_per_second", bandwidthDelta/elapsed),
+		lineproto.FloatField("power", power),
+		lineproto.FloatField("frequency", c.telemetry.FrequencyHz()),
+		lineproto.IntField("temperature", int64(c.telemetry.TemperatureC())),
+		lineproto.FloatField("bandwidth", bandwidthDelta/elapsed/1e6),
 		lineproto.IntField("tile_config", int64(c.telemetry.TileConfig())),
 	}
 	if utilization, ok := c.utilization(elapsed); ok {
 		fields = append(fields, lineproto.IntField("utilization", utilization))
 	}
 	if memory, ok := c.memoryBytes(); ok {
-		fields = append(fields, lineproto.NumberField("memory_bytes", strconv.FormatUint(memory, 10)))
+		fields = append(fields, lineproto.FloatField("memory_mb", float64(memory)/1024/1024))
 	}
 	fields = append(fields, lineproto.IntField("power_state", c.powerState()))
 
@@ -169,7 +168,7 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 	// is omitted rather than reported as zero where the driver does not
 	// publish it.
 	if maxFreq, ok := c.maxFrequencyMHz(); ok {
-		fields = append(fields, lineproto.FloatField("frequency_max_hz", maxFreq*1e6))
+		fields = append(fields, lineproto.FloatField("frequency_max_mhz", maxFreq))
 	}
 
 	return []lineproto.Point{{

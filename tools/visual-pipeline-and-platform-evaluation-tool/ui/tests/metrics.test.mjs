@@ -29,7 +29,7 @@ test("NPU frequency is always converted from Hz to MHz", () => {
     [0, 0],
   ]) {
     const state = {
-      metrics: reducer(undefined, message({ npu_frequency_hz: frequencyHz })),
+      metrics: reducer(undefined, message({ npu_frequency: frequencyHz })),
     };
     assert.equal(selectNpuMetrics(state).frequency, frequencyMHz);
   }
@@ -39,19 +39,19 @@ test("NPU snapshots distinguish measured zero from missing fields", () => {
   let state = {
     metrics: reducer(
       undefined,
-      message({ npu_utilization: 50, npu_frequency_hz: 1_600_000_000 }),
+      message({ npu_utilization: 50, npu_frequency: 1_600_000_000 }),
     ),
   };
   assert.equal(selectNpuMetric(state), 50);
   state = {
     metrics: reducer(
       state.metrics,
-      message({ npu_utilization: 0, npu_frequency_hz: 0 }),
+      message({ npu_utilization: 0, npu_frequency: 0 }),
     ),
   };
   assert.equal(selectNpuMetric(state), 0);
   assert.equal(selectNpuMetrics(state).frequency, 0);
-  state = { metrics: reducer(state.metrics, message({ npu_power_w: 2 })) };
+  state = { metrics: reducer(state.metrics, message({ npu_power: 2 })) };
   assert.equal(selectNpuMetric(state), undefined);
   assert.equal(selectNpuMetrics(state).utilization, undefined);
   assert.equal(selectNpuMetrics(state).frequency, undefined);
@@ -68,7 +68,7 @@ test("native CPU and GPU base units preserve GHz and watt display values", () =>
           { name: "gpu_power_power_w", value: 2.5 * scale, labels: { gpu_id: "0", type: "gpu_cur_power" } },
           { name: "gpu_power_power_w", value: 10.5 * scale, labels: { gpu_id: "0", type: "pkg_cur_power" } },
           { name: "gpu_frequency_cur_freq_hz", value: 1.2e9 * scale, labels: { gpu_id: "1", type: "cur_freq" } },
-          { name: "npu_temperature_c", value: 40 * scale, labels: {} },
+          { name: "npu_temperature", value: 40 * scale, labels: {} },
         ],
       },
     };

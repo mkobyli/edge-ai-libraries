@@ -279,20 +279,20 @@ class HardwareMonitor:
         if val is not None:
             sample["pkg_power_w"] = round(val, 3)
 
-        frequency = mm.get("npu_frequency_hz")
+        frequency = mm.get("npu_frequency")
         if frequency is not None:
             sample["npu_frequency_mhz"] = round(frequency / 1e6, 1)
 
         # NPU
-        for source, target, divisor in (
-            ("npu_utilization", "npu_utilization", 1),
-            ("npu_power_w", "npu_power", 1),
-            ("npu_temperature_c", "npu_temperature", 1),
-            ("npu_memory_bytes", "npu_memory_mb", 1 << 20),
-            ("npu_bandwidth_bytes_per_second", "npu_bandwidth", 1e6),
+        for key in (
+            "npu_utilization",
+            "npu_power",
+            "npu_temperature",
+            "npu_memory_mb",
+            "npu_bandwidth",
         ):
-            if source in mm:
-                sample[target] = mm[source] / divisor
+            if key in mm:
+                sample[key] = mm[key]
 
         return sample
 
