@@ -3,10 +3,6 @@
 
 // Package npu reads Intel NPU telemetry through the kernel's Platform
 // Monitoring Technology (PMT) sysfs interface.
-//
-// It is a port of the Python NPU readers this package replaced, and
-// deliberately reproduces their arithmetic and output formatting so that the
-// switch does not change a single emitted byte.
 package npu
 
 import (
@@ -20,9 +16,6 @@ import (
 
 // CPUGen identifies the SoC generation, which determines the telemetry
 // register layout.
-//
-// The order matters: memory utilisation is only exposed from PTL onwards, and
-// that check is a numeric comparison.
 type CPUGen int
 
 const (

@@ -14,12 +14,23 @@ removes the Prometheus output the SSE stream depends on) will fail in CI.
 End-to-end Docker-based tests are documented at the bottom of this file.
 """
 
+import asyncio
 import configparser
+import json
+import shutil
+import socket
+import subprocess
+import time
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import httpx
 import pytest
 import yaml
+
+from app.sse import fetch_metrics
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TELEGRAF_CONF = REPO_ROOT / "telegraf.conf"
@@ -28,6 +39,19 @@ SUPERVISORD_CONF = REPO_ROOT / "supervisord.conf"
 DOCKERFILE = REPO_ROOT / "Dockerfile"
 ENTRYPOINT = REPO_ROOT / "entrypoint.sh"
 QMASSA_UNIT = REPO_ROOT / "native" / "packaging" / "systemd" / "metrics-manager-qmassa.service"
+VIPPET_TELEGRAF_CONF = (
+    REPO_ROOT.parents[1] / "tools/visual-pipeline-and-platform-evaluation-tool/vippet-telegraf.conf"
+)
+EXPORT_CONFIGS = [
+    pytest.param(TELEGRAF_CONF, id="metrics-manager"),
+    pytest.param(REPO_ROOT / "native/packaging/etc/telegraf.conf", id="bare-metal"),
+    pytest.param(
+        VIPPET_TELEGRAF_CONF, id="vippet",
+        marks=pytest.mark.skipif(
+            not VIPPET_TELEGRAF_CONF.is_file(), reason="requires the ViPPET checkout",
+        ),
+    ),
+]
 
 
 @pytest.fixture(scope="module")
@@ -61,6 +85,12 @@ class TestDefaultTelegrafConfig:
         assert "[[outputs.prometheus_client]]" in telegraf_text
         config = tomllib.loads(telegraf_text)
         assert config["outputs"]["prometheus_client"][0]["listen"] == ":${TELEGRAF_PORT}"
+
+    @pytest.mark.parametrize("config_path", EXPORT_CONFIGS)
+    def test_prometheus_expiration_preserves_default_ten_second_inputs(self, config_path: Path):
+        output = tomllib.loads(config_path.read_text())["outputs"]["prometheus_client"][0]
+        assert output["expiration_interval"] == "15s"
+        assert output["export_timestamp"] is True
 
     def test_http_listener_for_custom_metrics_relay(self, telegraf_text: str):
         # /api/v1/metrics endpoints persist via Telegraf's HTTP listener on :8186.
@@ -183,6 +213,109 @@ class TestImageDirectories:
             assert (
                 "collector-signals" not in text
             ), f"{path.name} still references the removed collector-signals directory"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(shutil.which("telegraf") is None, reason="requires the shipped Telegraf binary")
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exporter_config", EXPORT_CONFIGS)
+async def test_npu_fields_expire_while_other_fields_refresh(tmp_path: Path, exporter_config: Path):
+    def unused_port() -> int:
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            return listener.getsockname()[1]
+
+    input_port, output_port = unused_port(), unused_port()
+    config = tomllib.loads(exporter_config.read_text())
+    output = dict(config["outputs"]["prometheus_client"][0])
+    output["listen"] = f"127.0.0.1:{output_port}"
+    output["expiration_interval"] = "1s"
+    output_text = "\n".join(f"{key} = {json.dumps(value)}" for key, value in output.items())
+    config_path = tmp_path / "telegraf.conf"
+    config_path.write_text(
+        '[agent]\ninterval = "100ms"\nflush_interval = "100ms"\nomit_hostname = true\n'
+        '[[inputs.http_listener_v2]]\n'
+        f'service_address = "127.0.0.1:{input_port}"\n'
+        'paths = ["/write"]\nmethods = ["POST"]\ndata_format = "influx"\n'
+        f'[[outputs.prometheus_client]]\n{output_text}\n'
+    )
+    endpoint = f"http://127.0.0.1:{output_port}"
+    with (tmp_path / "telegraf.log").open("w+") as log:
+        process = subprocess.Popen(
+            [shutil.which("telegraf"), "--config", str(config_path)],
+            stdout=log, stderr=log,
+        )
+        try:
+            async with httpx.AsyncClient() as client:
+                async def wait_for(
+                    fields: str, expected: dict[str, float | None],
+                    previous_timestamps: dict[str, int] | None = None,
+                ) -> dict:
+                    deadline = time.monotonic() + 6
+                    timestamp_ns = time.time_ns()
+                    payload = {}
+                    while time.monotonic() < deadline:
+                        if process.poll() is not None:
+                            log.seek(0)
+                            pytest.fail(log.read())
+                        try:
+                            response = await client.post(
+                                f"http://127.0.0.1:{input_port}/write",
+                                content=f"npu,host=test frequency_hz=1600000000,power_w=2,bandwidth_bytes_per_second=10000000{fields} {timestamp_ns if fields else time.time_ns()}\n",
+                            )
+                            response.raise_for_status()
+                            with patch("app.sse.get_settings", return_value=SimpleNamespace(
+                                prometheus_telegraf_endpoint=endpoint,
+                            )):
+                                payload = json.loads(await fetch_metrics())
+                            values = {metric["name"]: metric["value"] for metric in payload["metrics"]}
+                            for metric in payload["metrics"]:
+                                if previous_timestamps and metric["name"] in previous_timestamps:
+                                    assert metric["timestamp"] == previous_timestamps[metric["name"]]
+                            if all(values.get(name) == value for name, value in expected.items()):
+                                return payload
+                        except httpx.TransportError:
+                            pass
+                        await asyncio.sleep(0.1)
+                    pytest.fail(f"Expected {expected}, got {payload}")
+
+                await wait_for(
+                    ",utilization=50i,memory_bytes=536870912", {"npu_utilization": 50, "npu_memory_bytes": 536870912},
+                )
+                zero = await wait_for(
+                    ",utilization=0i,memory_bytes=0", {"npu_utilization": 0, "npu_memory_bytes": 0},
+                )
+                timestamps = {
+                    metric["name"]: metric["timestamp"] for metric in zero["metrics"]
+                    if metric["name"] in {"npu_utilization", "npu_memory_bytes"}
+                }
+                memory_only = await wait_for(
+                    ",memory_bytes=134217728", {
+                        "npu_utilization": None, "npu_memory_bytes": 134217728,
+                        "npu_frequency_hz": 1_600_000_000, "npu_power_w": 2,
+                        "npu_bandwidth_bytes_per_second": 10_000_000,
+                    }, {"npu_utilization": timestamps["npu_utilization"]},
+                )
+                timestamps = {
+                    metric["name"]: metric["timestamp"] for metric in memory_only["metrics"]
+                    if metric["name"] == "npu_memory_bytes"
+                }
+                expired = await wait_for("", {
+                    "npu_utilization": None, "npu_memory_bytes": None,
+                    "npu_frequency_hz": 1_600_000_000, "npu_power_w": 2,
+                    "npu_bandwidth_bytes_per_second": 10_000_000,
+                }, timestamps)
+                assert expired["timestamp"] >= memory_only["timestamp"] >= zero["timestamp"]
+                await wait_for(
+                    ",utilization=25i,memory_bytes=0", {
+                        "npu_utilization": 25, "npu_memory_bytes": 0,
+                        "npu_frequency_hz": 1_600_000_000, "npu_power_w": 2,
+                        "npu_bandwidth_bytes_per_second": 10_000_000,
+                    },
+                )
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
 
 
 # -----------------------------------------------------------------------------

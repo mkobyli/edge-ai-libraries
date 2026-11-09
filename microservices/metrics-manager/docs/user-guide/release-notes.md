@@ -71,6 +71,18 @@ Historical release entries and Helm metadata remain unchanged.
   utilization/memory readings are omitted instead of publishing artificial
   zero/negative values. Presence-based memory detection, busy-counter reset
   handling, power state and the frequency ceiling are retained.
+- **NPU diagnostics and recovery**: invalid intervals drop the sample without
+  changing counter baselines. Every busy-time or memory read/parse failure is
+  reported to stderr; a missing busy-time attribute is reported once at startup,
+  while a missing memory node remains silent. Stdout stays Line Protocol only.
+  TUI tests cover measured zero, unavailable data and recovery. ViPPET UI and
+  benchmark ingestion use the new native names with explicit display conversions;
+  report column units remain unchanged.
+- **Stale NPU series**: container, bare-metal and ViPPET Prometheus exports
+  expire inactive series after 15 seconds. Other fields do not refresh omitted
+  fields' timestamps; SSE forwards the reduced snapshot after expiration.
+  Allow flush/poll latency. Expiration applies to all series; custom inputs
+  slower than this window need a longer `expiration_interval`.
 - **OTLP histogram ingestion**: stores count and available finite summary
   statistics, aggregation temporality and typed attributes; parses integer
   strings without float conversion. Invalid numeric points are reported and

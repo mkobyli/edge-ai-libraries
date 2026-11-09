@@ -12,15 +12,13 @@ import logging
 import time
 from typing import Any
 
-import pytest
 import httpx
-
+import pytest
 from helpers.api_helpers import (
     start_performance_job,
     wait_for_job_completion,
 )
 from helpers.pipeline_case_helpers import PipelineCase
-
 from perf_helpers.config import (
     BASE_URL,
     MAX_RETRIES,
@@ -100,7 +98,9 @@ def test_pipeline_performance(
             time.sleep(RETRY_DELAY_SECONDS)
             final_status = _attempt_performance_job(http_client, payload)
     finally:
-        hw_stats = hw_monitor.stop()
+        hw_stats = hw_monitor.stop(
+            families=pipeline_case.device_family.upper().split("_")
+        )
 
     duration = time.time() - start_time
     is_success = final_status.get("state") == "COMPLETED"

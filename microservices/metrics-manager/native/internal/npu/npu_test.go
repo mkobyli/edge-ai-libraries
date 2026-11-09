@@ -5,6 +5,7 @@ package npu
 
 import (
 	"encoding/binary"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,6 +169,9 @@ func TestFrequencyScalingPerGeneration(t *testing.T) {
 		raw    uint64
 		wantHz float64
 	}{
+		{gen: GenMTL, raw: 30, wantHz: 1_000_000_000},
+		{gen: GenLNL, raw: 40, wantHz: 1_000_000_000},
+		{gen: GenPTL, raw: 40, wantHz: 1_000_000_000},
 		{gen: GenMTL, raw: 48, wantHz: 1_600_000_000},
 		{gen: GenARL, raw: 48, wantHz: 1_600_000_000},
 		{gen: GenLNL, raw: 78, wantHz: 1_950_000_000},
@@ -211,17 +215,19 @@ func buildNPUSysfs(t *testing.T, guid string, buffer []byte, busyUS, memoryBytes
 	return root
 }
 
-// TestCollectBaseUnits checks the native 2026.3.0 wire contract.
 func TestCollectBaseUnits(t *testing.T) {
-	regs := registerSets[GenPTL]
-	root := buildNPUSysfs(t, "0x3086000",
+	regs := registerSets[GenARL]
+	root := buildNPUSysfs(t, "0x1306a0b3",
 		telemetryBuffer(4096, map[int]uint64{
 			regs.energy:          uint64(10) << 14, // 10 J
-			regs.workpoint:       0x02_00_28,       // tile 2, work point 40
+			regs.workpoint:       0x02_00_30,       // tile 2, work point 48
 			regs.socTemperatures: uint64(45) << 40, // 45 C
 			regs.memoryBW:        128_750,          // 128.75 MB
 		}),
 		"1000", "536870912") // 1 ms busy, 512 MiB
+	dev := filepath.Join(root, "bus/pci/drivers/intel_vpu/0000:00:0b.0")
+	writeFile(t, filepath.Join(dev, "npu_max_frequency_mhz"), []byte("1600\n"))
+	writeFile(t, filepath.Join(dev, "power_state"), []byte("D0\n"))
 
 	collector, err := NewCollector(root, "test-host")
 	if err != nil {
@@ -249,10 +255,101 @@ func TestCollectBaseUnits(t *testing.T) {
 		t.Fatalf("Append() error: %v", err)
 	}
 
-	want := "npu,host=test-host power_w=4,frequency_hz=1000000000,temperature_c=45i," +
-		"bandwidth_bytes_per_second=128750000,tile_config=2i,utilization=0i,memory_bytes=536870912,power_state=-1i 1725062401000000000\n"
+	want := "npu,host=test-host power_w=4,frequency_hz=1600000000,temperature_c=45i," +
+		"bandwidth_bytes_per_second=128750000,tile_config=2i,utilization=0i,memory_bytes=536870912,power_state=0i,frequency_max_hz=1600000000 1725062401000000000\n"
 	if got := string(rendered); got != want {
 		t.Errorf("Collect()\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestCollectorBandwidth(t *testing.T) {
+	tests := []struct {
+		name     string
+		previous uint64
+		current  uint64
+		elapsed  time.Duration
+		want     string
+	}{
+		{"two seconds", 10_000, 30_000, 2 * time.Second, "bandwidth_bytes_per_second=10000000"},
+		{"short interval", 10_000, 30_000, 500 * time.Millisecond, "bandwidth_bytes_per_second=40000000"},
+		{"wrap", 1<<32 - 10_000, 10_000, 2 * time.Second, "bandwidth_bytes_per_second=10000000"},
+		{"wrap by one tick", 1<<32 - 1, 0, time.Second, "bandwidth_bytes_per_second=1000"},
+		{"zero traffic", 10_000, 10_000, 2 * time.Second, "bandwidth_bytes_per_second=0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			regs := registerSets[GenLNL]
+			root := buildNPUSysfs(t, "0x3072005",
+				telemetryBuffer(4096, map[int]uint64{regs.memoryBW: tt.previous}), "", "")
+			collector, err := NewCollector(root, "h")
+			if err != nil {
+				t.Fatal(err)
+			}
+			start := time.Unix(0, 0)
+			collector.prevTime = start
+			collector.now = func() time.Time { return start.Add(tt.elapsed) }
+			writeFile(t, collector.telemetry.path,
+				telemetryBuffer(4096, map[int]uint64{regs.memoryBW: tt.current}))
+			points, err := collector.Collect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			rendered, err := points[0].Append(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(rendered), tt.want+",") {
+				t.Errorf("Collect() = %s, want %s", rendered, tt.want)
+			}
+		})
+	}
+}
+
+func TestCollectorRejectsInvalidIntervalWithoutChangingBaseline(t *testing.T) {
+	for _, elapsed := range []time.Duration{0, -time.Second} {
+		t.Run(elapsed.String(), func(t *testing.T) {
+			regs := registerSets[GenPTL]
+			root := buildNPUSysfs(t, "0x3086000", telemetryBuffer(4096, map[int]uint64{
+				regs.energy: 10 << 14, regs.memoryBW: 10_000,
+			}), "1000", "")
+			collector, err := NewCollector(root, "h")
+			if err != nil {
+				t.Fatal(err)
+			}
+			start := time.Unix(0, 0)
+			collector.prevTime = start
+			collector.now = func() time.Time { return start.Add(elapsed) }
+			writeFile(t, collector.telemetry.path, telemetryBuffer(4096, map[int]uint64{
+				regs.energy: 12 << 14, regs.memoryBW: 20_000,
+			}))
+			writeFile(t, collector.busyPath, []byte("501000"))
+			points, err := collector.Collect()
+			if err == nil || !strings.Contains(err.Error(), "sampling interval") || len(points) != 0 {
+				t.Fatalf("Collect() = %v, %v; want no points and an interval diagnostic", points, err)
+			}
+			if !collector.prevTime.Equal(start) || collector.prevEnergy != 10 ||
+				collector.prevBandwidth != 10e6 || collector.prevBusyUS != 1000 || !collector.hasPrevBusy {
+				t.Fatal("rejected sample changed the counter baseline")
+			}
+			collector.now = func() time.Time { return start.Add(2 * time.Second) }
+			writeFile(t, collector.telemetry.path, telemetryBuffer(4096, map[int]uint64{
+				regs.energy: 14 << 14, regs.memoryBW: 30_000,
+			}))
+			writeFile(t, collector.busyPath, []byte("1001000"))
+			points, err = collector.Collect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			rendered, err := points[0].Append(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"power_w=2,", "bandwidth_bytes_per_second=10000000,", "utilization=50i,"} {
+				if !strings.Contains(string(rendered), want) {
+					t.Errorf("Collect() after recovery = %s, want %s", rendered, want)
+				}
+			}
+		})
 	}
 }
 
@@ -441,7 +538,7 @@ func TestCollectorUtilisation(t *testing.T) {
 		{name: "half busy", prevBusy: 0, currBusy: "500000", elapsed: time.Second, want: "utilization=50i"},
 		{name: "fully busy", prevBusy: 0, currBusy: "1000000", elapsed: time.Second, want: "utilization=100i"},
 		{name: "capped above 100", prevBusy: 0, currBusy: "5000000", elapsed: time.Second, want: "utilization=100i"},
-		{name: "counter reset", prevBusy: 9000000, currBusy: "10", elapsed: time.Second, want: "utilization=0i"},
+		{name: "counter reset", prevBusy: 9000000, currBusy: "10", elapsed: time.Second},
 		{name: "idle", prevBusy: 500, currBusy: "500", elapsed: time.Second, want: "utilization=0i"},
 	}
 
@@ -469,7 +566,9 @@ func TestCollectorUtilisation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Append() error: %v", err)
 			}
-			if !strings.Contains(string(rendered), tt.want) {
+			if tt.want == "" && strings.Contains(string(rendered), "utilization=") {
+				t.Errorf("Collect() = %s, want utilization omitted", rendered)
+			} else if tt.want != "" && !strings.Contains(string(rendered), tt.want) {
 				t.Errorf("Collect() = %s, want it to contain %s", rendered, tt.want)
 			}
 		})
@@ -554,7 +653,179 @@ func TestMemoryUtilisationAbsentStaysUnavailable(t *testing.T) {
 		t.Error("MemoryUtilisationSupported() = true with no attribute present, want false")
 	}
 	if got, ok := collector.memoryBytes(); ok {
-		t.Errorf("memoryBytes() = %v, true, want unavailable", got)
+		t.Errorf("memoryBytes() = %v, %t; want unavailable", got, ok)
+	}
+}
+
+func TestCollectorOptionalReadRecovery(t *testing.T) {
+	root := buildNPUSysfs(t, "0x130670b2", make([]byte, 4096), "0", "0")
+	collector, err := NewCollector(root, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sampleTime := time.Unix(0, 0)
+	collector.prevTime = sampleTime
+	collector.now = func() time.Time { return sampleTime }
+	steps := []struct {
+		name       string
+		busy       string
+		memory     string
+		wantUtil   string
+		wantMemory string
+	}{
+		{"measured zero", "0", "0", "utilization=0i", "memory_bytes=0"},
+		{"busy", "500000", "1048576", "utilization=50i", "memory_bytes=1048576"},
+		{"missing files", "", "", "", ""},
+		{"invalid values", "invalid", "invalid", "", ""},
+		{"negative values", "-1", "-1", "", ""},
+		{"reestablish baseline", "9000000", "0", "", "memory_bytes=0"},
+		{"after read recovery", "9500000", "0", "utilization=50i", "memory_bytes=0"},
+		{"counter reset", "0", "0", "", "memory_bytes=0"},
+		{"after reset", "250000", "0", "utilization=25i", "memory_bytes=0"},
+		{"idle again", "250000", "0", "utilization=0i", "memory_bytes=0"},
+	}
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			for path, value := range map[string]string{collector.busyPath: step.busy, collector.memoryPath: step.memory} {
+				if value == "" {
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					writeFile(t, path, []byte(value))
+				}
+			}
+			sampleTime = sampleTime.Add(time.Second)
+			points, err := collector.Collect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			rendered, err := points[0].Append(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for field, want := range map[string]string{"utilization=": step.wantUtil, "memory_bytes=": step.wantMemory} {
+				if want == "" {
+					if strings.Contains(string(rendered), field) {
+						t.Errorf("Collect() = %s, want %s omitted", rendered, field)
+					}
+				} else if !strings.Contains(string(rendered), want+",") {
+					t.Errorf("Collect() = %s, want %s", rendered, want)
+				}
+			}
+		})
+	}
+}
+
+func captureCollectorOutput(t *testing.T, run func()) (string, string) {
+	t.Helper()
+	stdout, err := os.CreateTemp(t.TempDir(), "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	stderr, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderr.Close()
+	previousStdout, previousStderr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = stdout, stderr
+	defer func() { os.Stdout, os.Stderr = previousStdout, previousStderr }()
+	run()
+	readOutput := func(file *os.File) string {
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			t.Fatal(err)
+		}
+		content, err := io.ReadAll(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(content)
+	}
+	return readOutput(stdout), readOutput(stderr)
+}
+
+func TestCollectorDiagnostics(t *testing.T) {
+	tests := []struct {
+		name        string
+		busy        string
+		memory      string
+		attribute   string
+		failure     string
+		wantMessage string
+		wantCause   string
+		wantCount   int
+		omitUtil    bool
+		omitMemory  bool
+	}{
+		{name: "valid zeros", busy: "0", memory: "0"},
+		{name: "absent attributes", wantMessage: "npu_busy_time_us not found at ", wantCause: "utilization will be omitted", wantCount: 1, omitUtil: true, omitMemory: true},
+		{name: "absent memory", busy: "0", omitMemory: true},
+		{name: "initial busy parse error", busy: "invalid", memory: "0", wantMessage: "warning: Failed to read npu_busy_time_us:", wantCause: "invalid syntax", wantCount: 3, omitUtil: true},
+		{name: "busy read error", busy: "0", memory: "0", attribute: "npu_busy_time_us", failure: "directory", wantMessage: "warning: Failed to read npu_busy_time_us:", wantCause: "is a directory", wantCount: 2, omitUtil: true},
+		{name: "busy parse error", busy: "0", memory: "0", attribute: "npu_busy_time_us", failure: "invalid", wantMessage: "warning: Failed to read npu_busy_time_us:", wantCause: "invalid syntax", wantCount: 2, omitUtil: true},
+		{name: "busy disappears", busy: "0", memory: "0", attribute: "npu_busy_time_us", failure: "missing", wantMessage: "warning: Failed to read npu_busy_time_us:", wantCause: "no such file or directory", wantCount: 2, omitUtil: true},
+		{name: "memory read error", busy: "0", memory: "0", attribute: "npu_memory_utilization", failure: "directory", wantMessage: "warning: Failed to read npu_memory_utilization:", wantCause: "is a directory", wantCount: 2, omitMemory: true},
+		{name: "memory parse error", busy: "0", memory: "0", attribute: "npu_memory_utilization", failure: "invalid", wantMessage: "warning: Failed to read npu_memory_utilization:", wantCause: "invalid syntax", wantCount: 2, omitMemory: true},
+		{name: "memory disappears", busy: "0", memory: "0", attribute: "npu_memory_utilization", failure: "missing", omitMemory: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := buildNPUSysfs(t, "0x130670b2", make([]byte, 4096), tt.busy, tt.memory)
+			stdout, stderr := captureCollectorOutput(t, func() {
+				collector, err := NewCollector(root, "h")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tt.attribute != "" {
+					path := filepath.Join(root, "bus/pci/drivers/intel_vpu/0000:00:0b.0", tt.attribute)
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+					switch tt.failure {
+					case "directory":
+						if err := os.Mkdir(path, 0o755); err != nil {
+							t.Fatal(err)
+						}
+					case "invalid":
+						writeFile(t, path, []byte("invalid"))
+					}
+				}
+				collector.now = func() time.Time { return collector.prevTime.Add(time.Second) }
+				for sample := 0; sample < 2; sample++ {
+					points, err := collector.Collect()
+					if err != nil || len(points) != 1 {
+						t.Fatalf("Collect() = %v, %v; want one point without error", points, err)
+					}
+					rendered, err := points[0].Append(nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, field := range []string{"power_w=", "frequency_hz=", "temperature_c=", "bandwidth_bytes_per_second=", "tile_config=", "power_state="} {
+						if !strings.Contains(string(rendered), field) {
+							t.Errorf("remaining field %s missing from %s", field, rendered)
+						}
+					}
+					for field, omitted := range map[string]bool{"utilization=": tt.omitUtil, "memory_bytes=": tt.omitMemory} {
+						if strings.Contains(string(rendered), field) == omitted {
+							t.Errorf("field %s omitted = %t, want %t; point: %s", field, !omitted, omitted, rendered)
+						}
+					}
+				}
+			})
+			if stdout != "" {
+				t.Errorf("collector wrote diagnostics to stdout: %q", stdout)
+			}
+			if tt.wantCount == 0 {
+				if stderr != "" {
+					t.Errorf("unexpected diagnostics: %q", stderr)
+				}
+			} else if strings.Count(stderr, tt.wantMessage) != tt.wantCount ||
+				strings.Count(stderr, tt.wantCause) != tt.wantCount || strings.Count(stderr, "\n") != tt.wantCount {
+				t.Errorf("stderr = %q; want %d messages containing %q and %q", stderr, tt.wantCount, tt.wantMessage, tt.wantCause)
+			}
+		})
 	}
 }
 

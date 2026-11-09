@@ -11,9 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pytest
 import httpx
-
+import pytest
 from helpers.api_helpers import fetch_devices
 from helpers.pipeline_case_helpers import (
     PipelineCase,
@@ -34,6 +33,7 @@ from perf_helpers.config import (
     SKIP_VARIANTS,
     STREAM_COUNTS,
     VARIANT_FILTER,
+    resolve_metrics_trim_fraction,
 )
 from perf_helpers.hw_monitor import HardwareMonitor
 from perf_helpers.reporters import ResultExporter, generate_html_report
@@ -77,6 +77,23 @@ _QUICK_STREAM_COUNTS: set[int] = {1, 3}
 _QUICK_VARIANTS: set[str] = {"CPU", "GPU"}
 
 _PIPELINE_CASES, _CASE_IDS = discover_pipeline_cases_for_pytest()
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--metrics-trim-fraction",
+        default=None,
+        help="Fraction of chronological samples trimmed from each end for HW averages (0 <= value < 0.5)",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    try:
+        config.option.metrics_trim_fraction = resolve_metrics_trim_fraction(
+            config.getoption("metrics_trim_fraction")
+        )
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -166,9 +183,13 @@ def http_client() -> Generator[httpx.Client, None, None]:
 
 
 @pytest.fixture
-def hw_monitor() -> HardwareMonitor:
+def hw_monitor(request: pytest.FixtureRequest) -> HardwareMonitor:
     """Create a HardwareMonitor instance for per-test HW sampling."""
-    return HardwareMonitor(METRICS_URL, METRICS_SAMPLE_INTERVAL)
+    return HardwareMonitor(
+        METRICS_URL,
+        METRICS_SAMPLE_INTERVAL,
+        request.config.option.metrics_trim_fraction,
+    )
 
 
 @pytest.fixture(scope="session")

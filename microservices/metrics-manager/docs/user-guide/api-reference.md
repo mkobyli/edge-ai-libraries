@@ -569,6 +569,37 @@ containing credentials cannot leak into metrics.
 | `npu_utilization` | `utilization` | % NPU utilization over the last interval (0–100); omitted without two usable busy-counter samples |
 | `npu_memory_bytes` | `memory_bytes` | NPU memory usage in bytes, from `npu_memory_utilization`; omitted when unavailable |
 | `npu_frequency_max_hz` | `frequency_max_hz` | Frequency ceiling in Hz, omitted where it is not published |
+| `npu_power_state` | `power_state` | PCI D-state encoding; -1 when unavailable or unrecognized |
+
+`npu_frequency_hz` uses ratio times 50 MHz times 2/3 for MTL/ARL and ratio times
+50 MHz divided by 2 for LNL/PTL, converted to Hz. For example, ARL ratio 48
+reports `1600000000` Hz. Consumers displaying MHz must divide by `1_000_000`;
+`npu_frequency_max_hz` is also in Hz. Older display-scaled values are not
+compatible with the corrected Hz contract. See the
+[native metric migration guide](./get-started/native-metric-migration.md).
+
+Bandwidth uses the elapsed measurement interval, not the configured polling
+period. A non-positive interval drops the sample without changing its counter
+baseline. Wrap correction assumes at most one 32-bit counter wrap between
+readings; multiple wraps cannot be inferred from two readings.
+
+Unavailable utilization and memory readings are omitted from newly collected
+points, not replaced with `0` or `-1`. Measured zero remains a valid value.
+Utilization also requires two valid busy-time readings; after a read failure
+or counter reset, the collector establishes a new baseline before reporting it.
+The shipped container and bare-metal Telegraf configurations expire each
+series after 15 seconds without an update. Until then, SSE preserves its
+original sample timestamp, even when other NPU fields continue updating.
+Removal becomes visible on the next scrape/SSE poll, not immediately when
+the collector omits a field. This expiration applies to all exported series;
+custom inputs slower than 15 seconds require a suitably longer
+`expiration_interval`. The default 10-second custom scripts fit this window.
+
+The native plugin reports every busy-time or memory read/parse failure to
+stderr with the attribute name and cause, while keeping the other metrics.
+An absent busy-time attribute is reported once during initialization; an
+absent memory attribute is silently treated as unavailable. Stdout remains
+reserved for Line Protocol, with no diagnostic log file.
 
 **Requirements:**
 
@@ -578,10 +609,9 @@ containing credentials cannot leak into metrics.
 
 `npu_memory_bytes` and `npu_frequency_max_hz` come from the `intel_vpu` driver's
 sysfs attributes rather than from PMT, and those are world-readable, so they
-need no privilege. Both were measured present on Meteor Lake and Panther Lake
-alike; an earlier version of this plugin assumed memory usage arrived only
-from Panther Lake onwards and reported `-1` on Meteor Lake while the attribute
-sat there with a perfectly good value.
+need no privilege. Availability is determined by the sysfs attributes, not
+by a PTL-or-newer generation check. Both were measured present on Meteor Lake
+and Panther Lake alike.
 
 **Migration from the legacy NPU scale:** `npu_frequency_hz`
 reports actual Hz (for example, `1600000000` for 1600 MHz). Previous values were

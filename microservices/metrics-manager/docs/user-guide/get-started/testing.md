@@ -288,6 +288,23 @@ cd native && go test ./...
 
 It also runs inside the image build, so `make build` fails if a collector regresses.
 
+With the shipped Telegraf binary on `PATH`, run the NPU export/SSE regression:
+
+```bash
+pytest -q tests/test_telegraf_integration.py tests/test_sse.py
+```
+
+The live integration test starts an isolated Telegraf process on loopback
+ports with synthetic Line Protocol data; no NPU or privileged sysfs access
+is needed. It checks measured values, real zero, independent field expiration
+and unchanged timestamps for retained fields via the SSE fetch path. The test
+uses a one-second expiration to keep execution short; separate assertions
+verify the shipped 15-second setting. Both checks cover the container,
+bare-metal and ViPPET `vippet-telegraf.conf` exporters. The ViPPET variant
+requires the full repository checkout (mount it when testing in a container)
+and is explicitly skipped in component-only checkouts. Live integration
+tests are skipped if Telegraf is absent.
+
 ---
 
 ## Smoke Tests (Manual Testing)

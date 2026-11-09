@@ -29,6 +29,11 @@ benchmark:
     skip_variants: []
     require_models: true
 
+metrics:
+  metrics_url: "http://localhost/metrics/stream"
+  sample_interval_seconds: 2.0
+  trim_fraction: 0.1
+
 results:
   output_dir: "./results"
   formats:

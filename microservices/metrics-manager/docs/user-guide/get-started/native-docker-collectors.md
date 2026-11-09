@@ -45,6 +45,47 @@ unchanged"; it has no Docker equivalent.
 | `ENABLE_NETWORK_VIRTUAL` | Separate veth/lxc traffic and driver counters, independent of `ENABLE_NETWORK` |
 | `ENABLE_STORAGE` | Filesystem usage and disk I/O; serial/WWID export disabled |
 
+## NPU metric units and availability
+
+The native `mm-plugin-npu` collector emits `frequency_hz` in actual **Hz**;
+Telegraf exports it as `npu_frequency_hz`. The PLL conversion is ratio times
+50 MHz times 2/3 on Meteor Lake and Arrow Lake, and ratio times 50 MHz divided
+by 2 on Lunar Lake and Panther Lake. For example, Arrow Lake ratio 48 emits
+`frequency_hz=1600000000`. The driver-provided ceiling is exported as
+`frequency_max_hz` in **Hz**, and `power_state` retains its PCI D-state encoding.
+
+This corrects the older plugin's display-scaled frequency. Consumers displaying
+MHz must divide `npu_frequency_hz` by `1_000_000`;
+do not infer the unit from its magnitude. Deploy the corrected collector
+together with compatible consumers. Historical values from older plugin
+versions have the old scale and must not be interpreted as actual Hz.
+
+`bandwidth_bytes_per_second` is **bytes/s**, calculated from the traffic delta divided
+by the actual elapsed seconds, with correction for a 32-bit counter wrap.
+A non-positive interval drops the sample with a diagnostic on stderr and
+leaves the previous counter baseline intact.
+
+`utilization` and `memory_bytes` are omitted when their sysfs readings are
+unavailable or invalid; measured zero is still emitted. Memory support is
+detected by sysfs availability, regardless of SoC generation. The existing
+`memory_bytes` field preserves the driver's byte count without rounding.
+After a busy-time read failure or counter reset, utilisation resumes only
+after a valid baseline and a subsequent valid reading.
+
+Omitted fields do not immediately remove previously exported series.
+The shipped container and bare-metal configurations set Telegraf's
+`expiration_interval` to `15s`, independently for each series. SSE preserves
+the last sample timestamp until the series expires, then omits it from the
+next snapshot. Allow for flush and polling latency. This window also applies
+to non-NPU series and accommodates the default 10-second custom scripts;
+increase it if custom inputs run less frequently.
+
+The same native collector is used in the bare-metal package. Its command-line
+options, Line Protocol output, stderr diagnostics and no-hardware idle
+behaviour are unchanged; no Python reader is required.
+
+## Enabling optional inputs
+
 For example, from the component directory:
 
 ```bash

@@ -48,3 +48,7 @@ TIMESERIES_USER_NAME=timeseries_user
 HOST_UID=${HOST_UID}
 HOST_GID=${HOST_GID}
 EOF
+
+if [ -f .env.images ]; then
+    cat .env.images >> .env
+fi

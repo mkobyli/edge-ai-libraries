@@ -11,6 +11,13 @@ one-time contract migration** for Docker and the bare-metal package. Old names
 are not emitted as aliases and the new TUI does not fall back to old scales.
 Upgrade collectors, TUI and dashboards together.
 
+ViPPET UI selectors, benchmark harness ingestion and built-in benchmark power
+ingestion use these new names. Deploy a matching UI image with the new collector;
+an older collector image is not compatible. Harness report columns retain their
+existing units: CPU/GPU/NPU frequency in MHz, NPU memory in MiB under the legacy
+`npu_memory_mb` report key, and NPU bandwidth in decimal MB/s. Trimming, settle
+sample handling, KPI statuses and missing-data behavior are unchanged.
+
 Standard Telegraf inputs (including powerstat, Turbostat, CPU, memory, network
 and disk) are unchanged. So are the qmassa JSON input schema, engine/CPU
 utilization percentages, counts, state/throttle flags, process RSS bytes and
