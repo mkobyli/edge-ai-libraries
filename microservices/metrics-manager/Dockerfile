@@ -35,7 +35,8 @@
 
 # Toolchain base images (mirrors versions.env).
 ARG RUST_IMAGE=docker.io/library/rust:1.88
-ARG GO_IMAGE=docker.io/library/golang:1.26.6
+ARG PYTHON_IMAGE=docker.io/library/python:3.12-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54
+ARG GO_IMAGE=docker.io/library/golang:1.27@sha256:0c050feb47802ae436b9030833694a0b80160d08e3b3049ad30bf7c9e724e09d
 
 # -----------------------------------------------------------------------------
 # Stage 1: Build qmassa for GPU metrics
@@ -46,20 +47,8 @@ FROM ${RUST_IMAGE} AS qmassa-builder
 ARG QMASSA_VERSION=2.1.0
 ARG QMMD_VERSION=0.2.0
 
-# Proxy settings (passed from docker-compose build args)
-ARG http_proxy
-ARG HTTP_PROXY
-ARG https_proxy
-ARG HTTPS_PROXY
-ARG no_proxy
-ARG NO_PROXY
-
-ENV http_proxy=${http_proxy} \
-    HTTP_PROXY=${HTTP_PROXY} \
-    https_proxy=${https_proxy} \
-    HTTPS_PROXY=${HTTPS_PROXY} \
-    no_proxy=${no_proxy} \
-    NO_PROXY=${NO_PROXY}
+# Use Docker's predefined proxy build arguments without redeclaring or
+# persisting them, so build-environment values stay out of image history.
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -94,23 +83,9 @@ RUN cargo install --locked --git https://github.com/ulissesf/qmassa --tag qmassa
 FROM debian:12-slim AS telegraf-builder
 
 # Mirrors versions.env.
-ARG TELEGRAF_VERSION=1.39.3
-ARG TELEGRAF_SHA256=2904d5332a27a1a3f7ccd990139af2e9bc3b393cf5f7c6ac13e26ebc18df1d52
+ARG TELEGRAF_VERSION=1.40.3
+ARG TELEGRAF_SHA256=cbb95c43303db6e75e129a4eb8888ab1468009e61f6615e64a1cb82f50b0f4ce
 ARG TELEGRAF_BASE_URL=https://dl.influxdata.com/telegraf/releases
-
-ARG http_proxy
-ARG HTTP_PROXY
-ARG https_proxy
-ARG HTTPS_PROXY
-ARG no_proxy
-ARG NO_PROXY
-
-ENV http_proxy=${http_proxy} \
-    HTTP_PROXY=${HTTP_PROXY} \
-    https_proxy=${https_proxy} \
-    HTTPS_PROXY=${HTTPS_PROXY} \
-    no_proxy=${no_proxy} \
-    NO_PROXY=${NO_PROXY}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -154,7 +129,7 @@ RUN set -eux; \
 # here instead of being silently rewritten into the image.
 FROM ${GO_IMAGE} AS go-builder
 
-ARG VERSION=unknown
+ARG VERSION=2026.3.0
 
 WORKDIR /src
 COPY native/ ./
@@ -176,21 +151,7 @@ RUN set -eux; \
 # -----------------------------------------------------------------------------
 # Stage 4: Build Python dependencies
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim AS python-builder
-# Proxy settings (passed from docker-compose build args)
-ARG http_proxy
-ARG HTTP_PROXY
-ARG https_proxy
-ARG HTTPS_PROXY
-ARG no_proxy
-ARG NO_PROXY
-
-ENV http_proxy=${http_proxy} \
-    HTTP_PROXY=${HTTP_PROXY} \
-    https_proxy=${https_proxy} \
-    HTTPS_PROXY=${HTTPS_PROXY} \
-    no_proxy=${no_proxy} \
-    NO_PROXY=${NO_PROXY}
+FROM ${PYTHON_IMAGE} AS python-builder
 
 # Install uv for fast package installation
 RUN pip install --no-cache-dir uv==0.7.12
@@ -226,6 +187,8 @@ RUN uv sync --group test --no-install-project
 # Copy source code, tests, and all config files read by wiring tests
 COPY app ./app
 COPY tests ./tests
+COPY docs ./docs
+COPY README.md ./
 COPY native ./native
 COPY helm ./helm
 COPY pyproject.toml ./
@@ -236,34 +199,33 @@ COPY telegraf.conf ./
 COPY compose.yaml ./
 COPY supervisord.conf ./
 COPY entrypoint.sh ./
+COPY docker_collectors.py ./
+COPY docker_accelerators.py ./
 COPY Dockerfile ./
 
 CMD ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]
 
 # -----------------------------------------------------------------------------
-# Stage 6: Final image
+# Stage 6: Optional accelerator userspace packages
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim AS production
+FROM ${PYTHON_IMAGE} AS accelerator-builder
+
+ARG INSTALL_OPENVINO=false
+COPY versions.env docker_accelerators.py /build/
+RUN mkdir /runtime-debs && \
+    if [ "$INSTALL_OPENVINO" = "true" ]; then \
+        python /build/docker_accelerators.py --versions /build/versions.env --output /runtime-debs; \
+    fi
+
+# -----------------------------------------------------------------------------
+# Stage 7: Final image
+# -----------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE} AS production
 
 ARG INSTALL_OPENVINO=false
 
 ARG METRICS_MANAGER_UID=10001
 ARG METRICS_MANAGER_GID=10001
-
-# Proxy settings (passed from docker-compose build args)
-ARG http_proxy
-ARG HTTP_PROXY
-ARG https_proxy
-ARG HTTPS_PROXY
-ARG no_proxy
-ARG NO_PROXY
-
-ENV http_proxy=${http_proxy} \
-    HTTP_PROXY=${HTTP_PROXY} \
-    https_proxy=${https_proxy} \
-    HTTPS_PROXY=${HTTPS_PROXY} \
-    no_proxy=${no_proxy} \
-    NO_PROXY=${NO_PROXY}
 
 # Copy qmassa and qmmd binaries from Rust build stage
 COPY --from=qmassa-builder /usr/local/cargo/bin/qmassa /usr/local/bin/qmassa
@@ -286,10 +248,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 # - hwinfo: extended hardware information probing
 # Install supervisor via pip to avoid pulling Debian's python3.13 (CVE-2026-7210).
 # perl-base is not needed at runtime; purging it removes several known CVEs.
-RUN apt-get update && \
+RUN --mount=type=bind,from=accelerator-builder,source=/runtime-debs,target=/runtime-debs \
+    set -eu; \
+    apt-get update; \
+    apt-get upgrade --yes --no-install-recommends; \
     packages="dmidecode pciutils util-linux hwinfo"; \
     if [ "$INSTALL_OPENVINO" = "true" ]; then \
-        packages="$packages vainfo intel-media-va-driver"; \
+        packages="$packages vainfo intel-media-va-driver ocl-icd-libopencl1 libze1 libtbb12 /runtime-debs/*.deb"; \
     fi; \
     apt-get install --yes --no-install-recommends $packages && \
     pip install --no-cache-dir pip==26.2.1 supervisor==4.3.0 && \
@@ -306,7 +271,7 @@ RUN mkdir -p /etc/telegraf /etc/telegraf/telegraf.d /var/log/telegraf \
         /etc/supervisor/conf.d && \
     touch /etc/supervisor/conf.d/placeholder.conf
 
-# Clear proxy from final image (not needed at runtime, set via environment)
+# Preserve empty runtime defaults without retaining build-time proxy values.
 ENV http_proxy= \
     HTTP_PROXY= \
     https_proxy= \
@@ -323,10 +288,12 @@ ENV PYTHONUNBUFFERED=1
 
 # Create working directories
 WORKDIR /app
-RUN mkdir -p /app/custom-metrics /app/config
+RUN mkdir -p /app/custom-metrics /app/config /etc/telegraf/telegraf.d
 
 # Copy application files
 COPY app ./app
+COPY docker_collectors.py ./
+COPY native/packaging/etc/telegraf-*.conf.example /usr/share/metrics-manager/telegraf-examples/
 COPY VERSION ./
 COPY telegraf.conf /etc/telegraf/telegraf.conf
 COPY supervisord.conf /etc/supervisor/supervisord.conf
@@ -351,6 +318,7 @@ RUN chmod +x /entrypoint.sh && \
 # Environment variables with defaults
 ENV METRICS_PORT=9090
 ENV TELEGRAF_PORT=9273
+ENV TELEGRAF_HTTP_PORT=8186
 ENV HARDWARE_TELEMETRY_ENABLED=true
 ENV QMASSA_FIFO_PATH=/app/qmassa.fifo
 ENV LOG_LEVEL=INFO
@@ -369,7 +337,8 @@ EXPOSE 9090 9273 8186
 
 # OCI image metadata - version is read from the VERSION file at build time
 # (single source of truth used by Makefile / docker compose).
-ARG VERSION=unknown
+ARG VERSION=2026.3.0
+ENV SERVICE_VERSION=${VERSION}
 LABEL org.opencontainers.image.title="metrics-manager" \
       org.opencontainers.image.description="Unified metrics collection, ingestion, and relay service" \
       org.opencontainers.image.version="${VERSION}" \
@@ -377,7 +346,7 @@ LABEL org.opencontainers.image.title="metrics-manager" \
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:9090/health', timeout=8)" || exit 1
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.environ['METRICS_PORT'] + '/health', timeout=8)" || exit 1
 
 # Use supervisor to manage both Telegraf and Python service
 CMD ["/entrypoint.sh"]

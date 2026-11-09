@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Troubleshooting
 
 This guide covers common issues and solutions.
@@ -232,7 +237,7 @@ docker exec metrics-manager supervisorctl -c /etc/supervisor/supervisord.conf st
 | `intel_vpu` driver not loaded | Load it: `sudo modprobe intel_vpu` (host)                                     |
 | Container not privileged      | Run with `privileged: true` (Docker) or `docker run --privileged`             |
 | `/sys` not accessible         | Mount with `--privileged` or `-v /sys:/sys:ro`                                |
-| Old hardware (pre-PTL)        | `npu_memory_mb` returns `-1` — expected on MTL/ARL                            |
+| Memory/utilization fields absent | Check whether the driver exposes readable sysfs attributes; unavailable readings are omitted, independently of generation. Utilization needs two successful counter samples. |
 | No NPU hardware               | Expected. Reader logs warning, then enters idle mode. Other metrics continue. |
 
 ---

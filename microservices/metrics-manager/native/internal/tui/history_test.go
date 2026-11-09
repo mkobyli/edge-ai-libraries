@@ -60,6 +60,28 @@ func TestHistorySeparatesMultipleGPUs(t *testing.T) {
 	}
 }
 
+func TestNPUClockAndUnavailableReadings(t *testing.T) {
+	dashboard := buildFixture(t, "npu_frequency_hz{host=\"h\"} 1600000000\n")
+	if !dashboard.NPU.Present || dashboard.NPU.Utilization.OK || dashboard.NPU.MemoryMiB.OK {
+		t.Fatalf("NPU availability = %+v", dashboard.NPU)
+	}
+	wantReading(t, "frequency Hz", dashboard.NPU.FrequencyHz, 1_600_000_000)
+	if got := formatFrequencyHz(dashboard.NPU.FrequencyHz); got != "1.60 GHz" {
+		t.Fatalf("frequency display = %q, want 1.60 GHz", got)
+	}
+	history := NewHistory(DefaultChartsConfig())
+	history.Update(dashboard, fixedNow)
+	series := history.Series("npu.frequencyMHz")
+	if len(series) != 1 || len(series[0].Points) != 1 || series[0].Points[0].Value != 1600 {
+		t.Fatalf("NPU frequency history = %+v, want 1600 MHz", series)
+	}
+	for _, metric := range []string{"npu.utilizationPercent", "npu.memoryMiB"} {
+		if got := history.Series(metric); len(got) != 0 {
+			t.Fatalf("missing %s created history: %+v", metric, got)
+		}
+	}
+}
+
 func TestDownsamplePreservesPeaks(t *testing.T) {
 	points := []HistoryPoint{
 		{At: fixedNow, Value: 1},

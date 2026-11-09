@@ -215,9 +215,9 @@ type Memory struct {
 	// Bandwidth is what the memory controller is moving, for the whole
 	// package. It is not attributable to any one device, and on a machine
 	// with an integrated GPU it includes the GPU's traffic.
-	ReadMiBps  Reading
-	WriteMiBps Reading
-	TotalMiBps Reading
+	ReadGBps  Reading
+	WriteGBps Reading
+	TotalGBps Reading
 }
 
 type RAPLPower struct {
@@ -327,7 +327,7 @@ type NPU struct {
 	TempC         Reading
 	BandwidthMBps Reading
 	TileConfig    Reading
-	MemoryMB      Reading
+	MemoryMiB     Reading
 	PowerState    Reading
 
 	// MaxFrequencyMHz is the ceiling the driver reports, which is what
@@ -506,11 +506,10 @@ func buildCPU(idx *Index) CPU {
 	total := map[string]string{"cpu": "cpu-total"}
 
 	cpu := CPU{
-		UsageUser:   idx.Value("cpu_usage_user", total),
-		UsageSystem: idx.Value("cpu_usage_system", total),
-		UsageIdle:   idx.Value("cpu_usage_idle", total),
-		// mm-plugin-cpu reports kHz, matching the sysfs unit it reads.
-		FrequencyKHz: idx.Value("cpu_frequency_avg_frequency", nil),
+		UsageUser:    idx.Value("cpu_usage_user", total),
+		UsageSystem:  idx.Value("cpu_usage_system", total),
+		UsageIdle:    idx.Value("cpu_usage_idle", total),
+		FrequencyKHz: scaleReading(idx.Value("cpu_frequency_avg_frequency_hz", nil), 1e3),
 		Classes:      buildCoreClasses(idx),
 		PackageTempC: packageTemp(idx),
 
@@ -584,7 +583,7 @@ func buildCoreClasses(idx *Index) []CoreClass {
 
 	for _, metric := range []string{
 		"cpu_core_class_cores",
-		"cpu_core_class_frequency_avg",
+		"cpu_core_class_frequency_avg_hz",
 		"cpu_core_class_usage_user",
 		"cpu_core_class_usage_system",
 		"cpu_core_class_usage_idle",
@@ -609,7 +608,7 @@ func buildCoreClasses(idx *Index) []CoreClass {
 			Name:         k.name,
 			Source:       k.source,
 			Cores:        idx.Value("cpu_core_class_cores", match),
-			FrequencyKHz: idx.Value("cpu_core_class_frequency_avg", match),
+			FrequencyKHz: scaleReading(idx.Value("cpu_core_class_frequency_avg_hz", match), 1e3),
 			UsageUser:    idx.Value("cpu_core_class_usage_user", match),
 			UsageSystem:  idx.Value("cpu_core_class_usage_system", match),
 			UsageIdle:    idx.Value("cpu_core_class_usage_idle", match),
@@ -672,9 +671,9 @@ func buildMemory(idx *Index) Memory {
 		AvailablePercent: idx.Value("mem_available_percent", nil),
 		TotalBytes:       idx.Value("mem_total", nil),
 		UsedBytes:        idx.Value("mem_used", nil),
-		ReadMiBps:        idx.Value("memory_bandwidth_read_mibps", nil),
-		WriteMiBps:       idx.Value("memory_bandwidth_write_mibps", nil),
-		TotalMiBps:       idx.Value("memory_bandwidth_total_mibps", nil),
+		ReadGBps:         scaleReading(idx.Value("memory_bandwidth_read_bytes_per_second", nil), 1e9),
+		WriteGBps:        scaleReading(idx.Value("memory_bandwidth_write_bytes_per_second", nil), 1e9),
+		TotalGBps:        scaleReading(idx.Value("memory_bandwidth_total_bytes_per_second", nil), 1e9),
 	}
 }
 
@@ -716,13 +715,13 @@ func buildGPUs(idx *Index) []GPU {
 			Engines: buildEngines(idx, match),
 			Tiles:   buildTiles(idx, match),
 			// qmassa separates the graphics rail from the package rail.
-			PowerW:           idx.Value("gpu_power", withLabel(match, "type", "gpu_cur_power")),
-			PackagePowerW:    idx.Value("gpu_power", withLabel(match, "type", "pkg_cur_power")),
-			TempC:            idx.Value("gpu_temperature", match),
-			SharedTotalBytes: idx.Value("gpu_memory_smem_total", match),
+			PowerW:           idx.Value("gpu_power_power_w", withLabel(match, "type", "gpu_cur_power")),
+			PackagePowerW:    idx.Value("gpu_power_power_w", withLabel(match, "type", "pkg_cur_power")),
+			TempC:            idx.Value("gpu_temperature_temperature_c", match),
+			SharedTotalBytes: idx.Value("gpu_memory_smem_total_bytes", match),
 			SharedUsedBytes:  sharedMemoryUsed(idx, driver, match),
-			VRAMTotalBytes:   idx.Value("gpu_memory_vram_total", match),
-			VRAMUsedBytes:    idx.Value("gpu_memory_vram_used", match),
+			VRAMTotalBytes:   idx.Value("gpu_memory_vram_total_bytes", match),
+			VRAMUsedBytes:    idx.Value("gpu_memory_vram_used_bytes", match),
 			Processes:        buildGPUProcesses(idx, match),
 		})
 	}
@@ -756,7 +755,7 @@ func buildGPUProcesses(idx *Index, match map[string]string) []GPUProcess {
 		}
 
 		memory := Reading{}
-		for _, name := range []string{"gpu_client_smem_used", "gpu_client_vram_used"} {
+		for _, name := range []string{"gpu_client_smem_used_bytes", "gpu_client_vram_used_bytes"} {
 			if value := idx.Value(name, processMatch); value.OK {
 				memory = reading(memory.Value + value.Value)
 			}
@@ -809,7 +808,7 @@ func soleValue(values []string) string {
 }
 
 // driversWithoutSharedMemoryUsage lists the drivers that leave
-// gpu_memory_smem_used at zero because they do not expose per-device shared
+// gpu_memory_smem_used_bytes at zero because they do not expose per-device shared
 // memory usage the way xe does.
 //
 // The plugin passes qmassa's counter through unaltered rather than
@@ -825,7 +824,7 @@ var driversWithoutSharedMemoryUsage = map[string]bool{"i915": true}
 // deliberately limited to a zero reading, so a driver that starts reporting the
 // counter is shown rather than suppressed.
 func sharedMemoryUsed(idx *Index, driver string, match map[string]string) Reading {
-	used := idx.Value("gpu_memory_smem_used", match)
+	used := idx.Value("gpu_memory_smem_used_bytes", match)
 	if used.OK && used.Value == 0 && driversWithoutSharedMemoryUsage[driver] {
 		return Reading{Value: math.NaN(), OK: true}
 	}
@@ -872,13 +871,11 @@ func buildTiles(idx *Index, match map[string]string) []GPUTile {
 		tileMatch := withLabel(match, "tile", name)
 
 		tile := GPUTile{
-			Name: name,
-			// The bare gpu_frequency series repeats cur_freq for
-			// backward compatibility, so it is skipped here.
-			ActualMHz:    idx.Value("gpu_frequency_act_freq", tileMatch),
-			RequestedMHz: idx.Value("gpu_frequency_cur_freq", tileMatch),
-			MinMHz:       idx.Value("gpu_frequency_min_freq", tileMatch),
-			MaxMHz:       idx.Value("gpu_frequency_max_freq", tileMatch),
+			Name:         name,
+			ActualMHz:    scaleReading(idx.Value("gpu_frequency_act_freq_hz", tileMatch), 1e6),
+			RequestedMHz: scaleReading(idx.Value("gpu_frequency_cur_freq_hz", tileMatch), 1e6),
+			MinMHz:       scaleReading(idx.Value("gpu_frequency_min_freq_hz", tileMatch), 1e6),
+			MaxMHz:       scaleReading(idx.Value("gpu_frequency_max_freq_hz", tileMatch), 1e6),
 		}
 		tile.Throttled, tile.ThrottleReasons, tile.ThrottleReported = throttleState(idx, tileMatch)
 
@@ -916,23 +913,23 @@ func buildNPU(idx *Index) NPU {
 	return NPU{
 		Present:       len(idx.NamesWithPrefix(npuPrefix)) > 0,
 		Utilization:   idx.Value("npu_utilization", nil),
-		FrequencyHz:   idx.Value("npu_frequency", nil),
-		PowerW:        idx.Value("npu_power", nil),
-		TempC:         idx.Value("npu_temperature", nil),
-		BandwidthMBps: idx.Value("npu_bandwidth", nil),
+		FrequencyHz:   idx.Value("npu_frequency_hz", nil),
+		PowerW:        idx.Value("npu_power_w", nil),
+		TempC:         idx.Value("npu_temperature_c", nil),
+		BandwidthMBps: scaleReading(idx.Value("npu_bandwidth_bytes_per_second", nil), 1e6),
 		TileConfig:    idx.Value("npu_tile_config", nil),
-		MemoryMB:      npuMemory(idx),
+		MemoryMiB:     npuMemory(idx),
 		PowerState:    idx.Value("npu_power_state", nil),
 		// A ceiling of zero would be as meaningless here as it is for the
 		// CPU, so the same guard applies.
-		MaxFrequencyMHz: statedLimit(idx.Value("npu_frequency_max_mhz", nil)),
+		MaxFrequencyMHz: statedLimit(scaleReading(idx.Value("npu_frequency_max_hz", nil), 1e6)),
 	}
 }
 
-// npuMemory accepts omitted fields and treats legacy negative sentinels as absent.
+// npuMemory converts bytes to display MiB and rejects invalid negative sizes.
 func npuMemory(idx *Index) Reading {
-	if r := idx.Value("npu_memory_mb", nil); !r.OK || r.Value >= 0 {
-		return r
+	if r := idx.Value("npu_memory_bytes", nil); !r.OK || r.Value >= 0 {
+		return scaleReading(r, 1<<20)
 	}
 
 	return Reading{}

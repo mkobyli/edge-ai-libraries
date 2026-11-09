@@ -28,6 +28,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+import yaml
 
 from app.sse import fetch_metrics
 
@@ -82,7 +83,8 @@ class TestDefaultTelegrafConfig:
 
     def test_prometheus_output_enabled(self, telegraf_text: str):
         assert "[[outputs.prometheus_client]]" in telegraf_text
-        assert ':9273"' in telegraf_text
+        config = tomllib.loads(telegraf_text)
+        assert config["outputs"]["prometheus_client"][0]["listen"] == ":${TELEGRAF_PORT}"
 
     @pytest.mark.parametrize("config_path", EXPORT_CONFIGS)
     def test_prometheus_expiration_preserves_default_ten_second_inputs(self, config_path: Path):
@@ -93,7 +95,10 @@ class TestDefaultTelegrafConfig:
     def test_http_listener_for_custom_metrics_relay(self, telegraf_text: str):
         # /api/v1/metrics endpoints persist via Telegraf's HTTP listener on :8186.
         assert "[[inputs.http_listener_v2]]" in telegraf_text
-        assert ':8186"' in telegraf_text
+        config = tomllib.loads(telegraf_text)
+        assert (
+            config["inputs"]["http_listener_v2"][0]["service_address"] == ":${TELEGRAF_HTTP_PORT}"
+        )
 
     def test_custom_metrics_directory_input(self, telegraf_text: str):
         # The default config must execute user scripts dropped into /app/custom-metrics.
@@ -114,7 +119,10 @@ def test_qmassa_service_can_read_other_users_gpu_clients():
 
     assert "ProtectProc" not in service
     assert set(service["CapabilityBoundingSet"].split()) == {
-        "CAP_SYS_RAWIO", "CAP_PERFMON", "CAP_SYS_PTRACE", "CAP_DAC_READ_SEARCH"
+        "CAP_SYS_RAWIO",
+        "CAP_PERFMON",
+        "CAP_SYS_PTRACE",
+        "CAP_DAC_READ_SEARCH",
     }
 
 
@@ -122,7 +130,12 @@ class TestHostnameOverrideWiring:
     """METRICS_MANAGER_HOSTNAME must be wired through compose + the native plugins."""
 
     def test_compose_passes_env_var(self, compose_text: str):
-        assert "METRICS_MANAGER_HOSTNAME=${METRICS_MANAGER_HOSTNAME:-}" in compose_text
+        services = yaml.safe_load(compose_text)["services"]
+        for name in ("metrics-manager", "metrics-manager-host-nic"):
+            assert (
+                services[name]["environment"]["METRICS_MANAGER_HOSTNAME"]
+                == "${METRICS_MANAGER_HOSTNAME:-}"
+            )
 
     @pytest.mark.parametrize("plugin", ["mm-plugin-gpu", "mm-plugin-npu"])
     def test_native_plugin_reads_env_var(self, plugin: str):
@@ -170,9 +183,7 @@ class TestSupervisordOrdering:
         ms_section = supervisord_text.split("[program:metrics-manager]", 1)[1].split(
             "[program:", 1
         )[0]
-        tg_section = supervisord_text.split("[program:telegraf]", 1)[1].split(
-            "[program:", 1
-        )[0]
+        tg_section = supervisord_text.split("[program:telegraf]", 1)[1].split("[program:", 1)[0]
 
         def _priority(section: str) -> int:
             for line in section.splitlines():
@@ -199,9 +210,9 @@ class TestImageDirectories:
         # silently re-introduce an unused mount.
         for path in (DOCKERFILE, ENTRYPOINT):
             text = path.read_text(encoding="utf-8")
-            assert "collector-signals" not in text, (
-                f"{path.name} still references the removed collector-signals directory"
-            )
+            assert (
+                "collector-signals" not in text
+            ), f"{path.name} still references the removed collector-signals directory"
 
 
 @pytest.mark.integration
@@ -250,7 +261,7 @@ async def test_npu_fields_expire_while_other_fields_refresh(tmp_path: Path, expo
                         try:
                             response = await client.post(
                                 f"http://127.0.0.1:{input_port}/write",
-                                content=f"npu,host=test frequency=1600000000,power=2,bandwidth=10{fields} {timestamp_ns if fields else time.time_ns()}\n",
+                                content=f"npu,host=test frequency_hz=1600000000,power_w=2,bandwidth_bytes_per_second=10000000{fields} {timestamp_ns if fields else time.time_ns()}\n",
                             )
                             response.raise_for_status()
                             with patch("app.sse.get_settings", return_value=SimpleNamespace(
@@ -269,37 +280,37 @@ async def test_npu_fields_expire_while_other_fields_refresh(tmp_path: Path, expo
                     pytest.fail(f"Expected {expected}, got {payload}")
 
                 await wait_for(
-                    ",utilization=50i,memory_mb=512", {"npu_utilization": 50, "npu_memory_mb": 512},
+                    ",utilization=50i,memory_bytes=536870912", {"npu_utilization": 50, "npu_memory_bytes": 536870912},
                 )
                 zero = await wait_for(
-                    ",utilization=0i,memory_mb=0", {"npu_utilization": 0, "npu_memory_mb": 0},
+                    ",utilization=0i,memory_bytes=0", {"npu_utilization": 0, "npu_memory_bytes": 0},
                 )
                 timestamps = {
                     metric["name"]: metric["timestamp"] for metric in zero["metrics"]
-                    if metric["name"] in {"npu_utilization", "npu_memory_mb"}
+                    if metric["name"] in {"npu_utilization", "npu_memory_bytes"}
                 }
                 memory_only = await wait_for(
-                    ",memory_mb=128", {
-                        "npu_utilization": None, "npu_memory_mb": 128,
-                        "npu_frequency": 1_600_000_000, "npu_power": 2,
-                        "npu_bandwidth": 10,
+                    ",memory_bytes=134217728", {
+                        "npu_utilization": None, "npu_memory_bytes": 134217728,
+                        "npu_frequency_hz": 1_600_000_000, "npu_power_w": 2,
+                        "npu_bandwidth_bytes_per_second": 10_000_000,
                     }, {"npu_utilization": timestamps["npu_utilization"]},
                 )
                 timestamps = {
                     metric["name"]: metric["timestamp"] for metric in memory_only["metrics"]
-                    if metric["name"] == "npu_memory_mb"
+                    if metric["name"] == "npu_memory_bytes"
                 }
                 expired = await wait_for("", {
-                    "npu_utilization": None, "npu_memory_mb": None,
-                    "npu_frequency": 1_600_000_000, "npu_power": 2,
-                    "npu_bandwidth": 10,
+                    "npu_utilization": None, "npu_memory_bytes": None,
+                    "npu_frequency_hz": 1_600_000_000, "npu_power_w": 2,
+                    "npu_bandwidth_bytes_per_second": 10_000_000,
                 }, timestamps)
                 assert expired["timestamp"] >= memory_only["timestamp"] >= zero["timestamp"]
                 await wait_for(
-                    ",utilization=25i,memory_mb=0", {
-                        "npu_utilization": 25, "npu_memory_mb": 0,
-                        "npu_frequency": 1_600_000_000, "npu_power": 2,
-                        "npu_bandwidth": 10,
+                    ",utilization=25i,memory_bytes=0", {
+                        "npu_utilization": 25, "npu_memory_bytes": 0,
+                        "npu_frequency_hz": 1_600_000_000, "npu_power_w": 2,
+                        "npu_bandwidth_bytes_per_second": 10_000_000,
                     },
                 )
         finally:

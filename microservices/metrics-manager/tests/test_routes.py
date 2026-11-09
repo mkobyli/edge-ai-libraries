@@ -5,6 +5,8 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from prometheus_client.core import Metric as PrometheusMetric
+from prometheus_client.samples import Timestamp
 
 from app import capabilities
 
@@ -199,9 +201,7 @@ _OTLP_GAUGE = {
     "resourceMetrics": [
         {
             "resource": {
-                "attributes": [
-                    {"key": "service.name", "value": {"stringValue": "test-service"}}
-                ]
+                "attributes": [{"key": "service.name", "value": {"stringValue": "test-service"}}]
             },
             "scopeMetrics": [
                 {
@@ -231,6 +231,84 @@ _OTLP_EMPTY = {"resourceMetrics": []}
 
 
 class TestOtlpIngestion:
+    def test_histogram_round_trip_keeps_distinct_series(self, client: TestClient):
+        payload = {
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "latency_ms",
+                                    "histogram": {
+                                        "aggregationTemporality": 2,
+                                        "dataPoints": [
+                                            {
+                                                "count": str(count),
+                                                "sum": total,
+                                                "attributes": [
+                                                    {
+                                                        "key": "worker",
+                                                        "value": {"intValue": str(worker)},
+                                                    }
+                                                ],
+                                                "bucketCounts": ["1", "1"],
+                                                "explicitBounds": [5],
+                                            }
+                                            for worker, count, total in [(1, 2, 10), (2, 4, 40)]
+                                        ],
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        response = client.post("/api/v1/metrics/otlp", json=payload)
+        assert response.status_code == 202
+        assert response.json()["accepted"] == 2
+        stored = client.get("/api/v1/metrics?name=latency_ms").json()["metrics"]
+        assert {m["tags"]["worker"]: m["fields"] for m in stored} == {
+            "1": {"count": 2, "sum": 10.0, "avg": 5.0},
+            "2": {"count": 4, "sum": 40.0, "avg": 10.0},
+        }
+        assert all(m["tags"]["temporality"] == "cumulative" for m in stored)
+        exported = client.get("/metrics").text.splitlines()
+        counts = [line for line in exported if line.startswith("latency_ms_count{")]
+        assert len(counts) == 2
+        assert any('worker="1"' in line and line.split()[-2] == "2" for line in counts)
+        assert any('worker="2"' in line and line.split()[-2] == "4" for line in counts)
+
+    def test_invalid_otlp_point_does_not_drop_valid_siblings(self, client: TestClient):
+        payload = {
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "queue_length",
+                                    "gauge": {
+                                        "dataPoints": [{"asInt": "42"}, {"asInt": "invalid"}]
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        response = client.post("/api/v1/metrics/otlp", json=payload)
+        assert response.status_code == 202
+        assert response.json()["accepted"] == 1
+        stored = client.get("/api/v1/metrics?name=queue_length").json()["metrics"]
+        assert stored[0]["fields"] == {"value": 42}
+        payload["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["gauge"]["dataPoints"] = [
+            {"asInt": "invalid"}
+        ]
+        assert client.post("/api/v1/metrics/otlp", json=payload).status_code == 400
+
     def test_push_valid_otlp_returns_202(self, client: TestClient):
         response = client.post("/api/v1/metrics/otlp", json=_OTLP_GAUGE)
         assert response.status_code == 202
@@ -249,10 +327,7 @@ class TestOtlpIngestion:
         client.post("/api/v1/metrics/otlp", json=_OTLP_GAUGE)
         response = client.get("/api/v1/metrics")
         metrics = response.json()["metrics"]
-        assert any(
-            m.get("tags", {}).get("service.name") == "test-service"
-            for m in metrics
-        )
+        assert any(m.get("tags", {}).get("service.name") == "test-service" for m in metrics)
 
     def test_push_otlp_empty_resource_metrics_returns_400(self, client: TestClient):
         """Empty resourceMetrics list yields no parseable metrics → 400."""
@@ -400,6 +475,30 @@ class TestInfluxParsingErrors:
 
 class TestFetchPrometheusMetrics:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("timestamp", "expected"),
+        [(0.0, 0), (Timestamp(1704067200, 123456789), 1704067200123456789)],
+    )
+    async def test_fetch_preserves_zero_and_nanosecond_timestamp(self, mocker, timestamp, expected):
+        from app.routes import _fetch_prometheus_metrics
+
+        family = PrometheusMetric("fps", "test", "gauge")
+        family.add_sample("fps", {}, 30, timestamp=timestamp)
+        mocker.patch("app.routes.text_string_to_metric_families", return_value=[family])
+        response = mocker.MagicMock()
+        response.status = 200
+        response.text = mocker.AsyncMock(return_value="")
+        response.__aenter__ = mocker.AsyncMock(return_value=response)
+        response.__aexit__ = mocker.AsyncMock(return_value=False)
+        session = mocker.MagicMock()
+        session.get.return_value = response
+        session.__aenter__ = mocker.AsyncMock(return_value=session)
+        session.__aexit__ = mocker.AsyncMock(return_value=False)
+        mocker.patch("app.routes.aiohttp.ClientSession", return_value=session)
+        result = await _fetch_prometheus_metrics("http://localhost:9273")
+        assert result["fps"].timestamp == expected
+
+    @pytest.mark.asyncio
     async def test_fetch_prometheus_non_200_returns_empty(self, mocker):
         from app.routes import _fetch_prometheus_metrics
 
@@ -422,10 +521,7 @@ class TestFetchPrometheusMetrics:
     async def test_fetch_prometheus_exception_returns_empty(self, mocker):
         from app.routes import _fetch_prometheus_metrics
 
-        mocker.patch(
-            "app.routes.aiohttp.ClientSession",
-            side_effect=Exception("Connection failed")
-        )
+        mocker.patch("app.routes.aiohttp.ClientSession", side_effect=Exception("Connection failed"))
 
         result = await _fetch_prometheus_metrics("http://localhost:9090")
         assert result == {}
@@ -456,7 +552,7 @@ class TestFetchPrometheusMetrics:
     async def test_fetch_prometheus_parses_metrics_without_labels(self, mocker):
         from app.routes import _fetch_prometheus_metrics
 
-        prometheus_text = 'memory 8192 1704067200000\n'
+        prometheus_text = "memory 8192 1704067200000\n"
 
         mock_resp = mocker.MagicMock()
         mock_resp.status = 200

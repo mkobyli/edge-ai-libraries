@@ -382,6 +382,9 @@ func sameCPUs(a, b []int) bool {
 // ParseCPUList parses the kernel's cpulist format, a comma separated list of
 // single ids and inclusive ranges, for example "0-11" or "0,2-3,8".
 func ParseCPUList(raw string) ([]int, error) {
+	if len(raw) > 1<<20 {
+		return nil, fmt.Errorf("cpulist exceeds 1 MiB")
+	}
 	var cpus []int
 
 	for _, part := range strings.Split(strings.TrimSpace(raw), ",") {
@@ -404,9 +407,13 @@ func ParseCPUList(raw string) ([]int, error) {
 		if start < 0 || end < start {
 			return nil, fmt.Errorf("invalid cpulist range %q", part)
 		}
+		// Bound expansion before iterating, including repeated/overlapping ranges.
+		if end > 1<<31-1 || end-start >= 65536-len(cpus) {
+			return nil, fmt.Errorf("cpulist exceeds 65536 entries or signed 32-bit CPU IDs")
+		}
 
-		for cpu := start; cpu <= end; cpu++ {
-			cpus = append(cpus, cpu)
+		for offset := 0; offset <= end-start; offset++ {
+			cpus = append(cpus, start+offset)
 		}
 	}
 

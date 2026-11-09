@@ -36,9 +36,9 @@ func TestLoadChartsConfigOverridesDefaults(t *testing.T) {
 		"maxPoints":300,
 		"chartHeight":8,
 		"charts":[{
-			"metric":"memory.bandwidthMiBps",
+			"metric":"memory.bandwidthGBps",
 			"title":"Memory bandwidth",
-			"unit":"MiB/s"
+			"unit":"GB/s"
 		}]
 	}`)
 	config, err := LoadChartsConfig(path)
@@ -55,6 +55,7 @@ func TestLoadChartsConfigRejectsInvalidInput(t *testing.T) {
 		name, content, want string
 	}{
 		{"bad duration", `{"historyDuration":"later"}`, "historyDuration"},
+		{"legacy bandwidth unit", `{"charts":[{"metric":"memory.bandwidthMiBps","title":"DRAM","unit":"MiB/s"}]}`, "not supported"},
 		{"excessive points", `{"maxPoints":3601}`, "maxPoints"},
 		{"short chart", `{"chartHeight":2}`, "chartHeight"},
 		{"no charts", `{"charts":[]}`, "charts must contain"},

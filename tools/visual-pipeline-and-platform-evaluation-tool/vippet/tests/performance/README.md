@@ -134,11 +134,13 @@ benchmark.
 
 During the same run, compare `:9273/metrics`, `/metrics/stream`,
 `mm-tui -once -endpoint http://localhost:9273/metrics`, and the refreshed UI.
-`npu_frequency` keeps its name but
-now carries actual Hz: ARL ratio 48 is `1600000000` Hz, displayed as 1600 MHz
+The 2026.3.0 native contract uses `npu_frequency_hz` in actual Hz:
+ARL ratio 48 is `1600000000` Hz, displayed as 1600 MHz
 (or 1.60 GHz in TUI). Historical display-scaled samples are not comparable.
 Check matching host labels and sample timestamps rather than requiring equality
-between independent reads. Confirm bandwidth is MB/s, actual zero remains zero,
+between independent reads. Prometheus exports `npu_bandwidth_bytes_per_second`
+in bytes/s and `npu_memory_bytes` in bytes; the harness preserves its report
+units of MB/s and MiB. Confirm actual zero remains zero,
 and unavailable readings become absent after the 15-second exporter TTL plus
 flush/poll latency.
 
@@ -151,6 +153,10 @@ CLI/exporter is not a plugin dependency; do not equate traffic measurements from
 different counter scopes merely because both use MB/s.
 
 ### Local acceptance run (2026-11-06)
+
+This historical run predates the 2026.3.0 metric-name migration. Its images
+must not be paired with consumers requiring the new names. It does not validate
+the merged sources; repeat acceptance after building and deploying matching images.
 
 Built from base revision `66f944d5acfc6fd5e85523de38df9a04ce9a3540` with the
 working-tree test, runner, Compose, and documentation changes. Both running

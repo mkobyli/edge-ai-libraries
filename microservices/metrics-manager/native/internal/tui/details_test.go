@@ -71,9 +71,9 @@ func TestDetailsDefaultsToFullWidthCPUHistory(t *testing.T) {
 func TestDetailsShowsDRAMReadWriteTotalAndRAPLPerDomain(t *testing.T) {
 	m := testModel(nil)
 	m.now = func() time.Time { return fixedNow }
-	exposition := hostExposition + `memory_bandwidth_read_mibps{host="itest"} 2048
-memory_bandwidth_write_mibps{host="itest"} 128
-memory_bandwidth_total_mibps{host="itest"} 2176
+	exposition := hostExposition + `memory_bandwidth_read_bytes_per_second{host="itest"} 2147483648
+memory_bandwidth_write_bytes_per_second{host="itest"} 134217728
+memory_bandwidth_total_bytes_per_second{host="itest"} 2281701376
 rapl_power_power_w{host="itest",domain="psys"} 9.83
 rapl_power_power_w{host="itest",domain="package-0"} 6.51
 `
@@ -82,9 +82,9 @@ rapl_power_power_w{host="itest",domain="package-0"} 6.51
 	m, _ = update(t, m, key("3"))
 	items := m.detailItems()
 	want := map[string]float64{
-		"memory.bandwidth":       2176,
-		"memory.bandwidth.read":  2048,
-		"memory.bandwidth.write": 128,
+		"memory.bandwidth":       2.281701376,
+		"memory.bandwidth.read":  2.147483648,
+		"memory.bandwidth.write": 0.134217728,
 		"rapl.package-0":         6.51,
 		"rapl.psys":              9.83,
 	}
@@ -116,7 +116,7 @@ func TestDetailsHidesOptionalRAPLAndDRAMReadWriteUntilSamples(t *testing.T) {
 	m := detailsModel(t, 120, 35)
 	for _, item := range m.detailItems() {
 		if item.spec.Metric == "rapl.powerW" ||
-			item.spec.Metric == "memory.readMiBps" || item.spec.Metric == "memory.writeMiBps" {
+			item.spec.Metric == "memory.readGBps" || item.spec.Metric == "memory.writeGBps" {
 			t.Errorf("missing optional metric appears in Details: %s", item.spec.Metric)
 		}
 	}
@@ -325,7 +325,7 @@ func TestDetailObservationsConvertUnitsAndSeparateDevices(t *testing.T) {
 			{ID: "1", VRAMTotalBytes: reading(800), VRAMUsedBytes: reading(200),
 				Tiles: []GPUTile{{Name: "gt0", ActualMHz: reading(1200)}}},
 		},
-		NPU: NPU{FrequencyHz: reading(1400000000), PowerW: reading(2), MemoryMB: reading(128)},
+		NPU: NPU{FrequencyHz: reading(1400000000), PowerW: reading(2), MemoryMiB: reading(128)},
 	}
 	byKey := make(map[string]Reading)
 	for _, observation := range chartObservations(d) {

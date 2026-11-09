@@ -174,7 +174,7 @@ export const selectCpuMetrics = (state: RootState) => {
   );
   const cpuFrequencyMetric = findMetric(
     state.metrics.metrics,
-    "cpu_frequency_avg_frequency",
+    "cpu_frequency_avg_frequency_hz",
   );
   const cpuTempMetric = findMetric(
     state.metrics.metrics,
@@ -184,7 +184,7 @@ export const selectCpuMetrics = (state: RootState) => {
   return {
     user: userMetric?.value ?? 0,
     idle: idleMetric?.value ?? 0,
-    avgFrequency: (cpuFrequencyMetric?.value ?? 0) / 1_000_000,
+    avgFrequency: (cpuFrequencyMetric?.value ?? 0) / 1_000_000_000,
     temp: cpuTempMetric?.value,
   };
 };
@@ -224,13 +224,16 @@ export const selectNpuMetrics = (state: RootState) => {
     state.metrics.metrics,
     "npu_utilization",
   )?.value;
-  const frequencyHz = findMetric(state.metrics.metrics, "npu_frequency")?.value;
+  const frequencyHz = findMetric(
+    state.metrics.metrics,
+    "npu_frequency_hz",
+  )?.value;
   const frequency =
     frequencyHz === undefined ? undefined : frequencyHz / 1_000_000;
-  const power = findMetric(state.metrics.metrics, "npu_power")?.value;
+  const power = findMetric(state.metrics.metrics, "npu_power_w")?.value;
   const temperature = findMetric(
     state.metrics.metrics,
-    "npu_temperature",
+    "npu_temperature_c",
   )?.value;
 
   return { utilization, frequency, power, temperature };
@@ -245,13 +248,13 @@ export const selectGpuMetrics = (state: RootState, gpuId: string = "0") => {
 
   const gpuFrequencyMetric = findMetric(
     state.metrics.metrics,
-    "gpu_frequency",
+    "gpu_frequency_cur_freq_hz",
     (l) => l.gpu_id === gpuId && l.type === "cur_freq",
   );
 
   const gpuPowerMetrics = filterMetrics(
     state.metrics.metrics,
-    "gpu_power",
+    "gpu_power_power_w",
     (l) => l.gpu_id === gpuId,
   );
 
@@ -288,7 +291,7 @@ export const selectGpuMetrics = (state: RootState, gpuId: string = "0") => {
     videoEnhance: findEngineUsage(["video-enhance", "vecs"]),
     frequency:
       gpuFrequencyMetric?.value !== undefined
-        ? gpuFrequencyMetric.value / 1000
+        ? gpuFrequencyMetric.value / 1_000_000_000
         : undefined,
     gpuPower: findPowerValue("gpu_cur_power"),
     pkgPower: findPowerValue("pkg_cur_power"),

@@ -4,11 +4,13 @@
 """Tests for app/models.py."""
 
 import pytest
+from pydantic import ValidationError
 
 from app.models import (
     InfluxLineProtocolInput,
     Metric,
     MetricsBatch,
+    MetricType,
     OpenTelemetryMetric,
     SimpleMetric,
 )
@@ -30,6 +32,7 @@ class TestMetricTimestampNormalization:
 
     def test_none_generates_current_timestamp(self):
         import time
+
         before = int(time.time() * 1e9)
         m = Metric(name="x", fields={"v": 1}, timestamp=None)
         after = int(time.time() * 1e9)
@@ -159,11 +162,12 @@ class TestMetricsBatchValidation:
         assert len(batch.metrics) == 1
 
     def test_empty_batch_rejected(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             MetricsBatch(metrics=[])
 
     def test_batch_exceeding_settings_limit_rejected(self):
         from unittest.mock import patch
+
         from app.settings import Settings
 
         small_limit = Settings(max_metrics_batch_size=2)
@@ -256,10 +260,120 @@ class TestInfluxLineProtocolParsingEdgeCases:
 
     def test_complex_escaped_string(self):
         metric = InfluxLineProtocolInput.parse_line(r'event msg="hello\\\"world"')
-        assert metric.fields["msg"] == r'hello\"world'
+        assert metric.fields["msg"] == r"hello\"world"
 
 
 class TestOpenTelemetryHistogram:
+    @staticmethod
+    def convert(point, kind="histogram", temporality=None, attributes=None):
+        return OpenTelemetryMetric(
+            resourceMetrics=[
+                {
+                    "resource": {"attributes": attributes or []},
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "latency",
+                                    kind: {
+                                        "dataPoints": [point],
+                                        "aggregationTemporality": temporality,
+                                    },
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        ).to_metrics()
+
+    def test_summary_and_line_protocol(self):
+        metric = self.convert({"count": "2", "sum": 30, "min": 10, "max": 20}, temporality=1)[0]
+        assert metric.metric_type == MetricType.HISTOGRAM
+        assert metric.fields == {"count": 2, "sum": 30, "min": 10, "max": 20, "avg": 15}
+        assert metric.tags == {"temporality": "delta"}
+        line = metric.to_influx_line()
+        assert "count=2i" in line
+        assert "avg=15.0" in line
+
+    @pytest.mark.parametrize(
+        "point,expected",
+        [
+            ({"count": 0, "sum": 0}, {"count": 0, "sum": 0}),
+            ({"count": "2"}, {"count": 2}),
+            ({"count": 2, "sum": 8}, {"count": 2, "sum": 8, "avg": 4}),
+        ],
+    )
+    def test_optional_statistics(self, point, expected):
+        assert self.convert(point)[0].fields == expected
+
+    @pytest.mark.parametrize("count", ["invalid", -1, True, 1.5, [], 1 << 64])
+    def test_invalid_count_is_skipped(self, count, caplog):
+        assert self.convert({"count": count}) == []
+        assert "Skipping malformed OTLP data point" in caplog.text
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf"), 10**400])
+    def test_nonfinite_statistics_are_omitted(self, value, caplog):
+        assert self.convert({"count": 1, "sum": value, "min": value, "max": value})[0].fields == {
+            "count": 1
+        }
+        assert "Omitting non-finite OTLP histogram statistic" in caplog.text
+
+    @pytest.mark.parametrize("kind", ["histogram", "sum"])
+    @pytest.mark.parametrize(
+        "temporality,expected",
+        [
+            (1, "delta"),
+            (2, "cumulative"),
+            ("AGGREGATION_TEMPORALITY_DELTA", "delta"),
+            ("AGGREGATION_TEMPORALITY_CUMULATIVE", "cumulative"),
+            (None, None),
+            (0, None),
+            (True, None),
+            ([], None),
+        ],
+    )
+    def test_temporality(self, kind, temporality, expected):
+        metric = self.convert({"count": 1, "asInt": "42"}, kind, temporality)[0]
+        assert metric.tags == ({"temporality": expected} if expected else {})
+
+    def test_gauge_has_no_temporality(self):
+        assert self.convert({"asDouble": 3}, "gauge", 1)[0].tags == {}
+
+    def test_typed_attributes(self):
+        attributes = [
+            {"key": "service", "value": {"stringValue": "example"}},
+            {"key": "worker", "value": {"intValue": "42"}},
+            {"key": "ratio", "value": {"doubleValue": 1.5}},
+            {"key": "active", "value": {"boolValue": True}},
+        ]
+        metric = self.convert(
+            {
+                "count": 1,
+                "attributes": [{"key": "active", "value": {"boolValue": False}}],
+            },
+            attributes=attributes,
+        )[0]
+        assert metric.tags == {
+            "service": "example",
+            "worker": "42",
+            "ratio": "1.5",
+            "active": "false",
+        }
+
+    def test_string_integer_keeps_precision(self):
+        value = 9_007_199_254_740_993
+        metric = self.convert({"asInt": str(value)}, "gauge")[0]
+        assert metric.fields == {"value": value}
+        assert f"value={value}i" in metric.to_influx_line()
+
+    @pytest.mark.parametrize(
+        "point", [{"asInt": "bad"}, {"asInt": True}, {"count": 1, "timeUnixNano": "bad"}]
+    )
+    def test_malformed_point_is_skipped(self, point, caplog):
+        assert self.convert(point) == []
+        assert "Skipping malformed OTLP data point" in caplog.text
+
     def test_histogram_metric_type_is_accepted(self):
         payload = {
             "resourceMetrics": [
@@ -271,7 +385,10 @@ class TestOpenTelemetryHistogram:
                                     "name": "request_latency",
                                     "histogram": {
                                         "dataPoints": [
-                                            {"asDouble": 100.5, "timeUnixNano": "1704067200000000000"}
+                                            {
+                                                "asDouble": 100.5,
+                                                "timeUnixNano": "1704067200000000000",
+                                            }
                                         ]
                                     },
                                 }

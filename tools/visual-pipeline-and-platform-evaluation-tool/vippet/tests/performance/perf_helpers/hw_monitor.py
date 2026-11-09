@@ -245,9 +245,9 @@ class HardwareMonitor:
         for key in ("cpu_usage_user", "cpu_usage_system", "mem_used_percent"):
             if key in mm:
                 sample[key] = mm[key]
-        freq = mm.get("cpu_frequency_avg_frequency")
+        freq = mm.get("cpu_frequency_avg_frequency_hz")
         if freq is not None:
-            sample["cpu_freq_mhz"] = round(freq / 1000.0, 0)
+            sample["cpu_freq_mhz"] = round(freq / 1e6, 0)
         temp = mm.get("temp_temp")
         if temp is not None:
             sample["cpu_temperature"] = temp
@@ -267,32 +267,32 @@ class HardwareMonitor:
                     break
 
         # GPU frequency
-        val = mm.get("gpu_frequency__cur_freq")
+        val = mm.get("gpu_frequency_cur_freq_hz__cur_freq")
         if val is not None:
-            sample["gpu_freq_mhz"] = val
+            sample["gpu_freq_mhz"] = val / 1e6
 
         # GPU power
-        val = mm.get("gpu_power__gpu_cur_power")
+        val = mm.get("gpu_power_power_w__gpu_cur_power")
         if val is not None:
             sample["gpu_power_w"] = round(val, 3)
-        val = mm.get("gpu_power__pkg_cur_power")
+        val = mm.get("gpu_power_power_w__pkg_cur_power")
         if val is not None:
             sample["pkg_power_w"] = round(val, 3)
 
-        frequency = mm.get("npu_frequency")
+        frequency = mm.get("npu_frequency_hz")
         if frequency is not None:
             sample["npu_frequency_mhz"] = round(frequency / 1e6, 1)
 
         # NPU
-        for key in (
-            "npu_utilization",
-            "npu_power",
-            "npu_temperature",
-            "npu_memory_mb",
-            "npu_bandwidth",
+        for source, target, divisor in (
+            ("npu_utilization", "npu_utilization", 1),
+            ("npu_power_w", "npu_power", 1),
+            ("npu_temperature_c", "npu_temperature", 1),
+            ("npu_memory_bytes", "npu_memory_mb", 1 << 20),
+            ("npu_bandwidth_bytes_per_second", "npu_bandwidth", 1e6),
         ):
-            if key in mm:
-                sample[key] = mm[key]
+            if source in mm:
+                sample[target] = mm[source] / divisor
 
         return sample
 

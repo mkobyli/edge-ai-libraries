@@ -155,12 +155,13 @@ from `telegraf.d` and restart the service to disable it.
 ### Metric names and network namespaces
 
 The native GPU collector already provides the container's additional GPU
-frequency and throttling readings under different Prometheus names:
+frequency and throttling readings under different Prometheus names. Native
+frequency fields use Hz; divide by `1e6` to compare with MHz:
 
 | Container name | Native name |
 |---|---|
-| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq` |
-| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq` |
+| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq_hz` |
+| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq_hz` |
 | `gpu_throttle_throttled` | `gpu_throttle_status` |
 | `gpu_throttle_throttle_pl1` | `gpu_throttle_pl1` |
 | `gpu_throttle_throttle_pl2` | `gpu_throttle_pl2` |
@@ -181,11 +182,26 @@ installing the current package. This manages a separate `network-virtual.conf`
 drop-in selecting `veth*` and `lxc*`, independently of `ENABLE_NETWORK`.
 Use `false` to disable it or `auto` to leave it unchanged. Existing local
 drop-ins are preserved. Adjust its patterns to local interface names and
-avoid selecting the same interfaces in another `inputs.ethtool` block.
-This does not select `eth0` inside a container or change `inputs.net`:
-including virtual interfaces there can double-count traffic. The host peer
+avoid selecting the same interfaces in another `net` or `ethtool` block.
+The new primary example selects `eth*`/`en*`; the virtual example now adds
+`net` traffic as well as driver counters for `veth*`/`lxc*`. Narrow an existing
+primary `interfaces = []` before adding virtual traffic. Local virtual drop-ins
+remain driver-only until edited. Select bond/wireless/custom names explicitly
+in both input lists. This does not select `eth0` inside a container. The host peer
 has its own counters and `peer_ifindex`, not the container endpoint's values.
 Unsupported driver counters are omitted, not synthesized as zero.
+
+The storage example keeps `ID_MODEL` but sets `skip_serial_number = true` and
+`tagexclude = ["serial", "wwid"]`. Durable identifiers require explicit opt-in:
+set `skip_serial_number = false`, remove those tags from `tagexclude`, and
+optionally add `ID_SERIAL_SHORT` to `device_tags`, before the `tagdrop` table.
+Existing custom files are not rewritten; review them when upgrading.
+Choose filesystem `mount_points` and disk I/O `devices` at the desired layer
+(including RAID/device-mapper); do not sum physical and logical layers.
+TUI selections and row limits do not restrict export or identifier exposure.
+Numbered IRQ export retains total and per-CPU fields, approximately
+IRQs * (CPUs + 1) series per host; an intentional `fieldinclude = ["total"]`
+before the IRQ `tagpass` table reduces this to totals only.
 
 ### Additional privileged collectors
 
@@ -347,8 +363,16 @@ sudo -u metrics-manager /usr/libexec/metrics-manager/mm-plugin-npu -once
 Run under `sudo` that will fail on the permissions — that is the expected way
 to tell an absent NPU from a permissions problem.
 
-**No memory bandwidth.** `mm-plugin-membw` reports system-wide DRAM read,
-write and total throughput in MiB/s (not GPU-only bandwidth). Check
+**No memory bandwidth.** `mm-plugin-membw` exports system-wide DRAM read,
+write and total throughput in bytes/s, displayed as decimal GB/s in the TUI
+(not GPU-only bandwidth). Each PMU's `cpumask` supplies the representative CPUs
+for all dies/sockets; CPU 0 is not assumed. Aliases are counted once, and
+incomplete/unreadable controllers never produce a partial host total.
+If both free-running and programmable families expose usable pairs, select one
+complete family with `-devices` after checking coverage, rather than summing
+overlapping counters. Pinned events reject scheduling failures instead of
+silently reporting multiplexed undercounts. Restart after topology changes.
+Check
 `journalctl -u metrics-manager-membw.service` and
 `cat /proc/sys/kernel/perf_event_paranoid`. On kernels that set this value to
 4, `CAP_PERFMON` alone may be refused for uncore events; the service will stay

@@ -89,7 +89,7 @@ test("NPU hooks, history and indicators preserve zero and missing measurements",
     );
   for (const utilization of [50, 0, undefined, 25]) {
     const metrics = [
-      { name: "npu_frequency", value: 1_600_000_000, labels: {}, timestamp: 1 },
+      { name: "npu_frequency_hz", value: 1_600_000_000, labels: {}, timestamp: 1 },
     ];
     if (utilization !== undefined)
       metrics.push({

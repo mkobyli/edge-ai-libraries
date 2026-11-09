@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,17 +105,19 @@ func NewCollector(sysfsRoot, hostname string) (*Collector, error) {
 		return nil, err
 	}
 	collector.prevEnergy = telemetry.EnergyJoules()
-	collector.prevBandwidth = telemetry.MemoryTrafficMB()
+	collector.prevBandwidth = telemetry.BandwidthBytes()
 	collector.prevBusyUS, collector.hasPrevBusy = collector.readBusyUS()
 	collector.prevTime = collector.now()
 
 	return collector, nil
 }
 
-// BusyTimeSupported reports whether the driver exposes the busy-time counter.
+// BusyTimeSupported reports whether utilisation can be measured. When false,
+// the utilization field is omitted.
 func (c *Collector) BusyTimeSupported() bool { return c.busyPath != "" }
 
-// MemoryUtilisationSupported reports whether NPU memory usage is exposed.
+// MemoryUtilisationSupported reports whether NPU memory usage is exposed. When
+// false, the memory_bytes field is omitted.
 func (c *Collector) MemoryUtilisationSupported() bool { return c.memoryPath != "" }
 
 // Gen reports the detected SoC generation.
@@ -140,25 +143,25 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 	power := (energy - c.prevEnergy) / elapsed
 	c.prevEnergy = energy
 
-	bandwidth := c.telemetry.MemoryTrafficMB()
+	bandwidth := c.telemetry.BandwidthBytes()
 	bandwidthDelta := bandwidth - c.prevBandwidth
 	if bandwidthDelta < 0 {
-		bandwidthDelta += float64(uint64(1)<<32) / 1e3
+		bandwidthDelta += float64(uint64(1)<<32) * 1e3
 	}
 	c.prevBandwidth = bandwidth
 
 	fields := []lineproto.Field{
-		lineproto.FixedFloatField("power", power, 3),
-		lineproto.FixedFloatField("frequency", c.telemetry.FreqHz(), 0),
-		lineproto.IntField("temperature", int64(c.telemetry.TemperatureC())),
-		lineproto.FixedFloatField("bandwidth", bandwidthDelta/elapsed, 3),
+		lineproto.FloatField("power_w", power),
+		lineproto.FloatField("frequency_hz", c.telemetry.FrequencyHz()),
+		lineproto.IntField("temperature_c", int64(c.telemetry.TemperatureC())),
+		lineproto.FloatField("bandwidth_bytes_per_second", bandwidthDelta/elapsed),
 		lineproto.IntField("tile_config", int64(c.telemetry.TileConfig())),
 	}
 	if utilization, ok := c.utilization(elapsed); ok {
 		fields = append(fields, lineproto.IntField("utilization", utilization))
 	}
-	if memory, ok := c.memoryMB(); ok {
-		fields = append(fields, lineproto.FixedFloatField("memory_mb", memory, 2))
+	if memory, ok := c.memoryBytes(); ok {
+		fields = append(fields, lineproto.NumberField("memory_bytes", strconv.FormatUint(memory, 10)))
 	}
 	fields = append(fields, lineproto.IntField("power_state", c.powerState()))
 
@@ -166,7 +169,7 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 	// is omitted rather than reported as zero where the driver does not
 	// publish it.
 	if maxFreq, ok := c.maxFrequencyMHz(); ok {
-		fields = append(fields, lineproto.FixedFloatField("frequency_max_mhz", maxFreq, 0))
+		fields = append(fields, lineproto.FloatField("frequency_max_hz", maxFreq*1e6))
 	}
 
 	return []lineproto.Point{{
@@ -223,15 +226,15 @@ func (c *Collector) utilization(elapsed float64) (int64, bool) {
 		return 0, false
 	}
 
-	percent := int64(100 * float64(busyUS-prevBusyUS) / (elapsed * 1e6))
+	percent := 100 * float64(busyUS-prevBusyUS) / (elapsed * 1e6)
 	if percent > 100 {
 		return 100, true
 	}
-	return percent, true
+	return int64(percent), true
 }
 
-// memoryMB returns NPU memory usage in MB and whether it is available.
-func (c *Collector) memoryMB() (float64, bool) {
+// memoryBytes returns the driver's byte count without rounding, when available.
+func (c *Collector) memoryBytes() (uint64, bool) {
 	if c.memoryPath == "" {
 		return 0, false
 	}
@@ -242,7 +245,7 @@ func (c *Collector) memoryMB() (float64, bool) {
 		}
 		return 0, false
 	}
-	return float64(bytes) / 1024 / 1024, true
+	return bytes, true
 }
 
 // maxFrequencyMHz returns the frequency ceiling the driver reports, and

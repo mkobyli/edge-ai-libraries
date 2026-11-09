@@ -30,8 +30,7 @@ func formatPercent(r Reading) string {
 	return fmt.Sprintf("%.1f%%", r.Value)
 }
 
-// formatFrequencyKHz renders a frequency given in kHz, the unit both
-// mm-plugin-cpu and sysfs use.
+// formatFrequencyKHz renders the CPU panel's display-unit reading.
 func formatFrequencyKHz(r Reading) string {
 	if s, ok := placeholder(r); ok {
 		return s
@@ -110,35 +109,22 @@ func formatBandwidth(r Reading) string {
 	return fmt.Sprintf("%.1f MB/s", r.Value)
 }
 
-// formatBandwidthMiBps renders memory controller throughput.
-//
-// The unit is mebibytes, not megabytes, because that is what the kernel
-// publishes alongside the counter, and silently converting would make the
-// number disagree with anything else reading the same source. Gibibytes take
-// over past a thousand, since idle traffic is tens of MiB/s while a memory
-// copy is thousands.
-func formatBandwidthMiBps(r Reading) string {
+// formatBandwidthGBps renders memory throughput in decimal GB/s.
+func formatBandwidthGBps(r Reading) string {
 	if s, ok := placeholder(r); ok {
 		return s
 	}
 
-	if r.Value >= 1024 {
-		return fmt.Sprintf("%.2f GiB/s", r.Value/1024)
-	}
-
-	return fmt.Sprintf("%.0f MiB/s", r.Value)
+	return fmt.Sprintf("%.3f GB/s", r.Value)
 }
 
-// formatMegabytes renders a reading already expressed in megabytes.
-//
-// It stays in the unit the plugin reported rather than converting to binary
-// multiples, so the number on screen matches the one in the metric.
-func formatMegabytes(r Reading) string {
+// formatMebibytes renders a reading already expressed in MiB.
+func formatMebibytes(r Reading) string {
 	if s, ok := placeholder(r); ok {
 		return s
 	}
 
-	return fmt.Sprintf("%.0f MB", r.Value)
+	return fmt.Sprintf("%.0f MiB", r.Value)
 }
 
 // formatCount renders a whole-number reading such as a core count.

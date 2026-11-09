@@ -169,18 +169,13 @@ func (t *Telemetry) read(offset, msb, lsb uint) uint64 {
 	return (data & msbMask & ^lsbMask) >> lsb
 }
 
-// FreqMHz returns the NPU frequency in MHz.
-func (t *Telemetry) FreqMHz() float64 {
+// FrequencyHz decodes the DPU PLL ratio using the intel_vpu buttress formulas.
+func (t *Telemetry) FrequencyHz() float64 {
 	raw := float64(t.read(uint(t.regs.workpoint), 7, 0))
 	if t.gen == GenMTL || t.gen == GenARL {
-		return raw * 50 * 2 / 3
+		return raw * 50_000_000 * 2 / 3
 	}
-	return raw * 50 / 2
-}
-
-// FreqHz returns the NPU frequency in Hz.
-func (t *Telemetry) FreqHz() float64 {
-	return t.FreqMHz() * 1e6
+	return raw * 50_000_000 / 2
 }
 
 // TileConfig returns the active NPU tile configuration.
@@ -204,9 +199,10 @@ func (t *Telemetry) EnergyJoules() float64 {
 	return float64(whole) + fraction
 }
 
-// MemoryTrafficMB returns the accumulated network-on-chip traffic in MB.
-func (t *Telemetry) MemoryTrafficMB() float64 {
-	return float64(t.read(uint(t.regs.memoryBW), 31, 0)) / 1e3
+// BandwidthBytes returns the accumulated network-on-chip transfer counter.
+// The 32-bit counter counts decimal kilobytes.
+func (t *Telemetry) BandwidthBytes() float64 {
+	return float64(t.read(uint(t.regs.memoryBW), 31, 0)) * 1e3
 }
 
 // readTrimmed reads a sysfs attribute and strips surrounding whitespace.

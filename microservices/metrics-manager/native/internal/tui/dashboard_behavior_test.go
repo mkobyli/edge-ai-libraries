@@ -169,7 +169,7 @@ func TestThresholdColorsMatchAcrossOverviewAndDetails(t *testing.T) {
 	if m.thresholdPercent("gpu.enginePercent", reading(95)) != m.thresholdPercent("gpu.utilizationPercent", reading(95)) {
 		t.Fatal("Details engine colors differ from Overview")
 	}
-	for _, metric := range []string{"cpu.frequencyMHz", "gpu.powerW", "npu.memoryMiB", "memory.bandwidthMiBps"} {
+	for _, metric := range []string{"cpu.frequencyMHz", "gpu.powerW", "npu.memoryMiB", "memory.bandwidthGBps"} {
 		if m.thresholdValue(metric, reading(9999), func(Reading) string { return "value" }) != "value" {
 			t.Fatalf("%s invented a diagnostic limit", metric)
 		}

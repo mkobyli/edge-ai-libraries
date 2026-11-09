@@ -92,9 +92,9 @@ func TestCollectorEmitsFrequencyAndPerClassUsage(t *testing.T) {
 	writeFile(t, filepath.Join(procRoot, "stat"), procStat(all, 125, 125, 850))
 
 	want := strings.Join([]string{
-		"cpu_frequency_avg frequency=3000000",
-		"cpu_core_class,class=P,source=pmu cores=2i,frequency_avg=4000000,usage_user=25,usage_system=25,usage_idle=50 1725062400000000000",
-		"cpu_core_class,class=E,source=pmu cores=2i,frequency_avg=2000000,usage_user=25,usage_system=25,usage_idle=50 1725062400000000000",
+		"cpu_frequency_avg frequency_hz=3000000000",
+		"cpu_core_class,class=P,source=pmu cores=2i,frequency_avg_hz=4000000000,usage_user=25,usage_system=25,usage_idle=50 1725062400000000000",
+		"cpu_core_class,class=E,source=pmu cores=2i,frequency_avg_hz=2000000000,usage_user=25,usage_system=25,usage_idle=50 1725062400000000000",
 		// The fake proc tree has no cpuinfo or osrelease, which is what an
 		// unreadable value looks like: named as unknown rather than dropped.
 		"platform,model=unknown,kernel=unknown,arch=" + runtime.GOARCH +
@@ -107,10 +107,9 @@ func TestCollectorEmitsFrequencyAndPerClassUsage(t *testing.T) {
 	}
 }
 
-func TestCollectorFrequencyAverageMatchesShellScript(t *testing.T) {
-	// The CPU frequency shell script this collector replaced emitted
-	// no tags, no timestamp and no "i" suffix. Anything else would change the
-	// field type or add a label, breaking existing Prometheus queries.
+func TestCollectorFrequencyAveragePreservesShapeWithHz(t *testing.T) {
+	// Only the field name and scale change; tags, arrival-time stamping
+	// and the floating-point field type remain as before.
 	pCPUs, eCPUs := []int{0}, []int{1}
 	sysfsRoot, procRoot := fakeSystem(t, pCPUs, eCPUs,
 		map[int]uint64{0: 3000000, 1: 1000001},
@@ -134,7 +133,7 @@ func TestCollectorFrequencyAverageMatchesShellScript(t *testing.T) {
 		t.Fatalf("Append() error: %v", err)
 	}
 	// (3000000 + 1000001) / 2 == 2000000 with integer division.
-	if want := "cpu_frequency_avg frequency=2000000\n"; string(line) != want {
+	if want := "cpu_frequency_avg frequency_hz=2000000000\n"; string(line) != want {
 		t.Errorf("line = %q, want %q", line, want)
 	}
 }
@@ -158,7 +157,7 @@ func TestCollectorOmitsFrequencyWhenCpufreqIsUnavailable(t *testing.T) {
 	if !strings.Contains(got, "usage_user=") {
 		t.Errorf("output is missing utilisation fields:\n%s", got)
 	}
-	if strings.Contains(got, "frequency_avg=") {
+	if strings.Contains(got, "frequency_avg_hz=") {
 		t.Errorf("output contains a per-class frequency despite no cpufreq data:\n%s", got)
 	}
 }

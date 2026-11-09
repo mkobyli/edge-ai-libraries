@@ -5,11 +5,22 @@ SPDX-License-Identifier: Apache-2.0
 
 # Metrics Manager — bare-metal package
 
+**2026.3.0 breaking change:** native telemetry now uses explicit base-unit
+fields without old aliases. Upgrade the plugins and TUI together and migrate
+custom queries and DRAM chart settings using the
+[unit migration guide](./native-metric-migration.md), also installed beside
+this README.
+
 Collects CPU, memory, GPU and NPU telemetry on an Intel edge system, publishes
 it on a local Prometheus endpoint, and renders it in a terminal dashboard.
 
 The package covers telemetry collection and the dashboard. The REST API and the
 SSE stream remain container-only.
+
+The amd64 package requires a systemd-based Debian/Ubuntu system with glibc
+2.34 or newer. Install it with `apt`, which resolves the declared runtime
+libraries and maintainer-script dependencies (`adduser`, `systemd`, `kmod`).
+Installing with `dpkg -i` alone does not fetch missing dependencies.
 
 ## Quick start
 
@@ -56,6 +67,11 @@ rebuilding it every time (but rebuild after changing a collector or adding
 ```bash
 SKIP_IMAGE_BUILD=1 ./native/build.sh
 ```
+
+Reuse an image built with the same version as the package. For the `2026.3.0`
+package, the default local source is `metrics-manager:2026.3.0`; the separate
+Docker Hub RC tags are not package inputs, because their embedded collector
+versions include the RC suffix. Building the package does not publish images.
 
 The package is amd64 only. qmassa is Rust, and cross-building it for arm64 has
 not been set up.
@@ -108,7 +124,7 @@ The quickest way to trust a reading is to make it move.
 
 **Memory bandwidth.** Watch the `DRAM bandwidth` row in the Memory panel while
 writing a few gigabytes into RAM. Its `read`, `write` and `total` columns should
-jump from tens of MiB/s to thousands and settle back. If the row is absent, the service may be
+jump from a fraction of a GB/s to several GB/s and settle back. If the row is absent, the service may be
 running but unable to open perf counters; see
 [No memory bandwidth](#when-something-is-missing).
 
@@ -139,7 +155,7 @@ read them:
 ```bash
 NPU=$(ls -d /sys/bus/pci/drivers/intel_vpu/0000:* | head -1)
 cat "$NPU"/npu_memory_utilization "$NPU"/npu_max_frequency_mhz
-curl -s http://127.0.0.1:9273/metrics | grep -E '^npu_(memory_mb|frequency_max)'
+curl -s http://127.0.0.1:9273/metrics | grep -E '^npu_(memory_bytes|frequency_max_hz)'
 ```
 
 ### Stopping it without removing it
@@ -208,6 +224,34 @@ mm-tui
 | `↑` `↓`, `k` `j` | Scroll the current view a line |
 | `PgUp` `PgDn`, `Space` | Scroll a screen |
 | `Home` `End`, `g` `G` | Jump to the top or the bottom |
+
+### Screenshots
+
+These sanitized examples show an earlier build. Hostnames and process/user
+identifiers have been replaced; measurement values are unchanged. Layout and
+available panels depend on terminal width, hardware and enabled collectors.
+The current NPU memory label is **MiB**, rather than the older **MB** label
+visible in the Overview capture.
+
+**Overview:** grouped hardware readings, process tables and optional network
+and filesystem telemetry.
+
+![Overview with CPU, memory, GPU, NPU, process, network and filesystem panels](./images/mm-tui-overview.png)
+
+**Trends (charts):** recent metric history, using a five-minute window by default.
+
+![Trends showing CPU, memory, GPU and NPU charts over five minutes](./images/mm-tui-charts.png)
+
+**Alerts:** diagnostic threshold episodes with current values, peaks and durations.
+Thresholds are diagnostic aids, not hardware safety limits.
+
+![Alerts showing active CPU and memory threshold episodes](./images/mm-tui-alerts.png)
+
+NPU frequency arrives from the plugin in Hz. Overview chooses Hz/kHz/MHz/GHz
+for readability, while frequency charts use MHz: `1600000000 Hz` becomes
+`1.60 GHz` in Overview and `1600 MHz` on a chart. NPU bandwidth is already
+an MB/s rate and is not differentiated again by the TUI. NPU memory is already
+in MiB. Unavailable readings remain unavailable rather than becoming zero.
 
 ### Built-in help
 
@@ -323,7 +367,7 @@ What each panel shows:
 
 These additional panels are in Overview. If the extra rows exceed the terminal
 height, scroll the Overview. The Memory row uses
-`memory_bandwidth_*_mibps` when `mm-plugin-membw` can read the controller
+`memory_bandwidth_*_bytes_per_second` when `mm-plugin-membw` can read the controller
 counters. RAPL power uses
 `rapl_power_power_w{domain="..."}` from the optional `mm-plugin-rapl` service.
 The RAPL panel appears only after that service is manually enabled and
@@ -337,12 +381,12 @@ modified. If Details does not list the new plots, add these entries to its
 restart `mm-tui`:
 
 ```json
-{"metric": "memory.readMiBps", "title": "DRAM read", "unit": "MiB/s"},
-{"metric": "memory.writeMiBps", "title": "DRAM write", "unit": "MiB/s"},
+{"metric": "memory.readGBps", "title": "DRAM read", "unit": "GB/s"},
+{"metric": "memory.writeGBps", "title": "DRAM write", "unit": "GB/s"},
 {"metric": "rapl.powerW", "title": "RAPL power", "unit": "W"}
 ```
 
-The existing `memory.bandwidthMiBps` entry is the total bandwidth chart.
+The existing `memory.bandwidthGBps` entry is the total bandwidth chart.
 
 The Trends tab retains the most recent five minutes by default. It shows CPU
 utilisation, memory usage, CPU temperature, and utilisation and temperature for
@@ -424,7 +468,7 @@ No metric is substituted silently.
 
 The default selection includes CPU total and per-class P/E/LP-E usage,
 temperature, frequency and package power; RAM use and DRAM read, write and
-total bandwidth (MiB/s); RAPL power for each published domain (W);
+total bandwidth (decimal GB/s); RAPL power for each published domain (W);
 per-GPU aggregate/engine utilisation, temperature, per-tile actual frequency,
 graphics power and dedicated VRAM percentage; NPU utilisation, temperature,
 frequency, power and memory. Frequency charts use MHz. NPU memory uses MiB
@@ -670,7 +714,7 @@ and invalid values are rejected before applying any changes.
 | `ENABLE_TEMPERATURE` | `telegraf.d/temperature.conf`, including basicstats |
 | `ENABLE_INTERRUPTS` | `telegraf.d/interrupts.conf` |
 | `ENABLE_NETWORK` | `telegraf.d/network.conf`, including ethtool |
-| `ENABLE_NETWORK_VIRTUAL` | `telegraf.d/network-virtual.conf`, ethtool counters for host-side `veth*`/`lxc*` links only |
+| `ENABLE_NETWORK_VIRTUAL` | `telegraf.d/network-virtual.conf`, traffic and ethtool counters for host-side `veth*`/`lxc*` links |
 | `ENABLE_STORAGE` | `telegraf.d/storage.conf` |
 
 For example, set `ENABLE_RAPL=true` and `ENABLE_POWERSTAT_EXTRA=true` to enable
@@ -683,10 +727,10 @@ disabled files are restored on enable. Disabling renames a drop-in to
 disabling fails rather than overwriting either file.
 
 `ENABLE_NETWORK_VIRTUAL` is independent of `ENABLE_NETWORK`: disabling one
-does not disable the other. It adds no `inputs.net` collector and does not
-change existing traffic-interface selection. If your local `network.conf`
-already selects `veth*`/`lxc*` in `inputs.ethtool`, avoid selecting the same
-interfaces in the new drop-in. No extra privileges are required.
+does not disable the other. The new virtual example adds separate `net` and
+`ethtool` selections without changing an existing primary drop-in. Ensure
+local primary selections do not also include `veth*`/`lxc*` interfaces.
+No extra privileges are required.
 
 Finally, the script runs `systemctl try-restart 'metrics-manager-*.service'`
 to reload all running Metrics Manager services. Unlike plain `restart`, this
@@ -736,6 +780,15 @@ sudo install -o root -g root -m 0644 \
 sudo systemctl restart metrics-manager-telegraf.service
 curl -fsS http://127.0.0.1:9273/metrics | grep '^interrupts_total{'
 ```
+
+The example explicitly retains `cpu_as_tag = false`: each numbered IRQ has
+`interrupts_total` plus `interrupts_CPU0`, `interrupts_CPU1`, etc. For D device
+IRQs and C CPUs this is approximately **D * (C + 1)** exported series per host.
+For example, 200 IRQs on 128 CPUs produce 25,800 series, even if the TUI shows
+only a few rows. The `irq` filter excludes non-numbered and soft IRQ entries.
+If only totals are needed, deliberately add `fieldinclude = ["total"]` inside
+`[[inputs.interrupts]]`, **before** `[inputs.interrupts.tagpass]`; this reduces
+export to D series without changing the `interrupts_total` name.
 
 `interrupts_total` is a cumulative **counter**, not an IRQ/s gauge: use
 `rate(interrupts_total[1m])` in Prometheus to calculate IRQ/s. To disable
@@ -1189,7 +1242,7 @@ The TUI automatically displays interfaces when `net_*` metrics are available:
   derived Network rates.
 
 The updated example enables both native
-[`net` input](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/net)
+[`net` input](https://github.com/influxdata/telegraf/tree/v1.40.3/plugins/inputs/net)
 and `inputs.ethtool`. Copy it only if the destination does not already exist:
 
 ```bash
@@ -1205,11 +1258,15 @@ preserving your `net` interface selection. `ethtool` needs driver support and
 only matches `eth*`/`en*` interfaces in the example; its exposed fields vary by
 NIC. It does not replace the `net_*` counters or their rate calculations.
 
-Set `interfaces = ["enp1s0"]` to your actual interface names (`ip -brief link`).
-An empty list collects UP, non-loopback interfaces, including virtual devices.
-Explicitly select the relevant physical interfaces to avoid interpreting traffic
-on a bridge and its member/veth devices as separate physical traffic. The TUI
-does not sum interfaces.
+The new primary example selects `eth*`/`en*` in both inputs, rather than all UP
+interfaces. These are naming patterns, **not physical-device detection**:
+`eth0` in a container may itself be virtual. Replace both `interfaces` and
+`interface_include` with your intended interfaces (`ip -brief link`), for
+example `["enp1s0"]`, `["bond0"]` or `["wlan0"]`. Custom names are not excluded
+by a hard-coded device classifier. An empty `interfaces` list collects UP,
+non-loopback interfaces, including virtual devices; it does not disable input.
+Keep each interface in only one `net` and one `ethtool` input.
+The TUI does not sum bridge/member/veth traffic into a host total.
 
 ```bash
 sudo systemctl restart metrics-manager-telegraf.service
@@ -1222,7 +1279,7 @@ Keep `metric_version = 1` and `export_timestamp = true` in the existing
 `outputs.prometheus_client` configuration. Expected names include `net_bytes_recv`,
 `net_bytes_sent`, `net_packets_recv`, `net_err_in`, `net_drop_in` and `net_speed`,
 with `interface` and normally `host` labels and a final timestamp in milliseconds.
-The pinned Telegraf 1.39.3 exporter uses these names without an added `_total`.
+The pinned Telegraf 1.40.3 exporter uses these names without an added `_total`.
 No root service, capabilities or sandbox relaxation are required by this input.
 If samples are absent, inspect `journalctl -u metrics-manager-telegraf.service`
 and interface selection before changing service permissions.
@@ -1256,7 +1313,8 @@ collector or synthetic zero values are needed. To collect them from host-side
 container links, install the current package, set `ENABLE_NETWORK_VIRTUAL=true`
 in `native/metrics-options.conf`, and run `native/configure-metrics.sh`.
 The separate packaged `telegraf-network-virtual.conf` example selects `veth*`
-and `lxc*`. Existing local settings are retained; adjust interface patterns in
+and `lxc*` for both `net` traffic and `ethtool` driver counters, independently
+of the primary input. Existing local settings are retained; adjust interface patterns in
 `/etc/metrics-manager/telegraf.d/network-virtual.conf` if needed.
 Set the option to `false` to disable this drop-in, or `auto` to leave it unchanged.
 
@@ -1269,15 +1327,19 @@ These are the host endpoints' counters, not the same series as container
 `eth0`: `host`, `interface`, `peer_ifindex`, RX/TX direction and values may
 differ. Matching metric names establishes counter availability, not equality
 of monitored interfaces or readings. No matching links means no such series.
-Adding this drop-in does not modify `inputs.net`; avoid summing physical,
-bridge and virtual traffic as if each represented independent traffic.
+The new example adds its own `inputs.net` block. On upgrade, an existing primary
+`interfaces = []` would overlap it: narrow the primary selection before adding
+virtual traffic, and preserve local choices rather than overwriting drop-ins.
+Existing virtual drop-ins remain driver-only until you add the `net` block.
+Avoid summing physical, bridge and virtual traffic as independent traffic.
 
-GPU frequency and throttling data also exist natively under different names:
+GPU frequency and throttling data also exist natively under different names.
+The native frequency fields are Hz, not MHz; divide by `1e6` for MHz comparisons:
 
 | Container name | Native name |
 | --- | --- |
-| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq` |
-| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq` |
+| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq_hz` |
+| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq_hz` |
 | `gpu_throttle_throttled` | `gpu_throttle_status` |
 | `gpu_throttle_throttle_pl1` | `gpu_throttle_pl1` |
 | `gpu_throttle_throttle_pl2` | `gpu_throttle_pl2` |
@@ -1378,8 +1440,8 @@ Details metrics. No empty Network groups appear before an interface is observed.
 ### Optional Storage monitoring
 
 Storage is **opt-in**, like Network. This implementation uses the existing
-Telegraf 1.39.3 [`disk`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/disk)
-and [`diskio`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/diskio)
+Telegraf 1.40.3 [`disk`](https://github.com/influxdata/telegraf/tree/v1.40.3/plugins/inputs/disk)
+and [`diskio`](https://github.com/influxdata/telegraf/tree/v1.40.3/plugins/inputs/diskio)
 inputs, not a new native collector or a scan of the TUI machine.
 No service capabilities, device permissions or container mounts are changed.
 
@@ -1401,16 +1463,43 @@ Choose `mount_points` for application filesystems and `devices` for the I/O laye
 you want to observe (for example `nvme0n1`). The example samples every second
 with per-input nanosecond precision (exported as millisecond timestamps), avoiding
 whole-second rounding into the future. It
-excludes virtual filesystems such as tmpfs/overlay/squashfs, filters loop/ram
-devices from export and includes `ID_MODEL`, `ID_SERIAL_SHORT` and `wwid`
-identification tags when udev/kernel metadata is available. Existing main configuration must
+excludes virtual filesystems such as tmpfs/overlay/squashfs and filters loop/ram
+devices from export. It keeps `ID_MODEL` when available but disables serial and
+WWID export by default. Existing main configuration must
 retain `metric_version = 1` and `export_timestamp = true`.
 Upgrading never activates the example automatically.
 
-For an existing local `storage.conf`, add
-`device_tags = ["ID_MODEL", "ID_SERIAL_SHORT"]` in `[[inputs.diskio]]` and remove
-`wwid` from any `tagexclude` list. Preserve local device/mount selections and restart
-Telegraf. Updating the packaged example does not overwrite an active local file.
+For an existing local `storage.conf`, apply the following settings in
+`[[inputs.diskio]]`, **before** `[inputs.diskio.tagdrop]`, to adopt the new
+privacy defaults:
+
+```toml
+skip_serial_number = true
+device_tags = ["ID_MODEL"]
+tagexclude = ["serial", "wwid"]
+```
+
+`skip_serial_number` alone does **not** suppress WWID in Telegraf 1.40.3;
+the tag filter is required. To explicitly export durable identifiers, set
+`skip_serial_number = false`, remove `serial` and `wwid` from `tagexclude`,
+and optionally add `ID_SERIAL_SHORT` to `device_tags`. Retain any unrelated
+local exclusions. Metadata availability still depends on the kernel/udev.
+The TUI works without these identifiers. This is an export policy, not a
+promise that Telegraf never reads device metadata internally.
+
+Keep `mount_points` as exact mount paths and `devices` as kernel names/globs
+(for example `["dm-0"]` or `["md0"]` for a selected logical layer).
+Partitions, RAID and device-mapper are supported; no physical-only classifier
+is applied. `devices = ["*"]` keeps all layers except the loop/ram tag filter;
+choose one layer for capacity/performance interpretation, never sum layers.
+To monitor an intentionally selected loop/ram device, also adjust `tagdrop`.
+An empty/omitted device or mount list is not a way to disable collection.
+
+Preserve local selections and restart Telegraf. Updating the packaged example
+does not overwrite an active local file. Review custom `device_tags`,
+`name_templates` and other inputs separately if they encode identifiers.
+Changing labels starts new downstream time series; it does not delete
+previously exported identifiers from databases, retained samples or logs.
 
 To disable, move the drop-in out of the `*.conf` set and restart Telegraf:
 
@@ -1433,6 +1522,15 @@ ordinary container does not validate host filesystem coverage.
 Disk I/O counters come from procfs/sysfs. Device-name metadata may be unavailable
 in a restricted container: Telegraf can log a warning and retain the kernel name
 while still exporting counters.
+
+#### Export selection versus TUI selection
+
+Telegraf `mount_points`, `devices`, interface lists and IRQ field/tag filters
+control what reaches **all** exporters, the Metrics Manager API and downstream
+storage. TUI `storage.mountPoints`, `storage.devices`, `network.interfaces`,
+`maxFilesystems`, `maxDevices`, `maxInterfaces` and row limits only restrict
+display/evaluation; they do not reduce collection, exported series or identifier
+exposure. Keep both layers aligned when limiting telemetry volume.
 
 #### Reading the TUI
 
@@ -1479,7 +1577,7 @@ device is not automatically saturated or unhealthy. The chart deliberately
 does not clamp busy time to 100% or diagnose an SSD fault from it.
 SMART health, temperature, endurance, NVMe media errors and Linux RAID/ZFS
 health are not collected by these two inputs. Telegraf's
-[`smart`](https://github.com/influxdata/telegraf/tree/v1.39.3/plugins/inputs/smart)
+[`smart`](https://github.com/influxdata/telegraf/tree/v1.40.3/plugins/inputs/smart)
 (including NVMe), `mdstat` and `zfs` are possible later stages; SMART requires
 additional tools and a separately reviewed privileged collection path.
 
@@ -1543,7 +1641,7 @@ six-row charts. Supported metrics are:
 - `cpu.totalPercent`
 - `cpu.temperatureC`
 - `memory.usedPercent`
-- `memory.bandwidthMiBps`
+- `memory.bandwidthGBps`
 - `gpu.utilizationPercent`
 - `gpu.temperatureC`
 - `npu.utilizationPercent`
@@ -1944,10 +2042,37 @@ can assess whether a less restrictive **host-wide** perf policy is acceptable;
 do not grant this service broad `CAP_SYS_ADMIN` merely to make the metric
 appear. Restart `metrics-manager-membw.service` after changing the host policy:
 the idling collector must reopen its counters. When available, it publishes
-`memory_bandwidth_{read,write,total}_mibps` (system-wide MiB/s), corresponding
+`memory_bandwidth_{read,write,total}_bytes_per_second` (system-wide bytes/s, displayed as GB/s), corresponding
 to tcmi's DRAM read/write/total GB/s after unit conversion.
 
-A machine whose memory controller exposes no free-running counters cannot
+The collector reads the decimal CPU list from each PMU's `cpumask` and opens
+read/write events on every listed representative, including nonzero CPUs on
+other dies/sockets. Each distinct PMU type and representative is counted once.
+Where counters are split into `cas_count_*_schN`, all advertised subchannels
+must have read/write pairs and are included without also adding an aggregate.
+The TUI still shows one host total, not per-socket panels. No external `perf`
+binary is needed. Missing/invalid masks, incomplete event pairs and inaccessible
+controllers fail visibly instead of publishing a partial total.
+
+If both free-running and programmable IMC families publish bandwidth pairs,
+the collector refuses to sum potentially overlapping coverage. Inspect the
+PMUs and, only after verifying coverage, use the existing `-devices` option to
+select one complete family, for example:
+
+```bash
+sudo /usr/libexec/metrics-manager/mm-plugin-membw -once \
+  -devices '/sys/bus/event_source/devices/uncore_imc_free_running_*'
+```
+
+Do not narrow this to one controller and interpret its output as a host total.
+Pinned events prevent multiplexed undercounts; an unavailable counter slot can
+cause an explicit scheduling/read error. On transient read failure the next
+complete sample averages over the full elapsed interval. A reset or wrap drops
+the whole interval and re-primes all counters. `-once` exits unsuccessfully on
+a sampling error; the long-running service logs and retries subsequent samples.
+Restart after CPU/PMU topology changes to refresh the startup discovery.
+
+A machine whose memory controller exposes no supported bandwidth pair cannot
 report this at all; the service idles instead of restarting in a loop.
 
 **No RAPL power.** The Go collector reads top-level

@@ -247,19 +247,55 @@ def test_collect_converts_npu_hz_to_mhz(
     monkeypatch: pytest.MonkeyPatch,
     frequency: float | None,
 ) -> None:
-    metrics: dict[str, float] = {"npu_utilization": 0, "npu_power": 0}
+    metrics: dict[str, float] = {"npu_utilization": 0, "npu_power_w": 0}
     if frequency is not None:
-        metrics["npu_frequency"] = frequency
+        metrics["npu_frequency_hz"] = frequency
     monkeypatch.setattr(hw_monitor, "_fetch_metrics_manager", lambda url: metrics)
 
     sample = HardwareMonitor()._collect()
 
     assert sample["npu_utilization"] == sample["npu_power"] == 0
-    assert "npu_frequency" not in sample
+    assert "npu_frequency_hz" not in sample
     if frequency is None:
         assert "npu_frequency_mhz" not in sample
     else:
         assert sample["npu_frequency_mhz"] == frequency / 1e6
+
+
+@pytest.mark.parametrize("scale", [0, 1])
+def test_collect_native_base_units_preserve_report_units(
+    monkeypatch: pytest.MonkeyPatch, scale: int,
+) -> None:
+    metrics = {
+        "cpu_frequency_avg_frequency_hz": 2_400_000_000 * scale,
+        "gpu_frequency_cur_freq_hz__cur_freq": 800_000_000 * scale,
+        "gpu_power_power_w__gpu_cur_power": 2.5 * scale,
+        "gpu_power_power_w__pkg_cur_power": 10.5 * scale,
+        "npu_power_w": 3.5 * scale,
+        "npu_temperature_c": 40 * scale,
+        "npu_memory_bytes": 536_870_912 * scale,
+        "npu_bandwidth_bytes_per_second": 10_000_000 * scale,
+    }
+    monkeypatch.setattr(hw_monitor, "_fetch_metrics_manager", lambda url: metrics)
+
+    assert HardwareMonitor()._collect() == {
+        "cpu_freq_mhz": 2400 * scale,
+        "gpu_freq_mhz": 800 * scale,
+        "gpu_power_w": 2.5 * scale,
+        "pkg_power_w": 10.5 * scale,
+        "npu_power": 3.5 * scale,
+        "npu_temperature": 40 * scale,
+        "npu_memory_mb": 512 * scale,
+        "npu_bandwidth": 10 * scale,
+    }
+
+
+def test_collect_missing_native_metrics_stay_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hw_monitor, "_fetch_metrics_manager", lambda url: {})
+
+    assert HardwareMonitor()._collect() == {}
 
 
 @pytest.mark.parametrize("count", [1, 2])

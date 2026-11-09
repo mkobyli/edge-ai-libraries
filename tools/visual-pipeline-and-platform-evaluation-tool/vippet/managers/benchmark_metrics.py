@@ -22,7 +22,7 @@ _CPU_METRIC = "cpu_usage_user"
 _MEMORY_METRIC = "mem_used_percent"
 _NPU_METRIC = "npu_utilization"
 _GPU_ENGINE_METRIC = "gpu_engine_usage_usage"
-_GPU_POWER_METRIC = "gpu_power"
+_GPU_POWER_METRIC = "gpu_power_power_w"
 
 # GPU engine label groups.
 _GPU_COMPUTE_LABELS = {"compute", "ccs"}
@@ -254,7 +254,7 @@ def media_usage(parsed_metrics: list[dict]) -> float | None:
 
 
 def power_usage(parsed_metrics: list[dict]) -> float | None:
-    """Average package power draw (watts) from ``gpu_power`` / ``pkg_cur_power``."""
+    """Average package power draw from ``gpu_power_power_w`` / ``pkg_cur_power``."""
     values: list[float] = []
 
     for event in parsed_metrics:

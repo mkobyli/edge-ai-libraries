@@ -122,7 +122,7 @@ func appendClients(dev device, limit int, emit emitFunc) {
 			fields = append(fields, lineproto.FloatField("engine_"+engine, total.engine[engine]))
 		}
 		for _, key := range sortedKeys(total.memory) {
-			fields = append(fields, lineproto.FloatField(key, total.memory[key]))
+			fields = append(fields, lineproto.FloatField(key+"_bytes", total.memory[key]))
 		}
 
 		emit(MeasurementClient,
