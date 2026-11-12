@@ -5,6 +5,7 @@ package npu
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -222,7 +223,6 @@ func TestCollectBaseUnits(t *testing.T) {
 			regs.energy:          uint64(10) << 14, // 10 J
 			regs.workpoint:       0x02_00_30,       // tile 2, work point 48
 			regs.socTemperatures: uint64(45) << 40, // 45 C
-			regs.memoryBW:        128_750,          // 128.75 MB
 		}),
 		"1000", "536870912") // 1 ms busy, 512 MiB
 	dev := filepath.Join(root, "bus/pci/drivers/intel_vpu/0000:00:0b.0")
@@ -238,9 +238,8 @@ func TestCollectBaseUnits(t *testing.T) {
 	start := time.Unix(0, 1725062400000000000)
 	collector.prevTime = start
 	collector.now = func() time.Time { return start.Add(time.Second) }
-	collector.prevEnergy = 6.0    // 4 J over 1 s -> 4.000 W
-	collector.prevBandwidth = 0.0 // 128.750 MB/s
-	collector.prevBusyUS = 0      // 1000 us over 1 s -> 0 %
+	collector.prevEnergy = 6.0 // 4 J over 1 s -> 4.000 W
+	collector.prevBusyUS = 0   // 1000 us over 1 s -> 0 %
 
 	points, err := collector.Collect()
 	if err != nil {
@@ -256,7 +255,7 @@ func TestCollectBaseUnits(t *testing.T) {
 	}
 
 	want := "npu,host=test-host power_w=4,frequency_hz=1600000000,temperature_c=45i," +
-		"bandwidth_bytes_per_second=128750000,tile_config=2i,utilization=0i,memory_bytes=536870912,power_state=0i,frequency_max_hz=1600000000 1725062401000000000\n"
+		"tile_config=2i,utilization=0i,memory_bytes=536870912,power_state=0i,frequency_max_hz=1600000000 1725062401000000000\n"
 	if got := string(rendered); got != want {
 		t.Errorf("Collect()\n got: %s\nwant: %s", got, want)
 	}
@@ -300,6 +299,111 @@ func TestCollectorBandwidth(t *testing.T) {
 			}
 			if !strings.Contains(string(rendered), tt.want+",") {
 				t.Errorf("Collect() = %s, want %s", rendered, tt.want)
+			}
+		})
+	}
+}
+
+func TestCollectorOmitsUnavailableBandwidth(t *testing.T) {
+	for _, guid := range []string{"0x130670b2", "0x1306a0b3"} {
+		t.Run(guid, func(t *testing.T) {
+			root := buildNPUSysfs(t, guid, telemetryBuffer(4096, map[int]uint64{0: 123456}), "", "")
+			collector, err := NewCollector(root, "h")
+			if err != nil {
+				t.Fatal(err)
+			}
+			start := collector.prevTime
+			collector.now = func() time.Time { return start.Add(time.Second) }
+			points, err := collector.Collect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			rendered, err := points[0].Append(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(rendered), "bandwidth_bytes_per_second=") {
+				t.Fatalf("unsupported bandwidth must be omitted: %s", rendered)
+			}
+		})
+	}
+}
+
+func TestCollectorPowerCounterResetRecovery(t *testing.T) {
+	regs := registerSets[GenPTL]
+	root := buildNPUSysfs(t, "0x3086000", telemetryBuffer(4096, map[int]uint64{regs.energy: 10 << 14}), "", "")
+	collector, err := NewCollector(root, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := collector.prevTime
+	for index, step := range []struct {
+		energy uint64
+		want   string
+	}{
+		{5, ""},
+		{7, "power_w=2,"},
+		{7, "power_w=0,"},
+	} {
+		writeFile(t, collector.telemetry.path, telemetryBuffer(4096, map[int]uint64{regs.energy: step.energy << 14}))
+		collector.now = func() time.Time { return start.Add(time.Duration(index+1) * time.Second) }
+		points, err := collector.Collect()
+		if err != nil {
+			t.Fatal(err)
+		}
+		rendered, err := points[0].Append(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if step.want == "" {
+			if strings.Contains(string(rendered), "power_w=") {
+				t.Errorf("reset sample must omit power: %s", rendered)
+			}
+		} else if !strings.Contains(string(rendered), step.want) {
+			t.Errorf("power after reset = %s, want %s", rendered, step.want)
+		}
+	}
+}
+
+func TestCollectorRejectsTruncatedTelemetryWithoutChangingBaseline(t *testing.T) {
+	regs := registerSets[GenPTL]
+	for _, size := range []int{0, regs.energy, regs.memoryBW + 7} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			root := buildNPUSysfs(t, "0x3086000", telemetryBuffer(4096, map[int]uint64{
+				regs.energy: 10 << 14, regs.memoryBW: 10_000,
+			}), "1000", "")
+			collector, err := NewCollector(root, "h")
+			if err != nil {
+				t.Fatal(err)
+			}
+			start := collector.prevTime
+			collector.now = func() time.Time { return start.Add(time.Second) }
+			writeFile(t, collector.telemetry.path, make([]byte, size))
+			points, err := collector.Collect()
+			if err == nil || !strings.Contains(err.Error(), "snapshot too short") || len(points) != 0 {
+				t.Fatalf("Collect() = %v, %v; want no points and a short snapshot error", points, err)
+			}
+			if !collector.prevTime.Equal(start) || collector.prevEnergy != 10 ||
+				collector.prevBandwidth != 10e6 || collector.prevBusyUS != 1000 || !collector.hasPrevBusy {
+				t.Fatal("truncated sample changed the counter baseline")
+			}
+			collector.now = func() time.Time { return start.Add(2 * time.Second) }
+			writeFile(t, collector.telemetry.path, telemetryBuffer(4096, map[int]uint64{
+				regs.energy: 14 << 14, regs.memoryBW: 30_000,
+			}))
+			writeFile(t, collector.busyPath, []byte("1001000"))
+			points, err = collector.Collect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			rendered, err := points[0].Append(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"power_w=2,", "bandwidth_bytes_per_second=10000000,", "utilization=50i,"} {
+				if !strings.Contains(string(rendered), want) {
+					t.Errorf("Collect() after recovery = %s, want %s", rendered, want)
+				}
 			}
 		})
 	}
@@ -772,7 +876,7 @@ func TestCollectorDiagnostics(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			root := buildNPUSysfs(t, "0x130670b2", make([]byte, 4096), tt.busy, tt.memory)
+			root := buildNPUSysfs(t, "0x3086000", make([]byte, 4096), tt.busy, tt.memory)
 			stdout, stderr := captureCollectorOutput(t, func() {
 				collector, err := NewCollector(root, "h")
 				if err != nil {

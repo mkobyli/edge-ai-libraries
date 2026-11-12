@@ -88,6 +88,9 @@ class TestFamilyKpiStatus(unittest.TestCase):
     def test_no_samples_on_empty_sample_list(self):
         self.assertEqual(_family_kpi_status([], "NPU"), "no_samples")
 
+    def test_unknown_family_has_no_samples(self) -> None:
+        self.assertEqual(_family_kpi_status([{"cpu_util_pct": 10.0}], "TPU"), "no_samples")
+
     def test_idle_when_present_but_always_zero(self):
         # The "Defect Detection NPU" case: npu_utilization/frequency/power
         # all read 0 for the whole run even though samples exist.
@@ -235,12 +238,19 @@ class TestStopPerFamilyStatus(unittest.TestCase):
         self.assertEqual(stats["kpi_warnings"], "")
         self.assertEqual(len(caught), 0)
 
-    def test_no_families_requested_keeps_legacy_shape(self):
-        # Backward compatibility: callers that don't pass families (or pass
-        # none) get the pre-existing aggregate shape without kpi_status.
+    def test_unknown_family_reports_missing_samples_without_crashing(self) -> None:
+        monitor = self._monitor_with_samples([{"cpu_util_pct": 10.0}])
+        with self.assertWarnsRegex(UserWarning, "TPU.*no_samples"):
+            stats = monitor.stop(["TPU"])
+
+        self.assertEqual(stats["kpi_status"], {"TPU": "no_samples"})
+        self.assertEqual(stats["tpu_sample_count"], 0)
+        self.assertEqual(stats["kpi_warnings"], "TPU:no_samples")
+
+    def test_no_families_requested_includes_settle_diagnostic(self) -> None:
         monitor = self._monitor_with_samples([])
         stats = monitor.stop()
-        self.assertEqual(stats, {"sample_count": 0})
+        self.assertEqual(stats, {"sample_count": 0, "npu_settle_samples_dropped": 0})
 
 
 class TestNpuSettleSample(unittest.TestCase):

@@ -150,13 +150,18 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 	}
 	c.prevBandwidth = bandwidth
 
-	fields := []lineproto.Field{
-		lineproto.FloatField("power_w", power),
+	fields := make([]lineproto.Field, 0, 9)
+	if power >= 0 {
+		fields = append(fields, lineproto.FloatField("power_w", power))
+	}
+	fields = append(fields,
 		lineproto.FloatField("frequency_hz", c.telemetry.FrequencyHz()),
 		lineproto.IntField("temperature_c", int64(c.telemetry.TemperatureC())),
-		lineproto.FloatField("bandwidth_bytes_per_second", bandwidthDelta/elapsed),
-		lineproto.IntField("tile_config", int64(c.telemetry.TileConfig())),
+	)
+	if c.telemetry.regs.memoryBW >= 0 {
+		fields = append(fields, lineproto.FloatField("bandwidth_bytes_per_second", bandwidthDelta/elapsed))
 	}
+	fields = append(fields, lineproto.IntField("tile_config", int64(c.telemetry.TileConfig())))
 	if utilization, ok := c.utilization(elapsed); ok {
 		fields = append(fields, lineproto.IntField("utilization", utilization))
 	}

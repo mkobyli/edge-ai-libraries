@@ -246,8 +246,9 @@ export const MetricChart = ({
                     const seconds = parseInt(value as string);
                     return `Time: ${formatTime(seconds)}`;
                   }}
-                  formatter={(value, name, _item, _index, point) => {
+                  formatter={(value, name, item) => {
                     if (additionalTooltipMetrics?.length) {
+                      const point = item.payload as MetricDataPoint | undefined;
                       const metrics = [
                         {
                           dataKey: String(name),
@@ -257,7 +258,8 @@ export const MetricChart = ({
                         },
                         ...additionalTooltipMetrics.map((metric) => ({
                           ...metric,
-                          value: point[metric.dataKey],
+                          color: undefined,
+                          value: point?.[metric.dataKey],
                         })),
                       ];
 

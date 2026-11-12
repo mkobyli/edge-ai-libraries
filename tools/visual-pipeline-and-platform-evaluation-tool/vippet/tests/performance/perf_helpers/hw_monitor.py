@@ -62,7 +62,9 @@ def _trim_edge_samples(
 ) -> list[dict[str, float]]:
     """Trim time-ordered samples from each end, not sorted metric values."""
     trim_count = int(len(samples) * trim_fraction)
-    return samples[trim_count:-trim_count] if trim_count else samples
+    if trim_count == 0 or trim_count * 2 >= len(samples):
+        return samples
+    return samples[trim_count:-trim_count]
 
 
 def _drop_npu_settle_sample(
@@ -81,9 +83,8 @@ def _drop_npu_settle_sample(
 
 def _family_sample_count(samples: list[dict[str, float]], family: str) -> int:
     """Count samples with any KPI belonging to the requested family."""
-    return sum(
-        any(key in sample for key in FAMILY_KPI_KEYS[family]) for sample in samples
-    )
+    keys = FAMILY_KPI_KEYS.get(family, ())
+    return sum(any(key in sample for key in keys) for sample in samples)
 
 
 def _family_kpi_status(samples: list[dict[str, float]], family: str) -> str:
@@ -91,7 +92,7 @@ def _family_kpi_status(samples: list[dict[str, float]], family: str) -> str:
     values = [
         sample[key]
         for sample in samples
-        for key in FAMILY_ACTIVITY_KEYS[family]
+        for key in FAMILY_ACTIVITY_KEYS.get(family, ())
         if key in sample
     ]
     if not values:
