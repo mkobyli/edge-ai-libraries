@@ -28,6 +28,8 @@ A unified metrics collection, ingestion, and relay service that combines Telegra
 - **REST API**: Push custom metrics via JSON, InfluxDB Line Protocol, or OpenTelemetry format
 - **SSE Streaming**: Real-time metrics streaming via Server-Sent Events (`GET /metrics/stream`)
 - **Prometheus Compatible**: Metrics endpoint for Prometheus scraping
+- **Terminal dashboard**: Responsive Overview, Trends, Details and Alerts with five-minute history, configurable thresholds and process limits. Build and run the standalone [TUI](./docs/user-guide/get-started/terminal-dashboard.md) against the same telemetry endpoint.
+- **Native Debian package**: Install collectors, TUI and systemd services without Docker on the target host; see the [bare-metal guide](./docs/user-guide/get-started/bare-metal-package.md). REST API and SSE remain container-only.
 - **Custom Telegraf Config**: Mount your own Telegraf configuration
 - **Additional native Docker collectors**: Opt in to RAPL, per-CPU powerstat, Turbostat, temperature statistics, IRQ, network and storage with `ENABLE_*=true`; additions default off and mounted drop-ins are loaded at startup ([setup guide](./docs/user-guide/get-started/native-docker-collectors.md))
 - **Rate Limiting**: IP-based request throttling with configurable limits
@@ -145,13 +147,13 @@ docker run -d \
 
 ### On Kubernetes (Helm)
 
-The same release is published as a Helm chart at the same OCI repository,
-distinguished by the `-helm` tag suffix:
+The chart targets native Metrics Manager 2026.3.0 and uses the `-helm` suffix
+for its OCI package version. Until release publication, validate the local chart
+with an explicitly selected RC image:
 
 ```bash
-helm install metrics-manager \
-  oci://registry-1.docker.io/intel/metrics-manager \
-  --version 2026.1.0-helm \
+helm install metrics-manager ./helm/metrics-manager \
+  --set image.tag=2026.3.0-rc1 \
   --namespace observability --create-namespace
 ```
 
@@ -181,7 +183,7 @@ make clean              # remove built images, volumes, orphaned containers
 # Helm chart (requires the `helm` CLI)
 make helm-lint          # helm lint helm/metrics-manager
 make helm-template      # render the chart with default values
-make helm-package       # build dist/helm/metrics-manager-<VERSION>-helm.tgz
+make helm-package       # use the chart's own version from Chart.yaml
 make generate-helm      # alias: helm-lint + helm-package
 make helm-push          # push the packaged chart to oci://registry-1.docker.io/intel
 
@@ -276,9 +278,10 @@ docker push intel/metrics-manager:2026.3.0-extended-rc1
    `app/settings.py`, `app/logging_config.py` and current documentation examples.
    Preserve historical release entries and third-party versions. Check your
    local `.env` for an intentional `TAG` override; it is not rewritten for you.
-   For 2026.3.0, Helm is outside this work's scope. Do not use the legacy
-   `make bump` target for this change: it also edits Helm and references old
-   documentation paths.
+   Do not use the legacy
+   `make bump` target for this change: it references old documentation paths
+   and does not update every current mirror. Helm packaging reads its version
+   from `Chart.yaml`, independently of the application `VERSION`.
 2. Review the change: `git diff`.
 3. `make build` — the image will be tagged `metrics-manager:2026.3.0` and the
    OCI label `org.opencontainers.image.version` will be stamped automatically
@@ -315,7 +318,7 @@ read at a different time:
 third-party pins. Run it with the repository's Python test environment.
 `TAG` still overrides Compose image tags/build arguments, and `SERVICE_VERSION`
 still overrides the reported service version at runtime. Setting one does not
-automatically set the other. Helm metadata is unchanged in this work.
+automatically set the other. Validate and update Helm metadata separately.
 
 ### Verify
 

@@ -27,7 +27,7 @@ except ImportError:
     aiohttp = None  # type: ignore
 
 from .logging_config import get_logger
-from .models import Metric
+from .models import Metric, metric_series_key
 from .settings import get_settings
 
 logger = get_logger("store")
@@ -166,19 +166,11 @@ class MetricsStore:
                 for stored in metrics_list:
                     if stored.is_expired():
                         continue
-                    key = self._series_key(stored.metric)
+                    key = metric_series_key(stored.metric.name, stored.metric.tags)
                     current = latest.get(key)
                     if current is None or (stored.metric.timestamp or 0) > (current.timestamp or 0):
                         latest[key] = stored.metric
             return latest
-
-    @staticmethod
-    def _series_key(metric: Metric) -> str:
-        """Build the identifier distinguishing series of the same metric name."""
-        if not metric.tags:
-            return metric.name
-        tags = ",".join(f"{k}={v}" for k, v in sorted(metric.tags.items()))
-        return f"{metric.name}{{{tags}}}"
 
     async def get_metric_names(self) -> list[str]:
         """Get list of all metric names in store."""

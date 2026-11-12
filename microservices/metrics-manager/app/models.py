@@ -22,6 +22,19 @@ from .settings import get_settings
 
 _logger = get_logger("models")
 
+_SERIES_KEY_ESCAPES = str.maketrans({"\\": "\\\\", ",": "\\,", "=": "\\="})
+
+
+def metric_series_key(name: str, tags: dict[str, str] | None) -> str:
+    """Identify a series without confusing label content with key separators."""
+    if not tags:
+        return name
+    labels = ",".join(
+        f"{key.translate(_SERIES_KEY_ESCAPES)}={value.translate(_SERIES_KEY_ESCAPES)}"
+        for key, value in sorted(tags.items())
+    )
+    return f"{name}{{{labels}}}"
+
 
 class MetricType(StrEnum):
     """Metric type enumeration."""
@@ -304,78 +317,102 @@ class InfluxLineProtocolInput(BaseModel):
             return None
 
 
+def _otlp_attribute_value(value: dict[str, Any]) -> str:
+    """Render an OTLP JSON ``AnyValue`` as a tag string, whatever its type."""
+    for key in ("stringValue", "intValue", "doubleValue"):
+        if key in value:
+            return str(value[key])
+    if "boolValue" in value:
+        return "true" if value["boolValue"] else "false"
+    return ""
+
+
 def _otlp_attributes(attributes: list[dict[str, Any]]) -> dict[str, str]:
-    tags = {}
-    for attr in attributes:
-        value = attr.get("value", {})
-        text = ""
-        for key in ("stringValue", "intValue", "doubleValue"):
-            if key in value:
-                text = str(value[key])
-                break
-        else:
-            if "boolValue" in value:
-                text = "true" if value["boolValue"] else "false"
-        tags[attr.get("key", "")] = text
-    return tags
+    return {
+        attr.get("key", ""): _otlp_attribute_value(attr.get("value", {})) for attr in attributes
+    }
+
+
+_OTLP_TEMPORALITY: dict[int | str, str] = {
+    1: "delta",
+    2: "cumulative",
+    "AGGREGATION_TEMPORALITY_DELTA": "delta",
+    "AGGREGATION_TEMPORALITY_CUMULATIVE": "cumulative",
+}
 
 
 def _otlp_temporality(value: Any) -> str | None:
+    """Map OTLP ``aggregationTemporality`` (enum number or name) to a tag value.
+
+    Returns None for UNSPECIFIED, a missing value or anything unrecognised.
+    """
     if isinstance(value, bool) or not isinstance(value, int | str):
         return None
-    return {
-        1: "delta",
-        2: "cumulative",
-        "AGGREGATION_TEMPORALITY_DELTA": "delta",
-        "AGGREGATION_TEMPORALITY_CUMULATIVE": "cumulative",
-    }.get(value)
+    return _OTLP_TEMPORALITY.get(value)
 
 
 def _otlp_int(value: Any) -> int:
-    """Parse JSON int64 strings without passing through floating point."""
+    """Parse an OTLP/JSON int64, which is encoded as a decimal string.
+
+    Plain JSON integers are accepted as well. Raises ``ValueError`` for
+    anything that is not an integer.
+    """
     if isinstance(value, float) and value.is_integer():
         return int(value)
     if isinstance(value, bool) or not isinstance(value, int | str):
-        raise ValueError("OTLP integer must be an integer or decimal string")
+        raise ValueError(f"not an integer: {value!r}")
     return int(value)
 
 
-def _otlp_histogram_fields(dp: dict[str, Any]) -> dict[str, int | float | str | bool]:
+def _otlp_finite_float(value: Any) -> float | None:
+    """Parse an OTLP/JSON double, returning None for NaN, infinities and overflow.
+
+    Line protocol has no representation for non-finite numbers. Raises
+    ``TypeError`` or ``ValueError`` for anything that is not a number.
+    """
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _otlp_histogram_fields(dp: dict[str, Any]) -> dict[str, int | float]:
+    """Summarise an OTLP histogram data point as count, sum, min, max and avg.
+
+    ``sum``, ``min`` and ``max`` are optional in the protocol and are only
+    reported when present and finite. Raises ``ValueError`` for a malformed point.
+    """
     count = _otlp_int(dp.get("count", 0))
-    if not 0 <= count <= (1 << 64) - 1:
-        raise ValueError("OTLP histogram count must fit uint64")
-    fields: dict[str, int | float | str | bool] = {"count": count}
-    total = None
+    if not 0 <= count < 1 << 64:
+        raise ValueError(f"histogram count outside uint64 range: {count}")
+    fields: dict[str, int | float] = {"count": count}
     for key in ("sum", "min", "max"):
-        if dp.get(key) is None:
-            continue
-        if isinstance(dp[key], bool):
-            raise ValueError("OTLP histogram statistics must be numbers")
-        try:
-            number = float(dp[key])
-        except OverflowError:
-            number = math.inf
-        if not math.isfinite(number):
-            _logger.warning("Omitting non-finite OTLP histogram statistic", extra={"field": key})
-            continue
-        fields[key] = number
-        if key == "sum":
-            total = number
-    if total is not None and count > 0:
-        fields["avg"] = total / count
+        if dp.get(key) is not None:
+            number = _otlp_finite_float(dp[key])
+            if number is not None:
+                fields[key] = number
+            else:
+                _logger.warning(
+                    "Omitting non-finite OTLP histogram statistic",
+                    extra={"statistic": key},
+                )
+    if "sum" in fields and count > 0:
+        fields["avg"] = fields["sum"] / count
     return fields
 
 
 def _otlp_point_fields(
     dp: dict[str, Any], metric_type: MetricType
 ) -> dict[str, int | float | str | bool]:
-    # Preserve the previously accepted scalar representation, including on histograms.
-    if dp.get("asDouble") is not None:
-        return {"value": dp["asDouble"]}
+    """Turn an OTLP data point into Metric fields. Raises ``ValueError`` if malformed."""
+    as_double = dp.get("asDouble")
+    if as_double is not None:
+        return {"value": as_double}
     if "asInt" in dp:
         return {"value": _otlp_int(dp["asInt"])}
     if metric_type == MetricType.HISTOGRAM:
-        return _otlp_histogram_fields(dp)
+        return dict(_otlp_histogram_fields(dp))
     return {"value": 0}
 
 
@@ -392,8 +429,12 @@ class OpenTelemetryMetric(BaseModel):
         """
         Convert OpenTelemetry format to internal Metric objects.
 
-        Histograms retain summary fields, not buckets. Sum and histogram
-        points retain aggregation temporality when specified.
+        This handles the OTLP JSON format and extracts individual metrics.
+        Gauge and sum points become a single ``value`` field. Histogram points
+        become ``count`` plus, when present, ``sum``, ``avg``, ``min`` and
+        ``max``; bucket counts are not kept. Sum and histogram points get a
+        ``temporality`` tag (``delta`` or ``cumulative``) when the metric
+        declares one. A malformed data point is skipped with a warning.
         """
         metrics = []
         for rm in self.resource_metrics:
@@ -403,6 +444,7 @@ class OpenTelemetryMetric(BaseModel):
                 for m in sm.get("metrics", []):
                     name = m.get("name", "unknown")
 
+                    # Handle different metric types
                     data: dict[str, Any] = {}
                     metric_type = MetricType.GAUGE
                     temporality = None
@@ -415,8 +457,9 @@ class OpenTelemetryMetric(BaseModel):
                         data = m["histogram"]
                         metric_type = MetricType.HISTOGRAM
                         temporality = _otlp_temporality(data.get("aggregationTemporality"))
+                    data_points = data.get("dataPoints", [])
 
-                    for dp in data.get("dataPoints", []):
+                    for dp in data_points:
                         try:
                             fields = _otlp_point_fields(dp, metric_type)
                             tags = dict(resource_attrs)
@@ -430,12 +473,13 @@ class OpenTelemetryMetric(BaseModel):
                                 timestamp=dp.get("timeUnixNano"),
                                 metric_type=metric_type,
                             )
-                        except (TypeError, ValueError):
+                        except (TypeError, ValueError) as exc:
                             _logger.warning(
                                 "Skipping malformed OTLP data point",
-                                extra={"reason": "invalid numeric value or metric metadata"},
+                                extra={"metric": name, "error": str(exc)[:200]},
                             )
                             continue
+
                         metrics.append(metric)
 
         return metrics

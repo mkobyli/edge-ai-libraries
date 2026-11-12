@@ -112,3 +112,23 @@ decimal places of MiB before export.
 5. Verify the new metric families at `/metrics`, check device/tile labels and
    missing-data behavior, and compare TUI values after display conversion.
    Historical screenshots can show older labels; they are not contract fixtures.
+## TUI Configuration Migration
+
+Upgrade `mm-tui` with the native collectors. The
+[terminal dashboard](./terminal-dashboard.md) performs display conversions;
+do not pre-convert the Prometheus endpoint or it will scale the values twice.
+
+For retained custom chart configuration, replace the old DRAM chart IDs
+`memory.bandwidthMiBps`, `memory.readMiBps`, and `memory.writeMiBps` with
+`memory.bandwidthGBps`, `memory.readGBps`, and `memory.writeGBps`. Use `GB/s`
+as the display unit and convert any fixed MiB/s bounds by multiplying by
+`1048576 / 1e9`. Merge the current examples rather than discarding local settings.
+
+## Debian Package Upgrades
+
+Install the new package with `apt` so plugins and the dashboard are upgraded
+together. Locally modified configuration is preserved: compare any `.dpkg-dist`
+files with the active configuration, merge the needed changes, and restart
+`mm-tui`. In particular, retained chart files may still use the old DRAM IDs.
+Do not replace local settings wholesale or run old and new metric contracts
+through the same unconverted history.

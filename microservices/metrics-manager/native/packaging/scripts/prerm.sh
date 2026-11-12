@@ -16,9 +16,11 @@ case "$1" in
 remove | deconfigure)
     if [ -d /run/systemd/system ]; then
         # shellcheck disable=SC2086
-        systemctl stop $SERVICES >/dev/null 2>&1 || true
+        systemctl stop $SERVICES >/dev/null || \
+            echo "metrics-manager: could not stop all telemetry services" >&2
         # shellcheck disable=SC2086
-        systemctl disable $SERVICES >/dev/null 2>&1 || true
+        systemctl disable $SERVICES >/dev/null || \
+            echo "metrics-manager: could not disable all telemetry services" >&2
     fi
     ;;
 

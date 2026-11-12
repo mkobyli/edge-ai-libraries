@@ -210,6 +210,10 @@ contents:
     file_info:
       mode: 0644
 
+  - src: dist/doc/terminal-dashboard.md
+    dst: /usr/share/doc/metrics-manager/terminal-dashboard.md
+    file_info: { mode: 0644 }
+
   - src: dist/doc/images/*
     dst: /usr/share/doc/metrics-manager/images/
     file_info: { mode: 0644 }

@@ -216,6 +216,38 @@ export const selectLatencyMetrics = (state: RootState) => {
   return { avgMs, minMs, maxMs };
 };
 
+/** Per-inference VLM metrics reported by `gvagenai` (metrics=true). */
+export const selectVlmMetrics = (state: RootState) => {
+  const jobId = state.metrics.activeJobId;
+  const labelMatcher = jobId
+    ? (l: Record<string, string>) => l.job_id === jobId
+    : undefined;
+  const ttftMs = findMetric(
+    state.metrics.metrics,
+    "vlm_metrics_ttft_ms",
+    labelMatcher,
+  )?.value;
+  const tpotMs = findMetric(
+    state.metrics.metrics,
+    "vlm_metrics_tpot_ms",
+    labelMatcher,
+  )?.value;
+  const generateDurationMs = findMetric(
+    state.metrics.metrics,
+    "vlm_metrics_generate_duration_ms",
+    labelMatcher,
+  )?.value;
+
+  if (
+    ttftMs === undefined &&
+    tpotMs === undefined &&
+    generateDurationMs === undefined
+  )
+    return undefined;
+
+  return { ttftMs, tpotMs, generateDurationMs };
+};
+
 export const selectNpuMetric = (state: RootState) =>
   findMetric(state.metrics.metrics, "npu_utilization")?.value;
 
@@ -246,11 +278,13 @@ export const selectGpuMetrics = (state: RootState, gpuId: string = "0") => {
     (l) => l.gpu_id === gpuId,
   );
 
-  const gpuFrequencyMetric = findMetric(
+  // Multi-tile GPUs (e.g. gt0 render + gt1 media) report one series per
+  // tile; show the primary (lowest-named) tile, as earlier releases did.
+  const gpuFrequencyMetric = filterMetrics(
     state.metrics.metrics,
     "gpu_frequency_cur_freq_hz",
-    (l) => l.gpu_id === gpuId && l.type === "cur_freq",
-  );
+    (l) => l.gpu_id === gpuId,
+  ).sort((a, b) => (a.labels.tile ?? "").localeCompare(b.labels.tile ?? ""))[0];
 
   const gpuPowerMetrics = filterMetrics(
     state.metrics.metrics,

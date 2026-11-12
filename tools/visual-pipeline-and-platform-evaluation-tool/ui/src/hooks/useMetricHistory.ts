@@ -31,6 +31,9 @@ export interface MetricHistoryPoint {
   latencyAvg?: number;
   latencyMin?: number;
   latencyMax?: number;
+  vlmTtftMs?: number;
+  vlmTpotMs?: number;
+  vlmGenerateDurationMs?: number;
   gpus: Record<string, GpuMetrics>;
 }
 
@@ -70,6 +73,9 @@ export const createMetricHistoryPoint = (
     latencyAvg: metrics.latency?.avgMs,
     latencyMin: metrics.latency?.minMs,
     latencyMax: metrics.latency?.maxMs,
+    vlmTtftMs: metrics.vlm?.ttftMs,
+    vlmTpotMs: metrics.vlm?.tpotMs,
+    vlmGenerateDurationMs: metrics.vlm?.generateDurationMs,
     gpus,
   };
 };

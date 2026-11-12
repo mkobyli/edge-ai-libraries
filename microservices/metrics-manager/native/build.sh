@@ -52,7 +52,13 @@ if [ "${SKIP_IMAGE_BUILD:-0}" = "1" ]; then
     fi
 else
     say "building $IMAGE"
-    COMPOSE_PROGRESS=plain make -C "$COMPONENT_DIR" build 
+    COMPOSE_PROGRESS=plain make -C "$COMPONENT_DIR" build
+fi
+
+image_version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$IMAGE")
+if [ "$image_version" != "$VERSION" ]; then
+    echo "build.sh: $IMAGE reports version '$image_version'; rebuild with TAG=$VERSION before packaging" >&2
+    exit 1
 fi
 
 # ---------------------------------------------------------------------------
@@ -111,6 +117,8 @@ cp "$COMPONENT_DIR/docs/user-guide/get-started/bare-metal-package.md" \
     "$STAGE_DIR/doc/README.md"
 cp "$COMPONENT_DIR/docs/user-guide/get-started/native-metric-migration.md" \
     "$STAGE_DIR/doc/native-metric-migration.md"
+cp "$COMPONENT_DIR/docs/user-guide/get-started/terminal-dashboard.md" \
+    "$STAGE_DIR/doc/terminal-dashboard.md"
 cp -R "$COMPONENT_DIR/docs/user-guide/get-started/images" "$STAGE_DIR/doc/images"
 cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/doc/LICENSE"
 

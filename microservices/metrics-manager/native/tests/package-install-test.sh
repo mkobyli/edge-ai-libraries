@@ -77,6 +77,7 @@ test "$(stat -c '%a %U %G' /run/metrics-manager)" = "750 metrics-manager metrics
 test "$(stat -c '%a %U %G' /run/metrics-manager/qmassa.fifo)" = "640 root metrics-manager"
 test -p /run/metrics-manager/qmassa.fifo
 test -f /usr/share/doc/metrics-manager/native-metric-migration.md
+test -f /usr/share/doc/metrics-manager/terminal-dashboard.md
 test "$(find /usr/lib/systemd/system -maxdepth 1 -name 'metrics-manager-*.service' | wc -l)" = 7
 systemd-analyze verify /usr/lib/systemd/system/metrics-manager-*.service
 for plugin in /usr/libexec/metrics-manager/mm-plugin-* /usr/bin/mm-tui; do
@@ -113,5 +114,33 @@ for ((attempt = 0; attempt < 15; attempt++)); do
 done
 if [[ $exported != true ]]; then cat "$work/telegraf.log" >&2; exit 1; fi
 test "$(grep -c '^package_probe{' "$work/metrics")" = 1
-echo "PASS $scenario: dependencies, dpkg configuration, ownership, units, binaries and unprivileged telemetry"
+runuser -u metrics-manager -- /usr/bin/mm-tui -once -width 160 > "$work/tui"
+grep -Fq 'Memory' "$work/tui"
+grep -Fq 'CPU' "$work/tui"
+
+if [[ $scenario == fresh ]]; then
+    printf '# Local operator drop-in\n' > /etc/metrics-manager/telegraf.d/local.conf
+    printf '# Local privileged drop-in\n' > /etc/metrics-manager/powerstat.d/local.conf
+    printf '#!/bin/sh\nprintf "operator_metric value=9i\\n"\n' > /etc/metrics-manager/custom-metrics.d/local.sh
+    chmod 0755 /etc/metrics-manager/custom-metrics.d/local.sh
+    sha256sum /etc/metrics-manager/{telegraf.d/local.conf,powerstat.d/local.conf,custom-metrics.d/local.sh} > "$work/local.sha256"
+fi
+cleanup
+telegraf_pid=
+apt-get remove --yes metrics-manager
+test "$(dpkg-query -W -f='${Status}' metrics-manager)" = "deinstall ok config-files"
+test -f /etc/metrics-manager/telegraf.conf
+sha256sum --check "$work/local.sha256"
+getent passwd metrics-manager >/dev/null
+test ! -e /usr/bin/mm-tui
+test ! -e /run/metrics-manager
+
+apt-get purge --yes metrics-manager
+test ! -e /etc/metrics-manager
+test ! -e /run/metrics-manager
+if getent passwd metrics-manager >/dev/null || getent group metrics-manager >/dev/null; then
+    echo "Service account or group remained after purge" >&2
+    exit 1
+fi
+echo "PASS $scenario: dependencies, configuration preservation, ownership, units, telemetry, TUI, remove and purge"
 echo "Systemd boot/service lifecycle and hardware privileges require a separate VM or host test."

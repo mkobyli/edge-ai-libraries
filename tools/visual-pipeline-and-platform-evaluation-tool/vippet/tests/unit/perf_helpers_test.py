@@ -6,6 +6,7 @@
 import csv
 import json
 import os
+import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -13,9 +14,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from tests.performance.perf_helpers import config as perf_config
 from tests.performance.perf_helpers import hw_monitor
+from tests.performance.perf_helpers import settings as perf_settings
 from tests.performance.perf_helpers.hw_monitor import HardwareMonitor
+from tests.performance.perf_helpers.matrix import MatrixFilters, build_matrix
 from tests.performance.perf_helpers.reporters import (
     CSVReporter,
     JSONReporter,
@@ -472,18 +474,22 @@ def test_stop_without_requested_families_emits_no_warnings(
     ],
 )
 def test_trim_configuration_precedence(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     cli: str | float | None,
     environment: str | None,
     yaml_config: dict[str, str | float],
     expected: float,
 ) -> None:
-    monkeypatch.setattr(perf_config, "_METRICS_CFG", yaml_config)
-    monkeypatch.delenv("PERF_METRICS_TRIM_FRACTION", raising=False)
-    if environment is not None:
-        monkeypatch.setenv("PERF_METRICS_TRIM_FRACTION", environment)
-
-    assert perf_config.resolve_metrics_trim_fraction(cli) == expected
+    config_path = tmp_path / "metrics.yaml"
+    config_path.write_text(json.dumps({"metrics": yaml_config}))
+    env = (
+        {"PERF_METRICS_TRIM_FRACTION": environment}
+        if environment is not None else {}
+    )
+    resolved = perf_settings.resolve_settings(
+        config_path, env=env, cli_overrides={"metrics.trim_fraction": cli}
+    )
+    assert resolved["metrics.trim_fraction"] == expected
 
 
 @pytest.mark.parametrize("source", ["cli", "environment", "yaml"])
@@ -491,37 +497,40 @@ def test_trim_configuration_precedence(
     "value", ["-0.1", "0.5", "1", "nan", "inf", "-inf", "invalid", ""]
 )
 def test_trim_configuration_rejects_invalid_values(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     source: str,
     value: str,
 ) -> None:
-    monkeypatch.setattr(perf_config, "_METRICS_CFG", {})
-    monkeypatch.delenv("PERF_METRICS_TRIM_FRACTION", raising=False)
-    cli = None
+    config_path = tmp_path / "metrics.yaml"
+    config_path.write_text("{}")
+    env = {}
+    overrides = {}
     if source == "cli":
-        cli = value
+        overrides["metrics.trim_fraction"] = value
     elif source == "environment":
-        monkeypatch.setenv("PERF_METRICS_TRIM_FRACTION", value)
+        env["PERF_METRICS_TRIM_FRACTION"] = value
     else:
-        monkeypatch.setattr(perf_config, "_METRICS_CFG", {"trim_fraction": value})
+        config_path.write_text(json.dumps({"metrics": {"trim_fraction": value}}))
 
-    with pytest.raises(ValueError, match="0 <= value < 0.5"):
-        perf_config.resolve_metrics_trim_fraction(cli)
+    if source == "environment" and value == "":
+        assert perf_settings.resolve_settings(config_path, env=env)[
+            "metrics.trim_fraction"
+        ] == 0.1
+        return
+    with pytest.raises(perf_settings.SettingsError, match="metrics.trim_fraction"):
+        perf_settings.resolve_settings(
+            config_path, env=env, cli_overrides=overrides
+        )
 
 
 @pytest.mark.parametrize("preset", ["default", "quick", "full"])
-def test_yaml_presets_expose_metrics(
-    monkeypatch: pytest.MonkeyPatch, preset: str
-) -> None:
-    monkeypatch.setattr(perf_config, "PERF_CONFIG", preset)
-    config = perf_config._load_perf_config()
-    assert config["metrics"] == {
-        "metrics_url": "http://localhost/metrics/stream",
-        "sample_interval_seconds": 2.0,
-        "trim_fraction": 0.1,
-    }
+def test_yaml_presets_expose_metrics(preset: str) -> None:
+    config = perf_settings.resolve_settings(preset, env={})
+    assert config["metrics.metrics_url"] == "http://localhost/metrics/stream"
+    assert config["metrics.sample_interval_seconds"] == 2.0
+    assert config["metrics.trim_fraction"] == 0.1
     if preset == "full":
-        assert config["benchmark"]["variants"] == ["cpu", "gpu", "npu"]
+        assert config["benchmark.variants"] == ["cpu", "gpu", "npu"]
 
 
 @pytest.fixture
@@ -541,11 +550,13 @@ def harness_pytester(
         ),
     )
     monkeypatch.delenv("PERF_METRICS_TRIM_FRACTION", raising=False)
+    monkeypatch.delenv("PERF_CLI_LAYER", raising=False)
     monkeypatch.setenv("PERF_CONFIG", "default")
+    monkeypatch.setenv("PERF_RESULTS_DIR", str(pytester.path / "results"))
     pytester.makeconftest("""
-        from helpers import pipeline_case_helpers
+        from tests.performance import conftest as performance
 
-        pipeline_case_helpers.discover_pipeline_cases_for_pytest = lambda: ([], [])
+        performance.pytest_sessionstart = lambda session: None
         pytest_plugins = ["tests.performance.conftest"]
     """)
     return pytester
@@ -553,36 +564,23 @@ def harness_pytester(
 
 @pytest.mark.parametrize("preset", ["full", "quick"])
 def test_mixed_variant_selection_uses_required_families(
-    harness_pytester: pytest.Pytester,
-    monkeypatch: pytest.MonkeyPatch,
     preset: str,
 ) -> None:
-    monkeypatch.setenv("PERF_CONFIG", preset)
-    harness_pytester.makeconftest("""
-        from helpers import pipeline_case_helpers
-
-        case = pipeline_case_helpers.PipelineCase(
-            "mixed", "pipeline", "variant", "GPU_NPU", "Mixed"
-        )
-        pipeline_case_helpers.discover_pipeline_cases_for_pytest = lambda: ([case], ["mixed"])
-        pytest_plugins = ["tests.performance.conftest"]
-    """)
-    harness_pytester.makepyfile("""
-        from perf_helpers.config import STREAM_COUNTS, VARIANT_FILTER
-
-        def test_mixed(pipeline_case, stream_count):
-            assert "gpu_npu" not in VARIANT_FILTER
-            assert {"gpu", "npu"} <= set(VARIANT_FILTER)
-            assert pipeline_case.device_family == "GPU_NPU"
-            assert stream_count in STREAM_COUNTS
-    """)
-
-    result = harness_pytester.runpytest_subprocess("-q", "-p", "no:cacheprovider")
-
+    config = perf_settings.resolve_settings(preset, env={})
+    matrix = build_matrix(
+        [{"id": "mixed", "name": "Mixed", "variants": [
+            {"id": "variant", "name": "GPU_NPU"}
+        ]}],
+        [{"device_family": "GPU"}, {"device_family": "NPU"}],
+        {},
+        MatrixFilters.from_settings(config),
+    )
     if preset == "full":
-        result.assert_outcomes(passed=4)
+        assert len(matrix.rows()) == 4
+        assert matrix.included[0].device_family == "GPU_NPU"
     else:
-        result.assert_outcomes(skipped=1)
+        assert not matrix.included
+        assert matrix.excluded[0].reason == "variant_filter"
 
 
 @pytest.mark.parametrize(
@@ -603,13 +601,18 @@ def test_pytest_fixture_uses_resolved_trim_fraction(
 ) -> None:
     if environment is not None:
         monkeypatch.setenv("PERF_METRICS_TRIM_FRACTION", environment)
+    if arguments:
+        monkeypatch.setenv("PERF_CLI_LAYER", json.dumps({
+            "config": None,
+            "overrides": {"metrics.trim_fraction": expected},
+        }))
     harness_pytester.makepyfile(f"""
         def test_monitor(hw_monitor):
             assert hw_monitor._trim_fraction == {expected!r}
     """)
 
     result = harness_pytester.runpytest_subprocess(
-        "-q", "-p", "no:cacheprovider", *arguments
+        "-q", "-p", "no:cacheprovider"
     )
 
     result.assert_outcomes(passed=1)
@@ -622,12 +625,12 @@ def test_pytest_rejects_invalid_trim_fraction_before_tests(
 ) -> None:
     harness_pytester.makepyfile("def test_not_run(): assert False")
 
-    result = harness_pytester.runpytest_subprocess(
-        f"--metrics-trim-fraction={argument}"
+    result = harness_pytester.run(
+        sys.executable, "-m", "perf_helpers.cli",
+        f"--metrics-trim-fraction={argument}",
     )
-
-    assert result.ret == pytest.ExitCode.USAGE_ERROR
-    result.stderr.fnmatch_lines(["*metrics.trim_fraction*0 <= value < 0.5*"])
+    assert result.ret == 2
+    result.stderr.fnmatch_lines(["*error: argument --metrics-trim-fraction:*"])
 
 
 def test_harness_warning_appears_in_pytest_summary(

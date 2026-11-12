@@ -446,7 +446,8 @@ See [Troubleshooting](./troubleshooting.md) for more issues.
 - **Configure**: See [Environment Variables](./get-started/environment-variables.md)
 - **Custom metrics**: See [Custom Metrics Scripts](./get-started/custom-metrics.md)
 - **Kubernetes**: See [Helm Deployment](./get-started/deploy-with-helm.md)
-- **Without a container**: See [Bare-metal Package](./get-started/bare-metal-package.md)
+- **Terminal dashboard**: Build and run the [standalone TUI](./get-started/terminal-dashboard.md)
+- **Without Docker on the target host**: Install the [bare-metal package](./get-started/bare-metal-package.md)
 
 ## Supporting Resources
 
@@ -469,6 +470,10 @@ SPDX-License-Identifier: Apache-2.0
 ./get-started/deploy-with-helm.md
 ./get-started/environment-variables.md
 ./get-started/custom-metrics.md
+Native metric migration <./get-started/native-metric-migration.md>
+Additional Collectors in Docker <./get-started/native-docker-collectors.md>
+./get-started/hardware-telemetry.md
+./get-started/terminal-dashboard.md
 ./get-started/bare-metal-package.md
 ./get-started/testing.md
 

@@ -96,13 +96,21 @@ to set up a venv, install `kvweave`, and run `pytest ./tests`.
 
 `integration/lmcache/vllm/vllm-start.sh` launches a Docker container that
 clones LMCache v0.4.7, applies `integration/lmcache/patches/lmcache-mp-hybrid.patch`
-and `integration/lmcache/patches/lmcache-v0.4.7-mp-hybrid-to-kvweave.patch`
+and `integration/lmcache/patches/lmcache-v0.5.5-mp-hybrid-to-kvweave.patch`
 (which together add MP-hybrid support and the `kvweave` codec), builds
 `kvweave_quant` inside the container, starts an LMCache MP server, and then
 starts vLLM's OpenAI-compatible API server wired to it via `LMCacheMPConnector`.
 
 ```bash
 MODEL=model_name SERVE=model_name MODEL_PATH=/path/to/models bash integration/lmcache/vllm/vllm-start.sh
+```
+
+`MODEL_PATH` is the directory that contains the model folders, and `MODEL` /
+`SERVE` are the model folder name. Do not add `/` to any of them. For example,
+with the model in `/models/Qwen3.5-9B`:
+
+```bash
+MODEL_PATH=/models MODEL=Qwen3.5-9B SERVE=Qwen3.5-9B bash integration/lmcache/vllm/vllm-start.sh
 ```
 
 See [docs/configuration.md](docs/configuration.md#deployment-environment-variables-integrationlmcachevllmvllm-startsh)
@@ -119,7 +127,7 @@ cd /opt/kvweave/kvweave
 MODEL=model_name SERVE=model_name TOKENIZER_PATH=/models bash tests/vllm-bench-two-waves.sh
 ```
 
-If you meet error about memory after build iamge, use:
+If you meet error about memory after build image, use:
 
 ```
 echo 3 | sudo tee /proc/sys/vm/drop_caches

@@ -21,7 +21,8 @@ case "$1" in
 remove)
     rm -rf "$RUNTIME_DIR"
     if [ -d /run/systemd/system ]; then
-        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl daemon-reload >/dev/null || \
+            echo "metrics-manager: could not reload systemd after removal" >&2
     fi
     ;;
 
@@ -30,14 +31,17 @@ purge)
     rm -rf /etc/metrics-manager
 
     if getent passwd "$SERVICE_USER" >/dev/null; then
-        deluser --system "$SERVICE_USER" >/dev/null 2>&1 || true
+        deluser --system "$SERVICE_USER" >/dev/null || \
+            echo "metrics-manager: could not remove the service account" >&2
     fi
     if getent group "$SERVICE_USER" >/dev/null; then
-        delgroup --system "$SERVICE_USER" >/dev/null 2>&1 || true
+        delgroup --system "$SERVICE_USER" >/dev/null || \
+            echo "metrics-manager: could not remove the service group" >&2
     fi
 
     if [ -d /run/systemd/system ]; then
-        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl daemon-reload >/dev/null || \
+            echo "metrics-manager: could not reload systemd after purge" >&2
     fi
     ;;
 

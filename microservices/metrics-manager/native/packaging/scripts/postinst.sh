@@ -38,7 +38,7 @@ configure)
 
     # Create the runtime directory and the FIFO now, rather than waiting for
     # the next boot.
-    systemd-tmpfiles --create /usr/lib/tmpfiles.d/metrics-manager.conf || true
+    systemd-tmpfiles --create /usr/lib/tmpfiles.d/metrics-manager.conf
 
     # GPU power and package temperature are read through model-specific
     # registers. Without this module they are silently missing, so load it
@@ -50,17 +50,23 @@ configure)
     fi
 
     if [ -d /run/systemd/system ]; then
-        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl daemon-reload >/dev/null || \
+            echo "metrics-manager: could not reload systemd; check service status" >&2
         # shellcheck disable=SC2086
-        systemctl enable $SERVICES >/dev/null 2>&1 || true
+        systemctl enable $SERVICES >/dev/null || \
+            echo "metrics-manager: could not enable all telemetry services" >&2
         # shellcheck disable=SC2086
-        systemctl restart $SERVICES >/dev/null 2>&1 || true
+        systemctl restart $SERVICES >/dev/null || \
+            echo "metrics-manager: some telemetry services failed to start; check journalctl" >&2
         # RAPL is opt-in. Upgrade its binary for existing users without
         # enabling or starting it on installations that never opted in.
-        systemctl try-restart metrics-manager-rapl.service >/dev/null 2>&1 || true
+        systemctl try-restart metrics-manager-rapl.service >/dev/null || \
+            echo "metrics-manager: could not restart the active RAPL service" >&2
+    else
+        echo "metrics-manager: systemd is not running; services were not started" >&2
     fi
 
-    echo "metrics-manager: telemetry is on http://127.0.0.1:9273/metrics; run mm-tui for the dashboard"
+    echo "metrics-manager: package configured; verify services before using http://127.0.0.1:9273/metrics or mm-tui"
     ;;
 
 abort-upgrade | abort-remove | abort-deconfigure) ;;

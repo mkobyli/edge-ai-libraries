@@ -29,10 +29,24 @@ from typing import Any, Literal
 # ============================================================================
 # Unified Intel GPU Device Registry (Single Source of Truth)
 # ============================================================================
-# PCI IDs and minimum kernels follow Linux DRM pciids.h / xe_pci.c;
-# architectures follow intel/compute-runtime devices_base.inl.
-# Minimum kernel means the ID is present, not that runtime support is enabled.
-# Marketing names follow pci.ids where available.
+# Map: pci_id (lowercase "vendor:device" hex) -> {name, arch, category, min_kernel}
+#
+# Sources of truth, in precedence order:
+#   1. Device IDs and platform grouping: the Linux DRM tables in
+#      include/drm/intel/pciids.h and drivers/gpu/drm/xe/xe_pci.c.  An ID that
+#      is absent there is not listed here: no in-tree driver binds to it, so no
+#      capability can be inferred from it.
+#   2. "arch": the Xe IP generation the compute stack builds the device for --
+#      intel/compute-runtime shared/source/dll/devices/devices_base.inl
+#      (SUPPORT_XE3P_CORE / SUPPORT_XE3_CORE / SUPPORT_XE2_HPG_CORE).  This
+#      matches the IP names in xe_pci.c (Xe3_LPG vs Xe3p_LPG / Xe3p_XPC).
+#   3. "name": the pci.ids marketing string where one exists.
+#
+# "min_kernel" is the first mainline release whose DRM tables carry the ID:
+#   git log --reverse -S'(0xB080,' -- include/drm/intel/pciids.h \
+#       drivers/gpu/drm/xe/xe_pci.c | head -1   # then git tag --contains <sha>
+# Platforms still gated by require_force_probe in xe_pci.c need an additional
+# xe.force_probe=<id> to bind; those entries are flagged inline.
 _INTEL_GPU_DEVICE_REGISTRY: dict[str, dict[str, Any]] = {
     # ========== Xe2 Architecture (Battlemage discrete) ==========
     "8086:e202": {
@@ -119,7 +133,8 @@ _INTEL_GPU_DEVICE_REGISTRY: dict[str, dict[str, Any]] = {
         "category": "dgpu",
         "min_kernel": "6.17",
     },
-    # Xe3p: Crescent Island and Nova Lake-P remain force-probe gated upstream.
+    # ========== Xe3p Architecture (Crescent Island, Nova Lake-P) ==========
+    # Pre-production: xe_pci.c still sets require_force_probe for both platforms.
     "8086:674c": {
         "name": "Intel Graphics (Crescent Island)",
         "arch": "Xe3p",
@@ -204,7 +219,8 @@ _INTEL_GPU_DEVICE_REGISTRY: dict[str, dict[str, Any]] = {
         "category": "igpu",
         "min_kernel": "7.1",
     },
-    # Nova Lake-S: force-probe removal is not yet released at this snapshot.
+    # ========== Xe3 Architecture (Nova Lake-S family) ==========
+    # Pre-production: the force_probe drop for NVL-S is merged but unreleased.
     "8086:d740": {
         "name": "Intel Graphics (Nova Lake-S)",
         "arch": "Xe3",
@@ -235,7 +251,7 @@ _INTEL_GPU_DEVICE_REGISTRY: dict[str, dict[str, Any]] = {
         "category": "igpu",
         "min_kernel": "6.19",
     },
-    # Keep the upstream registry grouping for d74a/d74b (kernel NVL-S).
+    # Kernel groups d74a/d74b under NVL-S; compute-runtime builds them as Xe3p.
     "8086:d74a": {
         "name": "Intel Graphics (Nova Lake-S)",
         "arch": "Xe3",
@@ -248,6 +264,7 @@ _INTEL_GPU_DEVICE_REGISTRY: dict[str, dict[str, Any]] = {
         "category": "igpu",
         "min_kernel": "6.19",
     },
+    # ========== Lunar Lake (Xe2 integrated graphics) ==========
     "8086:6420": {
         "name": "Intel Graphics (Lunar Lake)",
         "arch": "Xe2",
@@ -266,7 +283,8 @@ _INTEL_GPU_DEVICE_REGISTRY: dict[str, dict[str, Any]] = {
         "category": "igpu",
         "min_kernel": "6.8",
     },
-    # Panther Lake requires force-probe before Linux 6.17.
+    # ========== Panther Lake / Wildcat Lake (Xe3 integrated graphics) ==========
+    # Panther Lake needs xe.force_probe before v6.17 (94de1dfd4729).
     "8086:b080": {
         "name": "Intel Graphics (Panther Lake)",
         "arch": "Xe3",
@@ -1038,7 +1056,7 @@ def _get_media_codecs(
         if pci_id and pci_id in _INTEL_GPU_DEVICE_REGISTRY:
             arch = _INTEL_GPU_DEVICE_REGISTRY[pci_id].get("arch")
 
-            # Xe2 and newer share the modern codec capabilities.
+            # Xe2/Xe3/Xe3p (Battlemage, Lunar Lake, Panther Lake, Nova Lake): Full modern codec support
             if arch in ("Xe2", "Xe3", "Xe3p"):
                 codecs.extend(
                     [
@@ -1148,7 +1166,7 @@ def _get_precision_support(
         # Discrete Arc GPUs support full modern precision
         precisions.extend(["fp32_compute", "fp16_compute", "int8_compute", "bfloat16_compute"])
 
-        # Modern Xe architectures also support int4 quantization.
+        # Xe2/Xe-LPG also support int4 for extreme quantization
         if pci_id and pci_id in _INTEL_GPU_DEVICE_REGISTRY:
             arch = _INTEL_GPU_DEVICE_REGISTRY[pci_id].get("arch")
             if arch in ("Xe2", "Xe3", "Xe3p", "Xe-LPG"):

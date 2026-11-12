@@ -55,8 +55,14 @@ Operating-system packages inherited from the base container images are covered b
 shipped inside those images (see section 2) and are not repeated here. The only OS packages
 ViPPET itself installs on top of a base image are, in intel/vippet-app:
 
-  yq        - MIT License
-  v4l-utils - GPL-2.0-or-later (utilities) with LGPL-2.1-or-later libraries
+  yq              - MIT License
+  v4l-utils       - GPL-2.0-or-later (utilities) with LGPL-2.1-or-later libraries
+  libaravis-0.8-0 - LGPL-2.1-or-later (Aravis GenICam library and its aravissrc GStreamer
+                    plugin, used for GigE Vision cameras); a few source files are under the
+                    MIT License (src/arvrealtime.c) and LGPL-2.0-or-later (src/arvwakeup.c).
+                    Copyright (c) 2009-2020 Emmanuel Pacaud; GStreamer plugin also
+                    Copyright (c) 2006 Eric Jonas, (c) 2006 Antoine Tremblay,
+                    (c) 2010 United States Government, Joshua M. Doe.
 
 Source code for the GPL/LGPL-licensed components listed in this file is available from the
 respective upstream projects and from the distribution the base image is built on. Intel will
@@ -70,7 +76,7 @@ distributes; contact the ViPPET maintainers through the repository issue tracker
 intel/vippet-app            built FROM intel/dlstreamer (Ubuntu 24.04 based)
 intel/vippet-videogenerator built FROM intel/dlstreamer (Ubuntu 24.04 based)
 intel/vippet-onvif-discovery built FROM python:3.14-slim (Debian based)
-intel/vippet-ui             built FROM node:22 (build stage only) and nginx:alpine (runtime)
+intel/vippet-ui             built FROM node:24 (build stage only) and nginx:alpine (runtime)
 
   intel/dlstreamer  - Intel Deep Learning Streamer, Apache-2.0. Its own third-party notices
                       ship inside the image and in the dlstreamer repository as
@@ -79,7 +85,7 @@ intel/vippet-ui             built FROM node:22 (build stage only) and nginx:alpi
                       inside the image.
   Alpine Linux      - individual package licenses are recorded in the apk database inside the
                       image; nginx itself is BSD-2-Clause.
-  node:22           - used only as a build stage; its contents are not part of any distributed
+  node:24           - used only as a build stage; its contents are not part of any distributed
                       ViPPET image.
 
 ====================================================================================================
@@ -197,8 +203,6 @@ License-Identifier: BSD-3-Clause   (22 package(s))
       Copyright (C) 2002-2017 Free Software Foundation, Inc.
   protobuf 7.36.0
       Copyright 2008 Google Inc. All rights reserved.
-  psutil 7.2.2
-      Copyright (c) 2009, Jay Loden, Dave Daeschler, Giampaolo Rodola
   python-dotenv 1.2.3
       Copyright (c) 2014, Saurabh Kumar (python-dotenv), 2013, Ted Tieken (django-dotenv-rw),
         2013, Jacob Kaplan-Moss (django-dotenv)
@@ -515,7 +519,7 @@ License-Identifier: MIT AND MPL-2.0   (1 package(s))
 
 License-Identifier: MIT-CMU   (1 package(s))
 
-  pillow 12.3.0
+  pillow 13.0.0
       Copyright © 1997-2011 by Secret Labs AB
       Copyright © 1995-2011 by Fredrik Lundh and contributors
       Copyright © 2010 by Jeffrey 'Alex' Clark and contributors
@@ -1456,7 +1460,7 @@ THE PACKAGE IS PROVIDED BY THE COPYRIGHT HOLDER AND CONTRIBUTORS "AS IS" AND WIT
 BSD-2-Clause
 ----------------------------------------------------------------------------------------------------
 
-Copyright (c) <year> <owner> 
+Copyright (c) <year> <owner>
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
 
@@ -1471,7 +1475,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 BSD-3-Clause
 ----------------------------------------------------------------------------------------------------
 
-Copyright (c) <year> <owner>. 
+Copyright (c) <year> <owner>.
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
 
@@ -2886,7 +2890,7 @@ Mozilla Public License Version 2.0
     means any form of the work other than Source Code Form.
 
 1.7. "Larger Work"
-    means a work that combines Covered Software with other material, in 
+    means a work that combines Covered Software with other material, in
     a separate file or files, that is not Covered Software.
 
 1.8. "License"

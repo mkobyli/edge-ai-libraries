@@ -366,14 +366,28 @@ func RunWithConfigs(
 	}
 	program := tea.NewProgram(
 		model,
-		tea.WithContext(ctx),
 		tea.WithAltScreen(),
+		// The CLI owns signals; competing handlers can deadlock during cancellation.
+		tea.WithoutSignalHandler(),
 	)
+	finished := make(chan struct{})
+	watched := make(chan struct{})
+	go func() {
+		defer close(watched)
+		select {
+		case <-ctx.Done():
+			// Quit joins the input reader before restoring the terminal, unlike Kill.
+			program.Quit()
+		case <-finished:
+		}
+	}()
 	_, err := program.Run()
+	close(finished)
 
 	// Stop the poller and wait for it, so the process does not exit while
 	// a request is still in flight.
 	cancel()
+	<-watched
 	<-polled
 
 	return shutdownErr(err, parent)
@@ -382,9 +396,8 @@ func RunWithConfigs(
 // shutdownErr suppresses the error Bubble Tea reports when it was stopped by a
 // cancelled context.
 //
-// A signal reaches the program by cancelling that context, so treating the
-// resulting ErrProgramKilled as a failure would make every ordinary SIGTERM
-// exit non-zero and have a service manager record a clean stop as a crash.
+// A signal normally requests a graceful quit. If the program was also killed,
+// the caller's cancelled context still distinguishes that stop from a failure.
 func shutdownErr(err error, parent context.Context) error {
 	if errors.Is(err, tea.ErrProgramKilled) && parent.Err() != nil {
 		return nil

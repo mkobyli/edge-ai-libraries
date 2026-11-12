@@ -76,10 +76,6 @@ RUN cargo install --locked --git https://github.com/ulissesf/qmassa --tag qmassa
 # the bare-metal .deb ship one identical, reproducible Telegraf binary. The
 # archive is verified against a pinned SHA-256 digest BEFORE extraction, so a
 # tampered, truncated or man-in-the-middled download aborts the build.
-#
-# Trade-off: the official binary bundles Go dependencies that may carry known
-# CVEs not yet fixed upstream. This is accepted deliberately and must be
-# re-evaluated on every bump of TELEGRAF_VERSION in versions.env.
 FROM debian:12-slim AS telegraf-builder
 
 # Mirrors versions.env.
@@ -116,12 +112,7 @@ RUN set -eux; \
 # binaries are shipped in the bare-metal .deb, which is why the collection
 # logic lives here rather than in the container-only Python layer.
 #
-# The plugins themselves have no third-party dependencies, but the module also
-# holds the bare-metal TUI, which pulls in Bubble Tea and Lip Gloss. The image
-# does not ship the TUI; it is only compiled here because the vet and test
-# steps below cover the whole module.
-#
-# Those dependencies are fetched from the module proxy and verified against the
+# Module dependencies are fetched from the module proxy and verified against the
 # hashes in go.sum, so a tampered or substituted module fails the build. This
 # stage therefore needs network access. -mod=readonly is what makes the build
 # honest about it: the toolchain may download what go.mod already pins, but it
@@ -195,6 +186,7 @@ COPY pyproject.toml ./
 COPY VERSION ./
 COPY versions.env ./
 COPY .env.example ./
+COPY .dockerignore Makefile ./
 COPY telegraf.conf ./
 COPY compose.yaml ./
 COPY supervisord.conf ./
