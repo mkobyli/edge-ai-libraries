@@ -341,23 +341,26 @@ class TestCollectNativeCollectorMetrics(unittest.TestCase):
         ):
             return monitor._collect()  # noqa: SLF001
 
-    def test_npu_frequency_hz_is_reported_in_mhz(self):
-        sample = self._collect_from({"npu_frequency_hz": 1.4e9, "npu_power_w": 1.5})
+    def test_npu_frequency_in_hz_is_reported_in_mhz(self) -> None:
+        sample = self._collect_from({"npu_frequency": 1.4e9, "npu_power": 1.5})
         self.assertEqual(sample["npu_frequency_mhz"], 1400.0)
         self.assertEqual(sample["npu_power"], 1.5)
-        self.assertNotIn("npu_frequency_hz", sample)
+        self.assertNotIn("npu_frequency", sample)
 
-    def test_missing_npu_frequency_is_omitted(self):
-        sample = self._collect_from({"npu_power_w": 1.5})
+    def test_missing_npu_frequency_is_omitted(self) -> None:
+        sample = self._collect_from({"npu_power": 1.5})
         self.assertNotIn("npu_frequency_mhz", sample)
+        self.assertEqual(sample["npu_power"], 1.5)
 
-    def test_legacy_metric_names_are_ignored(self):
-        # Names published before metrics-manager 2026.3.0 must not leak in.
+    def test_intermediate_npu_and_legacy_cpu_gpu_names_are_ignored(self) -> None:
         sample = self._collect_from(
             {
                 "npu_frequency_mhz": 1400.0,
-                "npu_frequency": 1.4e9,
-                "npu_power": 1.5,
+                "npu_frequency_hz": 1.4e9,
+                "npu_power_w": 1.5,
+                "npu_temperature_c": 48.0,
+                "npu_memory_bytes": 128.0 * 1024 * 1024,
+                "npu_bandwidth_bytes_per_second": 50_366e6,
                 "cpu_frequency_avg_frequency": 2_800_000.0,
                 "gpu_frequency__cur_freq": 2350.0,
                 "gpu_power__gpu_cur_power": 9.0,
@@ -365,13 +368,13 @@ class TestCollectNativeCollectorMetrics(unittest.TestCase):
         )
         self.assertEqual(sample, {})
 
-    def test_npu_kpis_keep_their_report_units(self):
+    def test_npu_kpis_keep_their_report_units(self) -> None:
         sample = self._collect_from(
             {
                 "npu_utilization": 99.4,
-                "npu_temperature_c": 48.0,
-                "npu_memory_bytes": 128.0 * 1024 * 1024,
-                "npu_bandwidth_bytes_per_second": 50_366e6,
+                "npu_temperature": 48.0,
+                "npu_memory_mb": 128.0,
+                "npu_bandwidth": 50_366.0,
             }
         )
         self.assertEqual(sample["npu_utilization"], 99.4)

@@ -96,8 +96,8 @@ stays absent; measured zeros stay zero. Memory is no longer rounded to two
 decimal places of MiB before export.
 
 MTL/ARL PMT layouts do not expose the NoC bandwidth counter, so
-`npu_bandwidth_bytes_per_second` is omitted on those generations. If the energy
-counter decreases, `npu_power_w` is omitted for that interval and the next
+`npu_bandwidth` is omitted on those generations. If the energy
+counter decreases, `npu_power` is omitted for that interval and the next
 interval uses the new baseline. A truncated PMT snapshot is rejected entirely
 without advancing any counter baseline.
 

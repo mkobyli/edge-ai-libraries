@@ -254,8 +254,8 @@ func TestCollectPlanContract(t *testing.T) {
 		t.Fatalf("Append() error: %v", err)
 	}
 
-	want := "npu,host=test-host power_w=4,frequency_hz=1600000000,temperature_c=45i," +
-		"tile_config=2i,utilization=0i,memory_bytes=536870912,power_state=0i,frequency_max_hz=1600000000 1725062401000000000\n"
+	want := "npu,host=test-host power=4,frequency=1600000000,temperature=45i," +
+		"tile_config=2i,utilization=0i,memory_mb=512,power_state=0i,frequency_max_mhz=1600 1725062401000000000\n"
 	if got := string(rendered); got != want {
 		t.Errorf("Collect()\n got: %s\nwant: %s", got, want)
 	}
@@ -322,7 +322,7 @@ func TestCollectorOmitsUnavailableBandwidth(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(rendered), "bandwidth_bytes_per_second=") {
+			if strings.Contains(string(rendered), "bandwidth=") {
 				t.Fatalf("unsupported bandwidth must be omitted: %s", rendered)
 			}
 		})
@@ -342,8 +342,8 @@ func TestCollectorPowerCounterResetRecovery(t *testing.T) {
 		want   string
 	}{
 		{5, ""},
-		{7, "power_w=2,"},
-		{7, "power_w=0,"},
+		{7, "power=2,"},
+		{7, "power=0,"},
 	} {
 		writeFile(t, collector.telemetry.path, telemetryBuffer(4096, map[int]uint64{regs.energy: step.energy << 14}))
 		collector.now = func() time.Time { return start.Add(time.Duration(index+1) * time.Second) }
@@ -356,7 +356,7 @@ func TestCollectorPowerCounterResetRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		if step.want == "" {
-			if strings.Contains(string(rendered), "power_w=") {
+			if strings.Contains(string(rendered), "power=") {
 				t.Errorf("reset sample must omit power: %s", rendered)
 			}
 		} else if !strings.Contains(string(rendered), step.want) {
@@ -400,7 +400,7 @@ func TestCollectorRejectsTruncatedTelemetryWithoutChangingBaseline(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range []string{"power_w=2,", "bandwidth_bytes_per_second=10000000,", "utilization=50i,"} {
+			for _, want := range []string{"power=2,", "bandwidth=10,", "utilization=50i,"} {
 				if !strings.Contains(string(rendered), want) {
 					t.Errorf("Collect() after recovery = %s, want %s", rendered, want)
 				}
