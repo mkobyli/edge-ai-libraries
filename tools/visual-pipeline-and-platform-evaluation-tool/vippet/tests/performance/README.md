@@ -517,13 +517,14 @@ benchmark.
 
 During the same run, compare `:9273/metrics`, `/metrics/stream`,
 `mm-tui -once -endpoint http://localhost:9273/metrics`, and the refreshed UI.
-The 2026.3.0 native contract uses `npu_frequency_hz` in actual Hz:
+The planned NPU contract retains `npu_frequency` in actual Hz:
 ARL ratio 48 is `1600000000` Hz, displayed as 1600 MHz
 (or 1.60 GHz in TUI). Historical display-scaled samples are not comparable.
 Check matching host labels and sample timestamps rather than requiring equality
-between independent reads. Prometheus exports `npu_bandwidth_bytes_per_second`
-in bytes/s and `npu_memory_bytes` in bytes; the harness preserves its report
-units of MB/s and MiB. Confirm actual zero remains zero,
+between independent reads. Prometheus exports `npu_bandwidth` in decimal MB/s,
+`npu_memory_mb` in binary MiB and `npu_frequency_max_mhz` in MHz.
+The harness preserves its report units of MHz, MB/s and MiB; it converts only
+the current NPU frequency from Hz to MHz. Confirm actual zero remains zero,
 and unavailable readings become absent after the 15-second exporter TTL plus
 flush/poll latency.
 

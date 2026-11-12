@@ -261,7 +261,7 @@ async def test_npu_fields_expire_while_other_fields_refresh(tmp_path: Path, expo
                         try:
                             response = await client.post(
                                 f"http://127.0.0.1:{input_port}/write",
-                                content=f"npu,host=test frequency_hz=1600000000,power_w=2,bandwidth_bytes_per_second=10000000{fields} {timestamp_ns if fields else time.time_ns()}\n",
+                                content=f"npu,host=test frequency=1600000000,power=2,bandwidth=10{fields} {timestamp_ns if fields else time.time_ns()}\n",
                             )
                             response.raise_for_status()
                             with patch("app.sse.get_settings", return_value=SimpleNamespace(
@@ -280,37 +280,37 @@ async def test_npu_fields_expire_while_other_fields_refresh(tmp_path: Path, expo
                     pytest.fail(f"Expected {expected}, got {payload}")
 
                 await wait_for(
-                    ",utilization=50i,memory_bytes=536870912", {"npu_utilization": 50, "npu_memory_bytes": 536870912},
+                    ",utilization=50i,memory_mb=512", {"npu_utilization": 50, "npu_memory_mb": 512},
                 )
                 zero = await wait_for(
-                    ",utilization=0i,memory_bytes=0", {"npu_utilization": 0, "npu_memory_bytes": 0},
+                    ",utilization=0i,memory_mb=0", {"npu_utilization": 0, "npu_memory_mb": 0},
                 )
                 timestamps = {
                     metric["name"]: metric["timestamp"] for metric in zero["metrics"]
-                    if metric["name"] in {"npu_utilization", "npu_memory_bytes"}
+                    if metric["name"] in {"npu_utilization", "npu_memory_mb"}
                 }
                 memory_only = await wait_for(
-                    ",memory_bytes=134217728", {
-                        "npu_utilization": None, "npu_memory_bytes": 134217728,
-                        "npu_frequency_hz": 1_600_000_000, "npu_power_w": 2,
-                        "npu_bandwidth_bytes_per_second": 10_000_000,
+                    ",memory_mb=128", {
+                        "npu_utilization": None, "npu_memory_mb": 128,
+                        "npu_frequency": 1_600_000_000, "npu_power": 2,
+                        "npu_bandwidth": 10,
                     }, {"npu_utilization": timestamps["npu_utilization"]},
                 )
                 timestamps = {
                     metric["name"]: metric["timestamp"] for metric in memory_only["metrics"]
-                    if metric["name"] == "npu_memory_bytes"
+                    if metric["name"] == "npu_memory_mb"
                 }
                 expired = await wait_for("", {
-                    "npu_utilization": None, "npu_memory_bytes": None,
-                    "npu_frequency_hz": 1_600_000_000, "npu_power_w": 2,
-                    "npu_bandwidth_bytes_per_second": 10_000_000,
+                    "npu_utilization": None, "npu_memory_mb": None,
+                    "npu_frequency": 1_600_000_000, "npu_power": 2,
+                    "npu_bandwidth": 10,
                 }, timestamps)
                 assert expired["timestamp"] >= memory_only["timestamp"] >= zero["timestamp"]
                 await wait_for(
-                    ",utilization=25i,memory_bytes=0", {
-                        "npu_utilization": 25, "npu_memory_bytes": 0,
-                        "npu_frequency_hz": 1_600_000_000, "npu_power_w": 2,
-                        "npu_bandwidth_bytes_per_second": 10_000_000,
+                    ",utilization=25i,memory_mb=0", {
+                        "npu_utilization": 25, "npu_memory_mb": 0,
+                        "npu_frequency": 1_600_000_000, "npu_power": 2,
+                        "npu_bandwidth": 10,
                     },
                 )
         finally:

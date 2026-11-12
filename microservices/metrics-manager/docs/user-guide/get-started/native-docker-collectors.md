@@ -47,28 +47,30 @@ unchanged"; it has no Docker equivalent.
 
 ## NPU metric units and availability
 
-The native `mm-plugin-npu` collector emits `frequency_hz` in actual **Hz**;
-Telegraf exports it as `npu_frequency_hz`. The PLL conversion is ratio times
+The native `mm-plugin-npu` collector retains `frequency` in actual **Hz**;
+Telegraf exports it as `npu_frequency`. The PLL conversion is ratio times
 50 MHz times 2/3 on Meteor Lake and Arrow Lake, and ratio times 50 MHz divided
 by 2 on Lunar Lake and Panther Lake. For example, Arrow Lake ratio 48 emits
-`frequency_hz=1600000000`. The driver-provided ceiling is exported as
-`frequency_max_hz` in **Hz**, and `power_state` retains its PCI D-state encoding.
+`frequency=1600000000`. The driver-provided ceiling is exported as
+`frequency_max_mhz` in **MHz**, and `power_state` retains its PCI D-state encoding.
+Power and temperature retain `power` in W and `temperature` in degrees Celsius.
 
 This corrects the older plugin's display-scaled frequency. Consumers displaying
-MHz must divide `npu_frequency_hz` by `1_000_000`;
+MHz must divide `npu_frequency` by `1_000_000`;
 do not infer the unit from its magnitude. Deploy the corrected collector
 together with compatible consumers. Historical values from older plugin
 versions have the old scale and must not be interpreted as actual Hz.
 
-`bandwidth_bytes_per_second` is **bytes/s**, calculated from the traffic delta divided
-by the actual elapsed seconds, with correction for a 32-bit counter wrap.
+`bandwidth` is decimal **MB/s**, calculated from the byte traffic delta divided
+by the actual elapsed seconds and `1_000_000`, with correction for a 32-bit counter wrap.
 A non-positive interval drops the sample with a diagnostic on stderr and
 leaves the previous counter baseline intact.
 
-`utilization` and `memory_bytes` are omitted when their sysfs readings are
+`utilization` and `memory_mb` are omitted when their sysfs readings are
 unavailable or invalid; measured zero is still emitted. Memory support is
 detected by sysfs availability, regardless of SoC generation. The existing
-`memory_bytes` field preserves the driver's byte count without rounding.
+`memory_mb` field divides the driver's byte count by `1_048_576` to obtain
+binary MiB without rounding, despite the historical `_mb` spelling.
 After a busy-time read failure or counter reset, utilisation resumes only
 after a valid baseline and a subsequent valid reading.
 

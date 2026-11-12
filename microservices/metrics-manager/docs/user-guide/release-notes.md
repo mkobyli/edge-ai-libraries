@@ -37,9 +37,12 @@ Historical release entries and Helm metadata remain unchanged.
   views, configurable thresholds and process limits, and five-minute chart
   history by default. Network and storage views distinguish unavailable or
   stale readings from measured zeros.
-- **Native metric units**: migrates CPU/GPU/NPU clocks, NPU memory/rates, GPU
-  device/client memory and DRAM throughput to explicit bytes, bytes/second, Hz,
-  W and Celsius fields, without old-name aliases. DRAM display/charts use
+- **Native metric units**: migrates CPU/GPU clocks, GPU device/client memory
+  and DRAM throughput to explicit bytes, bytes/second, Hz, W and Celsius fields,
+  without old-name aliases. NPU retains `npu_power`, `npu_frequency`,
+  `npu_temperature`, `npu_bandwidth`, `npu_memory_mb` and `npu_frequency_max_mhz`
+  with W, actual Hz, Celsius, decimal MB/s, binary MiB and MHz respectively.
+  DRAM display/charts use
   decimal GB/s. Standard Telegraf fields, percentage semantics and existing
   alert thresholds are unchanged. Upgrade collectors, TUI and custom queries
   together using the [breaking-change migration guide](./get-started/native-metric-migration.md),
@@ -66,7 +69,7 @@ Historical release entries and Helm metadata remain unchanged.
 
 - **Native NPU measurements**: corrects PLL decoding for MTL/ARL/LNL/PTL and
   bandwidth rates using actual elapsed time with single-wrap correction.
-  **Breaking unit correction:** `npu_frequency_hz` contains real Hz, not the
+  **Breaking unit correction:** the unchanged `npu_frequency` contains real Hz, not the
   legacy MHz-scale number. Divide by `1e6` in queries that need MHz. Unsupported
   utilization/memory readings are omitted instead of publishing artificial
   zero/negative values. Presence-based memory detection, busy-counter reset
@@ -76,7 +79,7 @@ Historical release entries and Helm metadata remain unchanged.
   reported to stderr; a missing busy-time attribute is reported once at startup,
   while a missing memory node remains silent. Stdout stays Line Protocol only.
   TUI tests cover measured zero, unavailable data and recovery. ViPPET UI and
-  benchmark ingestion use the new native names with explicit display conversions;
+  benchmark ingestion use the planned NPU names with explicit display conversions;
   report column units remain unchanged.
 - **Stale NPU series**: container, bare-metal and ViPPET Prometheus exports
   expire inactive series after 15 seconds. Other fields do not refresh omitted

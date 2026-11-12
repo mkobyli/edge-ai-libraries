@@ -216,7 +216,7 @@ func buildNPUSysfs(t *testing.T, guid string, buffer []byte, busyUS, memoryBytes
 	return root
 }
 
-func TestCollectBaseUnits(t *testing.T) {
+func TestCollectPlanContract(t *testing.T) {
 	regs := registerSets[GenARL]
 	root := buildNPUSysfs(t, "0x1306a0b3",
 		telemetryBuffer(4096, map[int]uint64{
@@ -269,11 +269,11 @@ func TestCollectorBandwidth(t *testing.T) {
 		elapsed  time.Duration
 		want     string
 	}{
-		{"two seconds", 10_000, 30_000, 2 * time.Second, "bandwidth_bytes_per_second=10000000"},
-		{"short interval", 10_000, 30_000, 500 * time.Millisecond, "bandwidth_bytes_per_second=40000000"},
-		{"wrap", 1<<32 - 10_000, 10_000, 2 * time.Second, "bandwidth_bytes_per_second=10000000"},
-		{"wrap by one tick", 1<<32 - 1, 0, time.Second, "bandwidth_bytes_per_second=1000"},
-		{"zero traffic", 10_000, 10_000, 2 * time.Second, "bandwidth_bytes_per_second=0"},
+		{"two seconds", 10_000, 30_000, 2 * time.Second, "bandwidth=10"},
+		{"short interval", 10_000, 30_000, 500 * time.Millisecond, "bandwidth=40"},
+		{"wrap", 1<<32 - 10_000, 10_000, 2 * time.Second, "bandwidth=10"},
+		{"wrap by one tick", 1<<32 - 1, 0, time.Second, "bandwidth=0.001"},
+		{"zero traffic", 10_000, 10_000, 2 * time.Second, "bandwidth=0"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -448,7 +448,7 @@ func TestCollectorRejectsInvalidIntervalWithoutChangingBaseline(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range []string{"power_w=2,", "bandwidth_bytes_per_second=10000000,", "utilization=50i,"} {
+			for _, want := range []string{"power=2,", "bandwidth=10,", "utilization=50i,"} {
 				if !strings.Contains(string(rendered), want) {
 					t.Errorf("Collect() after recovery = %s, want %s", rendered, want)
 				}
@@ -465,10 +465,10 @@ func TestBandwidthRateAndRollover(t *testing.T) {
 		interval time.Duration
 		want     string
 	}{
-		{"two seconds", 90e6, 100_000, 2 * time.Second, "bandwidth_bytes_per_second=5000000,"},
-		{"half second", 90e6, 100_000, time.Second / 2, "bandwidth_bytes_per_second=20000000,"},
-		{"wrap", float64(uint64(1)<<32)*1e3 - 5e6, 10_000, time.Second, "bandwidth_bytes_per_second=15000000,"},
-		{"idle", 100e6, 100_000, time.Second, "bandwidth_bytes_per_second=0,"},
+		{"two seconds", 90e6, 100_000, 2 * time.Second, "bandwidth=5,"},
+		{"half second", 90e6, 100_000, time.Second / 2, "bandwidth=20,"},
+		{"wrap", float64(uint64(1)<<32)*1e3 - 5e6, 10_000, time.Second, "bandwidth=15,"},
+		{"idle", 100e6, 100_000, time.Second, "bandwidth=0,"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			regs := registerSets[GenPTL]
@@ -497,7 +497,7 @@ func TestBandwidthRateAndRollover(t *testing.T) {
 	}
 }
 
-func TestMemoryAndCeilingUseUnroundedBaseUnits(t *testing.T) {
+func TestMemoryAndCeilingUsePlanUnits(t *testing.T) {
 	root := buildNPUSysfs(t, "0x3086000", make([]byte, 4096), "", "1048577")
 	device := filepath.Join(root, "bus/pci/drivers/intel_vpu/0000:00:0b.0")
 	writeFile(t, filepath.Join(device, "npu_max_frequency_mhz"), []byte("1800"))
@@ -515,7 +515,7 @@ func TestMemoryAndCeilingUseUnroundedBaseUnits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"memory_bytes=1048577,", "frequency_max_hz=1800000000 "} {
+	for _, want := range []string{"memory_mb=1.0000009536743164,", "frequency_max_mhz=1800 "} {
 		if !strings.Contains(string(line), want) {
 			t.Fatalf("missing %q in %s", want, line)
 		}
@@ -572,13 +572,13 @@ func TestOptionalReadFailureAndRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(line), "utilization=") != tt.wantBusy ||
-			strings.Contains(string(line), "memory_bytes=") != tt.wantMemory {
+			strings.Contains(string(line), "memory_mb=") != tt.wantMemory {
 			t.Fatalf("unexpected optional fields: %s", line)
 		}
 		if tt.wantBusy && !strings.Contains(string(line), "utilization=50i") {
 			t.Fatalf("recovery must use a fresh busy-time baseline: %s", line)
 		}
-		if i == 1 && !strings.Contains(string(line), "memory_bytes=0") {
+		if i == 1 && !strings.Contains(string(line), "memory_mb=0") {
 			t.Fatalf("a measured zero is not missing: %s", line)
 		}
 	}
@@ -709,7 +709,7 @@ func TestUnsupportedAttributesDegradeGracefully(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Append() error: %v", err)
 	}
-	for _, absent := range []string{"utilization=", "memory_bytes="} {
+	for _, absent := range []string{"utilization=", "memory_mb="} {
 		if strings.Contains(string(rendered), absent) {
 			t.Errorf("Collect() = %s, must omit %s", rendered, absent)
 		}
@@ -777,16 +777,16 @@ func TestCollectorOptionalReadRecovery(t *testing.T) {
 		wantUtil   string
 		wantMemory string
 	}{
-		{"measured zero", "0", "0", "utilization=0i", "memory_bytes=0"},
-		{"busy", "500000", "1048576", "utilization=50i", "memory_bytes=1048576"},
+		{"measured zero", "0", "0", "utilization=0i", "memory_mb=0"},
+		{"busy", "500000", "1048576", "utilization=50i", "memory_mb=1"},
 		{"missing files", "", "", "", ""},
 		{"invalid values", "invalid", "invalid", "", ""},
 		{"negative values", "-1", "-1", "", ""},
-		{"reestablish baseline", "9000000", "0", "", "memory_bytes=0"},
-		{"after read recovery", "9500000", "0", "utilization=50i", "memory_bytes=0"},
-		{"counter reset", "0", "0", "", "memory_bytes=0"},
-		{"after reset", "250000", "0", "utilization=25i", "memory_bytes=0"},
-		{"idle again", "250000", "0", "utilization=0i", "memory_bytes=0"},
+		{"reestablish baseline", "9000000", "0", "", "memory_mb=0"},
+		{"after read recovery", "9500000", "0", "utilization=50i", "memory_mb=0"},
+		{"counter reset", "0", "0", "", "memory_mb=0"},
+		{"after reset", "250000", "0", "utilization=25i", "memory_mb=0"},
+		{"idle again", "250000", "0", "utilization=0i", "memory_mb=0"},
 	}
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
@@ -808,7 +808,7 @@ func TestCollectorOptionalReadRecovery(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for field, want := range map[string]string{"utilization=": step.wantUtil, "memory_bytes=": step.wantMemory} {
+			for field, want := range map[string]string{"utilization=": step.wantUtil, "memory_mb=": step.wantMemory} {
 				if want == "" {
 					if strings.Contains(string(rendered), field) {
 						t.Errorf("Collect() = %s, want %s omitted", rendered, field)
@@ -906,12 +906,12 @@ func TestCollectorDiagnostics(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					for _, field := range []string{"power_w=", "frequency_hz=", "temperature_c=", "bandwidth_bytes_per_second=", "tile_config=", "power_state="} {
+					for _, field := range []string{"power=", "frequency=", "temperature=", "bandwidth=", "tile_config=", "power_state="} {
 						if !strings.Contains(string(rendered), field) {
 							t.Errorf("remaining field %s missing from %s", field, rendered)
 						}
 					}
-					for field, omitted := range map[string]bool{"utilization=": tt.omitUtil, "memory_bytes=": tt.omitMemory} {
+					for field, omitted := range map[string]bool{"utilization=": tt.omitUtil, "memory_mb=": tt.omitMemory} {
 						if strings.Contains(string(rendered), field) == omitted {
 							t.Errorf("field %s omitted = %t, want %t; point: %s", field, !omitted, omitted, rendered)
 						}

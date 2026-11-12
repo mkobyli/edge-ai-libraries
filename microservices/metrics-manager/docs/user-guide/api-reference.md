@@ -509,7 +509,8 @@ Collected every 1 second, available at `:9273/metrics` (Prometheus format).
 | `total`             | Total memory (bytes) |
 | `used`              | Used memory (bytes)  |
 
-Native field names below use the 2026.3.0 base-unit contract. See the
+Native CPU/GPU/DRAM field names below use the 2026.3.0 base-unit contract;
+NPU retains its existing names and explicit units listed below. See the
 [migration table](./get-started/native-metric-migration.md) for old names, conversion
 factors and TUI chart changes. Standard Telegraf metrics are unchanged.
 
@@ -586,20 +587,20 @@ containing credentials cannot leak into metrics.
 
 | Prometheus Name   | Field         | Description                                                                     |
 | ----------------- | ------------- | ------------------------------------------------------------------------------- |
-| `npu_power_w` | `power_w` | NPU power draw in W (derived from `VPU_ENERGY` delta) |
-| `npu_frequency_hz` | `frequency_hz` | NPU DPU clock in Hz, decoded from the PLL ratio |
-| `npu_temperature_c` | `temperature_c` | NPU SoC temperature in °C (integer) |
-| `npu_bandwidth_bytes_per_second` | `bandwidth_bytes_per_second` | NoC transfer delta divided by actual elapsed seconds, in bytes/s |
+| `npu_power` | `power` | NPU power draw in W (derived from `VPU_ENERGY` delta) |
+| `npu_frequency` | `frequency` | NPU DPU clock in actual Hz, decoded from the PLL ratio |
+| `npu_temperature` | `temperature` | NPU SoC temperature in °C (integer) |
+| `npu_bandwidth` | `bandwidth` | NoC transfer delta divided by actual elapsed seconds and 1,000,000, in decimal MB/s |
 | `npu_tile_config` | `tile_config` | Active tile configuration                                                       |
 | `npu_utilization` | `utilization` | % NPU utilization over the last interval (0–100); omitted without two usable busy-counter samples |
-| `npu_memory_bytes` | `memory_bytes` | NPU memory usage in bytes, from `npu_memory_utilization`; omitted when unavailable |
-| `npu_frequency_max_hz` | `frequency_max_hz` | Frequency ceiling in Hz, omitted where it is not published |
+| `npu_memory_mb` | `memory_mb` | NPU memory usage in binary MiB (driver bytes / 1,048,576), without rounding; omitted when unavailable |
+| `npu_frequency_max_mhz` | `frequency_max_mhz` | Frequency ceiling in MHz, omitted where it is not published |
 | `npu_power_state` | `power_state` | PCI D-state encoding; -1 when unavailable or unrecognized |
 
-`npu_frequency_hz` uses ratio times 50 MHz times 2/3 for MTL/ARL and ratio times
+`npu_frequency` uses ratio times 50 MHz times 2/3 for MTL/ARL and ratio times
 50 MHz divided by 2 for LNL/PTL, converted to Hz. For example, ARL ratio 48
 reports `1600000000` Hz. Consumers displaying MHz must divide by `1_000_000`;
-`npu_frequency_max_hz` is also in Hz. Older display-scaled values are not
+`npu_frequency_max_mhz` is already in MHz. Older display-scaled values are not
 compatible with the corrected Hz contract. See the
 [native metric migration guide](./get-started/native-metric-migration.md).
 
@@ -632,13 +633,13 @@ reserved for Line Protocol, with no diagnostic log file.
 - `/sys/class/intel_pmt/` accessible inside the container (provided by `privileged: true` + `/sys:/sys:ro`)
 - Supported generations: Meteor Lake (MTL), Arrow Lake (ARL/ARL-H/ARL-S), Lunar Lake (LNL), Panther Lake (PTL)
 
-`npu_memory_bytes` and `npu_frequency_max_hz` come from the `intel_vpu` driver's
+`npu_memory_mb` and `npu_frequency_max_mhz` come from the `intel_vpu` driver's
 sysfs attributes rather than from PMT, and those are world-readable, so they
 need no privilege. Availability is determined by the sysfs attributes, not
 by a PTL-or-newer generation check. Both were measured present on Meteor Lake
 and Panther Lake alike.
 
-**Migration from the legacy NPU scale:** `npu_frequency_hz`
+**Migration from the legacy NPU scale:** the unchanged name `npu_frequency`
 reports actual Hz (for example, `1600000000` for 1600 MHz). Previous values were
 1e6 too small on MTL/LNL/PTL; ARL also used the wrong PLL formula and was 25% low
 relative to the MHz value. Queries that previously treated the value as MHz must
