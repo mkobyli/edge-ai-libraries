@@ -132,74 +132,32 @@ install_dependencies() {
             echo "0" > "${status_file}"
             ;;
         ollama)
-            echo -e "${BLUE}INFO:${NC} Installing Ollama binary..."
-            OLLAMA_VERSION="v0.32.0"
-            OLLAMA_ARCHIVE="${PARALLEL_TMP_DIR}/ollama-linux-amd64.tar.zst"
-            OLLAMA_URL="https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/ollama-linux-amd64.tar.zst"
-
-            # Ensure zstd is available
-            if ! command -v zstd &> /dev/null && ! command -v unzstd &> /dev/null; then
-                echo -e "${RED} ERROR:${NC} zstd is not installed. Please install zstd package."
-                echo "1" > "${status_file}"
-                return 1
-            fi
-
-            mkdir -p /opt/bin
-
-            echo -e "${BLUE}INFO:${NC} Downloading and extracting Ollama ${OLLAMA_VERSION} binary only..."
-            # Stream the archive and extract only the ollama binary - avoids writing full archive to disk
-            if ! curl -fSL "${OLLAMA_URL}" | tar --use-compress-program=unzstd -xf - -C /opt/bin --strip-components=1 bin/ollama; then
-                echo -e "${RED} ERROR:${NC} Failed to download or extract Ollama binary"
-                echo "1" > "${status_file}"
-                return 1
-            fi
-
-            chmod +x /opt/bin/ollama
-
-            # Verify ollama binary is present and executable
+            # The binary is baked into the image at build time (see docker/Dockerfile).
             if [ -x "/opt/bin/ollama" ]; then
-                echo -e "${GREEN} SUCCESS:${NC} Ollama binary ${OLLAMA_VERSION} installed successfully to /opt/bin/ollama"
+                echo -e "${GREEN} SUCCESS:${NC} Ollama binary available at /opt/bin/ollama"
                 /opt/bin/ollama --version 2>&1 | grep -i "version" || true
             else
-                echo -e "${RED} ERROR:${NC} Ollama binary not found or not executable at /opt/bin/ollama"
+                echo -e "${RED} ERROR:${NC} Ollama binary not found or not executable at /opt/bin/ollama. Rebuild the image."
                 echo "1" > "${status_file}"
                 return 1
             fi
             echo "0" > "${status_file}"
             ;;
         ultralytics)
-            echo -e "${BLUE}INFO:${NC} Downloading Ultralytics public models script from GitHub"
-            DLSTREAMER_SAMPLES_URL="https://raw.githubusercontent.com/open-edge-platform/dlstreamer/4d22f42ffe1df79800dc2ef1749f7e37f3d47bf1/samples"
-            mkdir -p /opt/scripts/models
-            if curl -fsSL -o /opt/scripts/download_public_models.sh "${DLSTREAMER_SAMPLES_URL}/download_public_models.sh"; then
-                chmod +x /opt/scripts/download_public_models.sh
-                echo -e "${GREEN} SUCCESS:${NC} Ultralytics public models script downloaded to /opt/scripts/download_public_models.sh"
-            else
-                echo -e "${RED} ERROR:${NC} Failed to download Ultralytics public models script"
+            echo -e "${BLUE}INFO:${NC} Using bundled Ultralytics model scripts"
+            if [[ ! -f /opt/scripts/download_public_models.sh || ! -f /opt/scripts/shared_utils.py || ! -f /opt/scripts/models/convert_mars_deepsort.py ]]; then
+                echo -e "${RED} ERROR:${NC} Bundled Ultralytics model scripts or companions are missing"
                 echo "1" > "${status_file}"
                 return 1
             fi
-
-            # mars-small128 relies on a companion converter (models/convert_mars_deepsort.py)
-            # and shared_utils.py; the script expects them alongside itself under /opt/scripts.
-            if ! curl -fsSL -o /opt/scripts/shared_utils.py "${DLSTREAMER_SAMPLES_URL}/shared_utils.py"; then
-                echo -e "${RED} ERROR:${NC} Failed to download shared_utils.py"
-                echo "1" > "${status_file}"
-                return 1
-            fi
-            if ! curl -fsSL -o /opt/scripts/models/convert_mars_deepsort.py "${DLSTREAMER_SAMPLES_URL}/models/convert_mars_deepsort.py"; then
-                echo -e "${RED} ERROR:${NC} Failed to download convert_mars_deepsort.py"
-                echo "1" > "${status_file}"
-                return 1
-            fi
-            echo -e "${GREEN} SUCCESS:${NC} Mars-Small128 converter and shared_utils.py downloaded"
+            echo -e "${GREEN} SUCCESS:${NC} Ultralytics model scripts and companions are available"
 
             echo -e "${BLUE}INFO:${NC} Ultralytics dependencies will be installed via uv sync"
             echo "0" > "${status_file}"
             ;;
         geti)
             echo -e "${BLUE}INFO:${NC} Geti plugin dependencies will be installed via uv sync"
-            echo -e "${BLUE}INFO:${NC} Geti plugin requires: GETI_HOST, GETI_TOKEN, GETI_SERVER_API_VERSION"
+            echo -e "${BLUE}INFO:${NC} Geti plugin uses the unauthenticated Geti 3.0 Model API; GETI_HOST is required"
             echo "0" > "${status_file}"
             ;;
         hls)
@@ -279,6 +237,7 @@ run_plugins_parallel() {
 PLUGINS=""
 START_SERVICE=true
 EPHEMERAL_MODE=false
+MCP_MODE=false
 EPHEMERAL_ARGS=()
 EXTRA_ARGS=()
 
@@ -300,6 +259,10 @@ while [[ $# -gt 0 ]]; do
             # Collect all remaining args for the ephemeral script
             EPHEMERAL_ARGS=("$@")
             break
+            ;;
+        --mcp)
+            MCP_MODE=true
+            shift
             ;;
         *)
             shift
@@ -455,13 +418,26 @@ if [ "$EPHEMERAL_MODE" = true ]; then
     print_info "Executing one-shot download/conversion..."
     exec /opt/scripts/get_model.sh --internal "${EPHEMERAL_ARGS[@]}"
 elif [ "$START_SERVICE" = true ]; then
-    print_header "Starting Model Download Service"
-    cd /opt
-    print_info "Launching service at http://0.0.0.0:8000"
-    echo -e "${GREEN}===============================================${NC}"
-    echo -e "${GREEN}  Model Download Service is now starting up    ${NC}"
-    echo -e "${GREEN}===============================================${NC}"
-    exec uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+    if [ "$MCP_MODE" = true ]; then
+        MCP_TRANSPORT="${MCP_TRANSPORT:-http}"
+        MCP_HOST="${MCP_HOST:-0.0.0.0}"
+        MCP_PORT="${MCP_PORT:-8000}"
+        print_header "Starting Model Download MCP Server"
+        cd /opt
+        print_info "Launching MCP server (${MCP_TRANSPORT}) at ${MCP_HOST}:${MCP_PORT}"
+        echo -e "${GREEN}===============================================${NC}"
+        echo -e "${GREEN}  Model Download MCP Server is now starting    ${NC}"
+        echo -e "${GREEN}===============================================${NC}"
+        exec python -m src.mcp --transport "${MCP_TRANSPORT}" --host "${MCP_HOST}" --port "${MCP_PORT}"
+    else
+        print_header "Starting Model Download Service"
+        cd /opt
+        print_info "Launching service at http://0.0.0.0:8000"
+        echo -e "${GREEN}===============================================${NC}"
+        echo -e "${GREEN}  Model Download Service is now starting up    ${NC}"
+        echo -e "${GREEN}===============================================${NC}"
+        exec uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+    fi
 else
     print_warning "Service start skipped due to --no-start flag"
     exec "$@"

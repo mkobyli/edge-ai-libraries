@@ -30,7 +30,7 @@ or any agent that supports the [Agent Skills format](https://anthropic.com/news/
 gets it right the first time.
 
 Skills are grounded in the **actual** VSS source: real `setup.sh` flags, Docker Compose
-overlays, the OpenAPI spec, OVMS model layout, NestJS module conventions, the FastMCP proxy,
+overlays, the OpenAPI spec, OVMS model layout, NestJS module conventions, the MCP tool server,
 and the search/embedding internals. They reference real file paths so guidance stays accurate.
 
 Every skill is a self-contained directory with a `SKILL.md` (the entry point the agent reads)
@@ -49,12 +49,12 @@ A comprehensive reference of all VSS skills and their use cases:
 | [`vss-build`](./vss-build/SKILL.md) | Ops | Build or push the VSS Docker images from source; manage registry/tag and proxy controls. |
 | [`vss-troubleshoot`](./vss-troubleshoot/SKILL.md) | Ops | Check health and which mode is live, then diagnose a broken deployment - containers, OVMS/vLLM load, DLStreamer, RabbitMQ/MinIO/Postgres/VDMS, "no summary", "search returns nothing". Probes Pipeline Manager health/feature endpoints; ships `scripts/triage.sh`. |
 | [`vss-model-onboarding`](./vss-model-onboarding/SKILL.md) | Ops | Bring a new VLM/embedding model into OVMS (OpenVINO IR conversion + model-dir layout). Ships `scripts/prepare_ovms_model.py`. |
-| [`vss-deploy-helm`](./vss-deploy-helm/SKILL.md) | Ops | Deploy VSS to Kubernetes via the Helm chart; map Compose/modes to `values.yaml`. |
+| [`vss-deploy-helm`](./vss-deploy-helm/SKILL.md) | Ops | Deploy VSS to Kubernetes via the Helm chart; map Compose/modes to `values.yaml`; choose OVMS vs vLLM and CPU vs Intel Arc GPU (XPU). |
 | [`vss-summarize-video`](./vss-summarize-video/SKILL.md) | Integrator | Summarize a video through the Pipeline Manager; run/inspect the summary pipeline. Start, poll, and retrieve results. |
-| [`vss-search-index`](./vss-search-index/SKILL.md) | Integrator | Upload, index, and natural-language search videos; generate embeddings and run queries with optional filtering. |
+| [`vss-search-index`](./vss-search-index/SKILL.md) | Integrator | Upload, index, and natural-language search videos; generate embeddings and run queries with optional filtering. Also registers and manages live RTSP cameras for continuous indexing (`/streams` CRUD). |
 | [`vss-api-client`](./vss-api-client/SKILL.md) | Integrator | Call the REST/WebSocket APIs correctly (upload → process → progress → summary, and search queries). Ships `scripts/api_smoke.py`. |
 | [`vss-e2e-smoke`](./vss-e2e-smoke/SKILL.md) | Integrator | One-command end-to-end verification per mode. Ships `scripts/e2e_summary.sh` and `e2e_search.sh`. |
-| [`vss-mcp-integration`](./vss-mcp-integration/SKILL.md) | Integrator | Configure/extend the spec-driven FastMCP proxy that exposes VSS search to AI agents. |
+| [`vss-mcp-integration`](./vss-mcp-integration/SKILL.md) | Integrator | Run, debug (MCP Inspector) and extend the MCP tool server that exposes VSS search and summary to AI agents. |
 | [`vss-pipeline-config`](./vss-pipeline-config/SKILL.md) | Contributor | Tune chunk duration, frames per chunk, multi-frame factor, sampling, audio transcript - with latency/quality trade-offs. |
 | [`vss-dlstreamer-pipeline`](./vss-dlstreamer-pipeline/SKILL.md) | Contributor | Understand/modify the EVAM (DLStreamer Pipeline Server) ingestion pipelines and frame/chunk extraction. |
 | [`vss-add-nest-module`](./vss-add-nest-module/SKILL.md) | Contributor | Scaffold a new pipeline-manager NestJS module the idiomatic way. Ships `assets/module-template/`. |
@@ -162,7 +162,8 @@ applies based on its `description`. You generally don't name skills explicitly.
 
 #### Some Examples:
 
-> **Note:** These are most  examples and are not guaranteed or only way to invoke the skills.
+> [!NOTE]
+> These are most  examples and are not guaranteed or only way to invoke the skills.
 
 | You say… | Skill that fires |
 |---|---|
@@ -182,10 +183,13 @@ applies based on its `description`. You generally don't name skills explicitly.
 | "How does unified-mode search differ from search mode?" | `vss-search-internals` |
 | "Why is processing slow? Trace a video for me." | `vss-observability` |
 | "Write a script to upload a video and poll for the summary" | `vss-api-client` |
-| "Expose VSS search to my AI agent over MCP" | `vss-mcp-integration` |
+| "Expose VSS to my AI agent over MCP" / "Debug the MCP server with Inspector" | `vss-mcp-integration` |
 | "Verify my fresh VSS install actually works" | `vss-e2e-smoke` |
 | "Summarize this video for me" | `vss-summarize-video` |
 | "Search my videos for X" | `vss-search-index` |
+| "Add my RTSP camera to the search index" | `vss-search-index` |
+| "Pause / remove a live camera" | `vss-search-index` |
+| "My RTSP stream shows an error state" | `vss-troubleshoot` |
 | "Build and push the VSS images" | `vss-build` |
 
 If the agent doesn't pick up a skill when it should, you can nudge it: *"use the vss-deploy

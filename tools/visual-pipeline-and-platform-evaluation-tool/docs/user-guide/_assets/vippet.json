@@ -3,7 +3,7 @@
   "info": {
     "title": "Visual Pipeline and Platform Evaluation Tool API",
     "description": "API for Visual Pipeline and Platform Evaluation Tool",
-    "version": "1.0.0"
+    "version": "2026.3.0-dev"
   },
   "servers": [
     {
@@ -39,7 +39,7 @@
           "health"
         ],
         "summary": "Application Status",
-        "description": "**Detailed status endpoint for monitoring initialization progress.**\n\n## Operation\nReturns the current application status, including initialization state,\nprogress messages, and readiness for serving API requests.\n\n## Parameters\n- **Path/Query parameters:** None\n\n## Response Format\n\n### 200 OK\n**StatusResponse** with:\n- `status` - Current application status (`starting`, `initializing`, `ready`, `shutdown`)\n- `message` - Optional message describing current activity\n- `ready` - `true` if application is ready to serve API requests\n\n## Conditions\n\n### \u2705 Success\n- Application is running and status can be retrieved\n\n## Examples\n\n### Response (During Initialization)\n```json\n{\n  \"status\": \"initializing\",\n  \"message\": \"Loading video metadata...\",\n  \"ready\": false\n}\n```\n\n### Response (When Ready)\n```json\n{\n  \"status\": \"ready\",\n  \"message\": null,\n  \"ready\": true\n}\n```",
+        "description": "**Detailed status endpoint for monitoring initialization progress.**\n\n## Operation\nReturns the current application status, including initialization state,\nprogress messages, and readiness for serving API requests.\n\n## Parameters\n- **Path/Query parameters:** None\n\n## Response Format\n\n### 200 OK\n**StatusResponse** with:\n- `status` - Current application status (`starting`, `initializing`, `ready`, `shutdown`)\n- `message` - Optional message describing current activity\n- `ready` - `true` if application is ready to serve API requests\n- `version` - Build version (image tag / release string) of the running application\n- `revision` - Git commit hash of the source tree the running image was built from,\n  suffixed with `-dirty` if the working tree had uncommitted changes at build time\n  (e.g. `a1b2c3d` or `a1b2c3d-dirty`); `unknown` if unavailable\n\n## Conditions\n\n### \u2705 Success\n- Application is running and status can be retrieved\n\n## Examples\n\n### Response (During Initialization)\n```json\n{\n  \"status\": \"initializing\",\n  \"message\": \"Loading video metadata...\",\n  \"ready\": false,\n  \"version\": \"2026.2.0-rc2\",\n  \"revision\": \"a1b2c3d\"\n}\n```\n\n### Response (When Ready)\n```json\n{\n  \"status\": \"ready\",\n  \"message\": null,\n  \"ready\": true,\n  \"version\": \"2026.2.0-rc2\",\n  \"revision\": \"a1b2c3d\"\n}\n```",
         "operationId": "get_status",
         "responses": {
           "200": {
@@ -673,7 +673,7 @@
           "devices"
         ],
         "summary": "List available inference devices",
-        "description": "**Return all devices discovered by the OpenVINO runtime.**\n\n## Operation\nDiscovers CPU, GPU, and NPU devices available in the system and exposes\nthem in a simplified, API-friendly format.\n\n1. Initialize OpenVINO Core\n2. Discover all available inference devices\n3. Extract device properties and metadata\n4. Return formatted device list\n\n## Parameters\n- **Path/Query parameters:** None\n\n## Response Format\n\n### 200 OK\nJSON array of Device objects.\n\n**Each device includes:**\n- `device_name` - Short identifier used by runtime (e.g., `\"CPU\"`, `\"GPU\"`, `\"GPU.0\"`, `\"NPU\"`)\n- `full_device_name` - Human-readable name (e.g., CPU/GPU marketing name)\n- `device_type` - `INTEGRATED` or `DISCRETE`\n- `device_family` - `CPU`, `GPU`, or `NPU`\n- `gpu_id` - Integer index for GPU devices (when applicable), otherwise `null`\n\n## Conditions\n\n### \u2705 Success\n- OpenVINO Core initializes correctly\n- At least zero devices are returned (empty list is valid)\n\n### \u274c Failure\n- Unhandled exception during device discovery \u2192 500\n- OpenVINO cannot be initialized \u2192 500\n\n## Example Response\n\n```json\n[\n  {\n    \"device_name\": \"CPU\",\n    \"full_device_name\": \"Intel(R) Core(TM) Ultra 7 155H\",\n    \"device_type\": \"INTEGRATED\",\n    \"device_family\": \"CPU\",\n    \"gpu_id\": null\n  },\n  {\n    \"device_name\": \"GPU.0\",\n    \"full_device_name\": \"Intel(R) Arc(TM) Graphics (iGPU) (GPU.0)\",\n    \"device_type\": \"INTEGRATED\",\n    \"device_family\": \"GPU\",\n    \"gpu_id\": 0\n  }\n]\n```",
+        "description": "**Return all devices discovered by the OpenVINO runtime.**\n\n## Operation\nDiscovers CPU, GPU, and NPU devices available in the system and exposes\nthem in a simplified, API-friendly format.\n\n1. Initialize OpenVINO Core\n2. Discover all available inference devices\n3. Extract device properties and metadata\n4. Attach the core type of every online logical CPU to the CPU device\n5. Return formatted device list\n\n## Parameters\n- **Path/Query parameters:** None\n\n## Response Format\n\n### 200 OK\nJSON array of Device objects.\n\n**Each device includes:**\n- `device_name` - Short identifier used by runtime (e.g., `\"CPU\"`, `\"GPU\"`, `\"GPU.0\"`, `\"NPU\"`)\n- `full_device_name` - Human-readable name (e.g., CPU/GPU marketing name)\n- `device_type` - `INTEGRATED` or `DISCRETE`\n- `device_family` - `CPU`, `GPU`, or `NPU`\n- `gpu_id` - Integer index for GPU devices (when applicable), otherwise `null`\n- `cpu_topology` - For the CPU device, the core type (`P`, `E`, `LPE` or `UNIFORM`)\n  of every online logical CPU, read from Linux sysfs. `null` for other devices, or\n  when the core types cannot be determined\n\n## Conditions\n\n### \u2705 Success\n- OpenVINO Core initializes correctly\n- At least zero devices are returned (empty list is valid)\n- A failure to read the CPU topology does not fail the request; `cpu_topology` is `null`\n\n### \u274c Failure\n- Unhandled exception during device discovery \u2192 500\n- OpenVINO cannot be initialized \u2192 500\n\n## Example Response\n\n```json\n[\n  {\n    \"device_name\": \"CPU\",\n    \"full_device_name\": \"Intel(R) Core(TM) Ultra 7 155H\",\n    \"device_type\": \"INTEGRATED\",\n    \"device_family\": \"CPU\",\n    \"gpu_id\": null,\n    \"cpu_topology\": {\n      \"is_hybrid\": true,\n      \"source\": \"sysfs_pmu\",\n      \"cores\": [\n        {\"cpu\": 0, \"core_type\": \"P\", \"core_id\": 0},\n        {\"cpu\": 6, \"core_type\": \"E\", \"core_id\": 6},\n        {\"cpu\": 14, \"core_type\": \"LPE\", \"core_id\": 14}\n      ]\n    }\n  },\n  {\n    \"device_name\": \"GPU.0\",\n    \"full_device_name\": \"Intel(R) Arc(TM) Graphics (iGPU) (GPU.0)\",\n    \"device_type\": \"INTEGRATED\",\n    \"device_family\": \"GPU\",\n    \"gpu_id\": 0,\n    \"cpu_topology\": null\n  }\n]\n```",
         "operationId": "get_devices",
         "responses": {
           "200": {
@@ -709,7 +709,7 @@
           "jobs"
         ],
         "summary": "List all performance test jobs",
-        "description": "**List statuses of all performance test jobs.**\n\n## Operation\n\nReads current state and metrics for every performance test job created via the performance test API.\n\n## Parameters\n\nNone\n\n## Response Format\n\n| Code | Description |\n|------|-------------|\n| 200  | JSON array of PerformanceJobStatus objects |\n| 500  | Unexpected internal error |\n\n## Conditions\n\n### \u2705 Success\n- TestsManager is initialized\n- Zero or more jobs may be present\n\n### \u274c Failure\n- Internal errors \u2192 500\n\n## Example Response\n\n```json\n[\n  {\n    \"id\": \"job123\",\n    \"start_time\": 1715000000000,\n    \"elapsed_time\": 120000,\n    \"state\": \"RUNNING\",\n    \"details\": [],\n    \"total_fps\": 480.0,\n    \"per_stream_fps\": 30.0,\n    \"total_streams\": 16,\n    \"streams_per_pipeline\": [\n      {\"id\": \"pipeline-1\", \"streams\": 8},\n      {\"id\": \"pipeline-2\", \"streams\": 8}\n    ],\n    \"video_output_paths\": {\n      \"pipeline-1\": [\"/outputs/job123-p1-0.mp4\"]\n    }\n  }\n]\n```",
+        "description": "**List statuses of all performance test jobs.**\n\n## Operation\n\nReads current state and metrics for every performance test job created via the performance test API.\n\n## Parameters\n\nNone\n\n## Response Format\n\n| Code | Description |\n|------|-------------|\n| 200  | JSON array of PerformanceJobStatus objects |\n| 500  | Unexpected internal error |\n\n## Conditions\n\n### \u2705 Success\n- TestsManager is initialized\n- Zero or more jobs may be present\n\n### \u274c Failure\n- Internal errors \u2192 500\n\n## Example Response\n\n```json\n[\n  {\n    \"id\": \"job123\",\n    \"start_time\": 1715000000000,\n    \"elapsed_time\": 120000,\n    \"state\": \"RUNNING\",\n    \"details\": [],\n    \"total_fps\": 480.0,\n    \"per_stream_fps\": 30.0,\n    \"min_stream_fps\": 27.5,\n    \"total_streams\": 16,\n    \"streams_per_pipeline\": [\n      {\"id\": \"pipeline-1\", \"streams\": 8},\n      {\"id\": \"pipeline-2\", \"streams\": 8}\n    ],\n    \"video_output_paths\": {\n      \"pipeline-1\": [\"/outputs/job123-p1-0.mp4\"]\n    }\n  }\n]\n```",
         "operationId": "get_performance_statuses",
         "responses": {
           "200": {
@@ -735,7 +735,7 @@
           "jobs"
         ],
         "summary": "Get performance test job status",
-        "description": "**Get detailed status of a single performance test job.**\n\n## Operation\n\nRetrieves current state, timings, FPS metrics, and output paths for a specific performance test job.\n\n## Path Parameters\n\n- `job_id`: Identifier of the performance job to inspect\n\n## Response Codes\n\n| Code | Description |\n|------|-------------|\n| 200  | PerformanceJobStatus with current state, timings, FPS and output paths |\n| 404  | Job with given id does not exist |\n| 500  | Unexpected internal error |\n\n## Conditions\n\n### \u2705 Success\n- Job with given id exists in TestsManager\n\n### \u274c Failure\n- Unknown job id \u2192 404\n- Unexpected job status type \u2192 500\n\n## Examples\n\nSuccess (200):\n```json\n{\n  \"id\": \"job123\",\n  \"start_time\": 1715000000000,\n  \"elapsed_time\": 60000,\n  \"state\": \"COMPLETED\",\n  \"details\": [\"Pipeline completed successfully\"],\n  \"total_fps\": 480.0,\n  \"per_stream_fps\": 30.0,\n  \"total_streams\": 16,\n  \"streams_per_pipeline\": [\n    {\"id\": \"pipeline-1\", \"streams\": 8},\n    {\"id\": \"pipeline-2\", \"streams\": 8}\n  ],\n  \"video_output_paths\": {\n    \"pipeline-1\": [\"/outputs/job123-p1-0.mp4\"]\n  }\n}\n```\n\nError (404):\n```json\n{\n  \"message\": \"Performance job job123 not found\"\n}\n```\n\nError (500):\n```json\n{\n  \"message\": \"Unexpected job status type for job job123\"\n}\n```",
+        "description": "**Get detailed status of a single performance test job.**\n\n## Operation\n\nRetrieves current state, timings, FPS metrics, and output paths for a specific performance test job.\n\n## Path Parameters\n\n- `job_id`: Identifier of the performance job to inspect\n\n## Response Codes\n\n| Code | Description |\n|------|-------------|\n| 200  | PerformanceJobStatus with current state, timings, FPS and output paths |\n| 404  | Job with given id does not exist |\n| 500  | Unexpected internal error |\n\n## Conditions\n\n### \u2705 Success\n- Job with given id exists in TestsManager\n\n### \u274c Failure\n- Unknown job id \u2192 404\n- Unexpected job status type \u2192 500\n\n## Examples\n\nSuccess (200):\n```json\n{\n  \"id\": \"job123\",\n  \"start_time\": 1715000000000,\n  \"elapsed_time\": 60000,\n  \"state\": \"COMPLETED\",\n  \"details\": [\"Pipeline completed successfully\"],\n  \"total_fps\": 480.0,\n  \"per_stream_fps\": 30.0,\n  \"min_stream_fps\": 27.5,\n  \"total_streams\": 16,\n  \"streams_per_pipeline\": [\n    {\"id\": \"pipeline-1\", \"streams\": 8},\n    {\"id\": \"pipeline-2\", \"streams\": 8}\n  ],\n  \"video_output_paths\": {\n    \"pipeline-1\": [\"/outputs/job123-p1-0.mp4\"]\n  }\n}\n```\n\nError (404):\n```json\n{\n  \"message\": \"Performance job job123 not found\"\n}\n```\n\nError (500):\n```json\n{\n  \"message\": \"Unexpected job status type for job job123\"\n}\n```",
         "operationId": "get_performance_job_status",
         "parameters": [
           {
@@ -1081,7 +1081,7 @@
           "jobs"
         ],
         "summary": "List all density test jobs",
-        "description": "**List statuses of all density test jobs.**\n\n## Operation\n\nReads current state and metrics for every density test job.\n\n## Parameters\n\nNone\n\n## Response Format\n\n| Code | Description |\n|------|-------------|\n| 200  | JSON array of DensityJobStatus objects |\n\n## Conditions\n\n### \u2705 Success\n- TestsManager is initialized\n\n## Example Response\n\n```json\n[\n  {\n    \"id\": \"job456\",\n    \"start_time\": 1715000000000,\n    \"elapsed_time\": 45000,\n    \"state\": \"RUNNING\",\n    \"details\": [],\n    \"total_fps\": null,\n    \"per_stream_fps\": 28.5,\n    \"total_streams\": 32,\n    \"streams_per_pipeline\": [\n      {\"id\": \"pipeline-1\", \"streams\": 16},\n      {\"id\": \"pipeline-2\", \"streams\": 16}\n    ],\n    \"video_output_paths\": {\n      \"pipeline-1\": [\"/outputs/job456-p1-0.mp4\"]\n    }\n  }\n]\n```",
+        "description": "**List statuses of all density test jobs.**\n\n## Operation\n\nReads current state and metrics for every density test job.\n\n## Parameters\n\nNone\n\n## Response Format\n\n| Code | Description |\n|------|-------------|\n| 200  | JSON array of DensityJobStatus objects |\n\n## Conditions\n\n### \u2705 Success\n- TestsManager is initialized\n\n## Example Response\n\n```json\n[\n  {\n    \"id\": \"job456\",\n    \"start_time\": 1715000000000,\n    \"elapsed_time\": 45000,\n    \"state\": \"RUNNING\",\n    \"details\": [],\n    \"total_fps\": null,\n    \"per_stream_fps\": 28.5,\n    \"min_stream_fps\": 25.1,\n    \"total_streams\": 32,\n    \"streams_per_pipeline\": [\n      {\"id\": \"pipeline-1\", \"streams\": 16},\n      {\"id\": \"pipeline-2\", \"streams\": 16}\n    ],\n    \"video_output_paths\": {\n      \"pipeline-1\": [\"/outputs/job456-p1-0.mp4\"]\n    }\n  }\n]\n```",
         "operationId": "get_density_statuses",
         "responses": {
           "200": {
@@ -1893,7 +1893,7 @@
           "models"
         ],
         "summary": "List All Models",
-        "description": "# List Models\n\nReturn every model known to vippet-app: entries from\n`supported_models.yaml` plus user-uploaded custom models.\n\n## Response\n\n| Code | Description |\n|------|-------------|\n| 200  | JSON array of `Model` objects |\n| 500  | Unexpected error |\n\nThe `install_status` field reflects the current state on disk (and\nin-flight jobs). The `used_by_pipelines` array lists predefined\npipelines that reference each model; an empty array means the model\nis not currently used by any predefined pipeline.",
+        "description": "# List Models\n\nReturn every model known to vippet-app: entries from the model\ncatalog (`vippet/models/*.yaml`) plus user-uploaded custom models.\n\n## Response\n\n| Code | Description |\n|------|-------------|\n| 200  | JSON array of `Model` objects |\n| 500  | Unexpected error |\n\nThe `install_status` field reflects the current state on disk (and\nin-flight jobs). The `used_by_pipelines` array lists predefined\npipelines that reference each model; an empty array means the model\nis not currently used by any predefined pipeline.",
         "operationId": "get_models",
         "responses": {
           "200": {
@@ -1913,13 +1913,60 @@
         }
       }
     },
+    "/models/list": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Search models in an upstream hub",
+        "description": "Search a model hub using its supported filters and pagination.",
+        "operationId": "list_hub_models",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelHubListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelHubListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or unsupported hub"
+          },
+          "401": {
+            "description": "Hub authentication failed"
+          },
+          "422": {
+            "description": "Hub listing request validation failed"
+          },
+          "501": {
+            "description": "Hub does not support model listing"
+          },
+          "502": {
+            "description": "Upstream hub request failed"
+          }
+        }
+      }
+    },
     "/models/upload": {
       "post": {
         "tags": [
           "models"
         ],
         "summary": "Upload a custom model",
-        "description": "# Upload Model\n\nUpload a ZIP file with ``model.xml`` + ``model.bin`` at its root.\nThe upload is streamed to the model-download microservice and the\nresulting model is registered locally as a `custom` model so it\nappears immediately in `GET /models`.\n\n## Form fields\n\n- **`model_name`** *(required)* - Canonical identifier for the model\n- **`category`** *(required)* - Logical model category\n  (`classification`, `detection`, `genai`)\n- **`file`** *(required)* - ZIP file containing the OpenVINO IR\n\n## Response Codes\n\n| Code | Description |\n|------|-------------|\n| 201  | `ModelUploadResponse` with the newly registered model |\n| 400  | Invalid form fields or ZIP contents |\n| 409  | A model with the same `model_name` already exists |\n| 413  | Uploaded file exceeds the configured size limit |\n| 502  | model-download microservice returned an error |\n| 500  | Unexpected error |",
+        "description": "# Upload Model\n\nUpload a ZIP file with ``model.xml`` + ``model.bin`` at its root.\nThe upload is streamed to the model-download microservice and the\nresulting model is registered locally as a `custom` model so it\nappears immediately in `GET /models`.\n\n## Form fields\n\n- **`model_name`** *(required)* - Canonical identifier for the model\n- **`category`** *(required)* - Logical model category\n  (`classification`, `detection`, `genai`)\n- **`description`** *(optional)* - Human-readable explanation of\n  what the model detects/classifies\n- **`file`** *(required)* - ZIP file containing the OpenVINO IR\n\n## Response Codes\n\n| Code | Description |\n|------|-------------|\n| 201  | `ModelUploadResponse` with the newly registered model |\n| 400  | Invalid form fields or ZIP contents |\n| 409  | A model with the same `model_name` already exists |\n| 413  | Uploaded file exceeds the configured size limit |\n| 502  | model-download microservice returned an error |\n| 500  | Unexpected error |",
         "operationId": "upload_model",
         "requestBody": {
           "content": {
@@ -2019,7 +2066,7 @@
           "models"
         ],
         "summary": "Start one or more model download jobs",
-        "description": "# Start Model Downloads\n\nStart an asynchronous download job for each model in the request.\nEach entry of `names` is processed **independently** and produces\nits own per-model entry in the response map `jobs`. Names must be\ndeclared in `supported_models.yaml`; OMZ models are downloaded\nlocally by vippet-app because model-download has no OMZ plugin yet.\n\nEach accepted name spawns a background worker right away \u2014 the\nendpoint does **not** wait for any download to finish, so adding\nmore names does not delay the others.\n\n## Request Body\n\n- **`names`** *(required)* - Non-empty list of unique supported-model\n  names to install.\n\n## Response Body\n\nA `ModelDownloadJobResponse` whose `jobs` map is keyed by the\nrequested model name. Each value carries the per-model\n`job_id` / `status_code` / `message`.\n\n## Response Codes\n\nThe envelope HTTP status is derived from the per-model\n`status_code` values via `_aggregate_status`:\n\n| Code | When |\n|------|------|\n| 202  | Every requested model accepted (`status_code=202` for all entries) |\n| 207  | At least one accepted **and** at least one rejected (mixed) |\n| 400  | All requested models rejected, **at least one** was `400` (no `download_request`). Takes precedence over 404 / 409. |\n| 404  | All requested models rejected with `404` only (unknown). Takes precedence over 409. |\n| 409  | All requested models rejected with `409` only (already installed / in progress). |\n| 422  | Body validation failed (empty list, duplicate names, ...) |\n| 500  | Unexpected error |\n\nPer-model outcomes are always available in `jobs[<name>].status_code`\nregardless of the envelope status.",
+        "description": "# Start Model Downloads\n\nStart an asynchronous download job for each model in the request.\nEach entry of `names` is processed **independently** and produces\nits own per-model entry in the response map `jobs`. Names must be\ndeclared in the model catalog (`vippet/models/*.yaml`); all model\nsources are handled by the model-download microservice.\n\nEach accepted name spawns a background worker right away \u2014 the\nendpoint does **not** wait for any download to finish, so adding\nmore names does not delay the others.\n\n## Request Body\n\n- **`names`** *(required)* - Non-empty list of unique supported-model\n  names to install.\n- **`hub`** *(optional)* - Upstream hub (`ultralytics`, `huggingface`)\n  for names not in the catalog, as returned by `POST /models/list`.\n  - `ultralytics`: when the download completes,\n    `ultralytics/public/<name>/` is scanned for installed precisions\n    (`FP*`, `INT*`); category is derived from the name suffix: `-seg`\n    \u2192 `image_segmentation`, `-cls` \u2192 `image_classification`, `-pose`\n    \u2192 `pose_estimation`, `-obb` or no suffix \u2192 `object_detection`.\n  - `huggingface`: `category` is required (no naming convention to\n    derive it from); `huggingface/<name>/` is scanned for the\n    downloaded artefact.\n- **`category`** *(optional)* - Required when `hub` is `huggingface`.\n\n## Response Body\n\nA `ModelDownloadJobResponse` whose `jobs` map is keyed by the\nrequested model name. Each value carries the per-model\n`job_id` / `status_code` / `message`.\n\n## Response Codes\n\nThe envelope HTTP status is derived from the per-model\n`status_code` values via `_aggregate_status`:\n\n| Code | When |\n|------|------|\n| 202  | Every requested model accepted (`status_code=202` for all entries) |\n| 207  | At least one accepted **and** at least one rejected (mixed) |\n| 400  | All requested models rejected, **at least one** was `400` (no `download_request`). Takes precedence over 404 / 409. |\n| 404  | All requested models rejected with `404` only (unknown). Takes precedence over 409. |\n| 409  | All requested models rejected with `409` only (already installed / in progress). |\n| 422  | Body validation failed (empty list, duplicate names, ...) |\n| 500  | Unexpected error |\n\nPer-model outcomes are always available in `jobs[<name>].status_code`\nregardless of the envelope status.",
         "operationId": "start_model_download",
         "requestBody": {
           "content": {
@@ -2071,7 +2118,7 @@
             }
           },
           "404": {
-            "description": "All requested models were rejected with `404` only (unknown / not in `supported_models.yaml`). Takes precedence over `409` in the envelope status.",
+            "description": "All requested models were rejected with `404` only (unknown / not in the model catalog). Takes precedence over `409` in the envelope status.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2356,7 +2403,7 @@
           "pipelines"
         ],
         "summary": "Validate Pipeline",
-        "description": "**Start asynchronous validation job for a pipeline graph.**\n\n## Operation\n1. Convert PipelineGraph to GStreamer launch string\n2. Extract validation parameters (e.g., `max-runtime`)\n3. Create validation job and run `gst_runner.py` in background\n4. Return generated job ID\n\n## Request Body\n**`PipelineValidation`** with:\n- `pipeline_graph` *(required)* - Nodes and edges representation\n- `parameters` *(optional)* - Configuration dict, e.g., `{\"max-runtime\": 10}`\n  - **Note:** `max-runtime` must be > 0 for validation mode\n\n## Response Codes\n\n| Code | Description |\n|------|-------------|\n| 202 | `ValidationJobResponse` with `job_id` |\n| 400 | `MessageResponse` - Invalid parameters (e.g., `max-runtime` < 1) |\n| 500 | `MessageResponse` - Unexpected error (e.g., graph conversion) |\n\n## Conditions\n\n### \u2705 Success\n- Graph converts to valid launch string\n- Parameters pass ValidationManager checks\n- Background validation job started\n\n### \u274c Failure\n- Parameter validation error \u2192 400\n- Unexpected exception \u2192 500\n\n## Examples\n\n### Request\n```json\n{\n  \"pipeline_graph\": {\n    \"nodes\": [\n      {\"id\": \"0\", \"type\": \"filesrc\", \"data\": {\"location\": \"/videos/input.mp4\"}},\n      {\"id\": \"1\", \"type\": \"decodebin\", \"data\": {}},\n      {\"id\": \"2\", \"type\": \"fakesink\", \"data\": {}}\n    ],\n    \"edges\": [\n      {\"id\": \"0\", \"source\": \"0\", \"target\": \"1\"},\n      {\"id\": \"1\", \"source\": \"1\", \"target\": \"2\"}\n    ]\n  },\n  \"parameters\": {\n    \"max-runtime\": 10\n  }\n}\n```\n\n### Success Response (202)\n```json\n{\n  \"job_id\": \"val001\"\n}\n```\n\n### Error Response (400)\n```json\n{\n  \"message\": \"Parameter 'max-runtime' must be greater than or equal to 1.\"\n}\n```",
+        "description": "**Start asynchronous validation job for a pipeline graph.**\n\n## Operation\n1. Convert PipelineGraph to GStreamer launch string\n2. Extract validation parameters (e.g., `max-runtime`)\n3. Create validation job and run the pipeline on DLSPS 2.0 in background\n4. Return generated job ID\n\n## Request Body\n**`PipelineValidation`** with:\n- `pipeline_graph` *(required)* - Nodes and edges representation\n- `parameters` *(optional)* - Configuration dict, e.g., `{\"max-runtime\": 10}`\n  - **Note:** `max-runtime` must be > 0 for validation mode\n\n## Response Codes\n\n| Code | Description |\n|------|-------------|\n| 202 | `ValidationJobResponse` with `job_id` |\n| 400 | `MessageResponse` - Invalid parameters (e.g., `max-runtime` < 1) |\n| 500 | `MessageResponse` - Unexpected error (e.g., graph conversion) |\n\n## Conditions\n\n### \u2705 Success\n- Graph converts to valid launch string\n- Parameters pass ValidationManager checks\n- Background validation job started\n\n### \u274c Failure\n- Parameter validation error \u2192 400\n- Unexpected exception \u2192 500\n\n## Examples\n\n### Request\n```json\n{\n  \"pipeline_graph\": {\n    \"nodes\": [\n      {\"id\": \"0\", \"type\": \"filesrc\", \"data\": {\"location\": \"/videos/input.mp4\"}},\n      {\"id\": \"1\", \"type\": \"decodebin\", \"data\": {}},\n      {\"id\": \"2\", \"type\": \"fakesink\", \"data\": {}}\n    ],\n    \"edges\": [\n      {\"id\": \"0\", \"source\": \"0\", \"target\": \"1\"},\n      {\"id\": \"1\", \"source\": \"1\", \"target\": \"2\"}\n    ]\n  },\n  \"parameters\": {\n    \"max-runtime\": 10\n  }\n}\n```\n\n### Success Response (202)\n```json\n{\n  \"job_id\": \"val001\"\n}\n```\n\n### Error Response (400)\n```json\n{\n  \"message\": \"Parameter 'max-runtime' must be greater than or equal to 1.\"\n}\n```",
         "operationId": "validate_pipeline",
         "requestBody": {
           "content": {
@@ -3655,7 +3702,7 @@
           "cameras"
         ],
         "summary": "Get all cameras",
-        "description": "**Get all cameras (both USB and network) available to the system.**\n\n## Operation\nCombines results from both USB and network camera discovery to provide\na comprehensive list of all available camera devices.\n\n1. Discover all USB cameras using v4l2-ctl or device scanning\n2. Discover all network cameras using various protocols\n3. Combine and return the complete list\n\n## Parameters\n- **Path/Query parameters:** None\n\n## Response Codes\n\n| Code | Description |\n|------|-------------|\n| 200 | JSON array of Camera objects (USB and network cameras) |\n| 500 | `MessageResponse` - Unexpected error during discovery |\n\n## Conditions\n\n### \u2705 Success\n- At least one discovery method succeeds\n- Results can be combined and returned\n- Empty list is returned if no cameras are found\n\n### \u274c Failure\n- Both USB and network discovery fail\n- System error during discovery process\n\n## Example Response\n\n```json\n[\n  {\n    \"device_id\": \"usb-camera-0\",\n    \"device_name\": \"Integrated Camera\",\n    \"device_type\": \"USB\",\n    \"details\": {\n      \"device_path\": \"/dev/video0\",\n      \"resolution\": \"1920x1080\"\n    }\n  },\n  {\n    \"device_id\": \"network-camera-192.168.1.100-80\",\n    \"device_name\": \"ONVIF Camera 192.168.1.100\",\n    \"device_type\": \"NETWORK\",\n    \"details\": {\n      \"ip\": \"192.168.1.100\",\n      \"port\": 80,\n      \"profiles\": []\n    }\n  }\n]\n```",
+        "description": "**Get all cameras (USB, network and GigE Vision) available to the system.**\n\n## Operation\nCombines results from USB, network and GigE Vision camera discovery to provide\na comprehensive list of all available camera devices.\n\n1. Discover all USB cameras using v4l2-ctl or device scanning\n2. Discover all network cameras using various protocols\n3. Discover all GigE Vision cameras using Aravis\n4. Combine and return the complete list\n\n## Parameters\n- **Path/Query parameters:** None\n\n## Response Codes\n\n| Code | Description |\n|------|-------------|\n| 200 | JSON array of Camera objects (USB, network and GigE Vision cameras) |\n| 500 | `MessageResponse` - Unexpected error during discovery |\n\n## Conditions\n\n### \u2705 Success\n- At least one discovery method succeeds\n- Results can be combined and returned\n- Empty list is returned if no cameras are found\n\n### \u274c Failure\n- Both USB and network discovery fail\n- System error during discovery process\n\n## Example Response\n\n```json\n[\n  {\n    \"device_id\": \"usb-camera-0\",\n    \"device_name\": \"Integrated Camera\",\n    \"device_type\": \"USB\",\n    \"details\": {\n      \"device_path\": \"/dev/video0\",\n      \"resolution\": \"1920x1080\"\n    }\n  },\n  {\n    \"device_id\": \"network-camera-192.168.1.100-80\",\n    \"device_name\": \"ONVIF Camera 192.168.1.100\",\n    \"device_type\": \"NETWORK\",\n    \"details\": {\n      \"ip\": \"192.168.1.100\",\n      \"port\": 80,\n      \"profiles\": []\n    }\n  },\n  {\n    \"device_id\": \"gige-camera-basler-12345678\",\n    \"device_name\": \"Basler acA1920-25gc\",\n    \"device_type\": \"GIGE\",\n    \"details\": {\n      \"ip\": \"192.168.1.50\",\n      \"vendor\": \"Basler\",\n      \"model\": \"acA1920-25gc\",\n      \"serial\": \"12345678\",\n      \"current_capture\": {\n        \"pixel_format\": \"BayerRG8\",\n        \"width\": 1920,\n        \"height\": 1080,\n        \"fps\": 25.0\n      }\n    }\n  }\n]\n```",
         "operationId": "get_cameras",
         "responses": {
           "200": {
@@ -4431,6 +4478,72 @@
             ],
             "title": "Power Usage"
           },
+          "latency_avg_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Avg Ms"
+          },
+          "latency_avg_stddev_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Avg Stddev Ms"
+          },
+          "latency_max_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Max Ms"
+          },
+          "latency_max_stddev_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Max Stddev Ms"
+          },
+          "latency_min_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Min Ms"
+          },
+          "latency_min_stddev_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Min Stddev Ms"
+          },
           "score_total": {
             "anyOf": [
               {
@@ -4500,6 +4613,12 @@
           "media_usage",
           "memory_usage",
           "power_usage",
+          "latency_avg_ms",
+          "latency_avg_stddev_ms",
+          "latency_max_ms",
+          "latency_max_stddev_ms",
+          "latency_min_ms",
+          "latency_min_stddev_ms",
           "score_total",
           "score_performance",
           "score_efficiency",
@@ -4642,6 +4761,72 @@
             ],
             "title": "Power Usage"
           },
+          "latency_avg_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Avg Ms"
+          },
+          "latency_avg_stddev_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Avg Stddev Ms"
+          },
+          "latency_max_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Max Ms"
+          },
+          "latency_max_stddev_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Max Stddev Ms"
+          },
+          "latency_min_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Min Ms"
+          },
+          "latency_min_stddev_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Min Stddev Ms"
+          },
           "score_total": {
             "anyOf": [
               {
@@ -4729,6 +4914,12 @@
           "media_usage",
           "memory_usage",
           "power_usage",
+          "latency_avg_ms",
+          "latency_avg_stddev_ms",
+          "latency_max_ms",
+          "latency_max_stddev_ms",
+          "latency_min_ms",
+          "latency_min_stddev_ms",
           "score_total",
           "score_performance",
           "score_efficiency",
@@ -4938,6 +5129,18 @@
             "type": "string",
             "contentMediaType": "application/octet-stream",
             "title": "File"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
           }
         },
         "type": "object",
@@ -4982,6 +5185,9 @@
               },
               {
                 "$ref": "#/components/schemas/NetworkCameraDetails"
+              },
+              {
+                "$ref": "#/components/schemas/GigECameraDetails"
               }
             ],
             "title": "Details"
@@ -4995,7 +5201,7 @@
           "details"
         ],
         "title": "Camera",
-        "description": "**Camera device information supporting both USB and network cameras.**\n\nCommon attributes apply to all camera types. Type-specific details are stored\nin the details field which contains either USBCameraDetails or NetworkCameraDetails.\n\n## Attributes\n- `device_id` - Unique identifier for the camera\n- `device_name` - Human-readable camera name\n- `device_type` - Type of camera (USB or NETWORK)\n- `details` - Type-specific camera details (USBCameraDetails for USB, NetworkCameraDetails for NETWORK)\n\n### Example (USB Camera)\n```json\n{\n  \"device_id\": \"usb-camera-0\",\n  \"device_name\": \"Integrated Camera\",\n  \"device_type\": \"USB\",\n  \"details\": {\n    \"device_path\": \"/dev/video0\",\n    \"best_capture\": {\n      \"fourcc\": \"YUYV\",\n      \"width\": 1920,\n      \"height\": 1080,\n      \"fps\": 30\n    }\n  }\n}\n```\n\n### Example (Network Camera)\n```json\n{\n  \"device_id\": \"network-camera-192.168.1.100-80\",\n  \"device_name\": \"ONVIF Camera 192.168.1.100\",\n  \"device_type\": \"NETWORK\",\n  \"details\": {\n    \"ip\": \"192.168.1.100\",\n    \"port\": 80,\n    \"profiles\": [\n      {\n        \"name\": \"Profile_1\",\n        \"rtsp_url\": \"rtsp://192.168.1.100:554/stream1\",\n        \"resolution\": \"1920x1080\",\n        \"encoding\": \"H264\",\n        \"framerate\": 30,\n        \"bitrate\": 4096\n      }\n    ],\n    \"best_profile\": {\n      \"name\": \"Profile_1\",\n      \"rtsp_url\": \"rtsp://192.168.1.100:554/stream1\",\n      \"resolution\": \"1920x1080\",\n      \"encoding\": \"H264\",\n      \"framerate\": 30,\n      \"bitrate\": 4096\n    }\n  }\n}\n```"
+        "description": "**Camera device information supporting USB, network and GigE Vision cameras.**\n\nCommon attributes apply to all camera types. Type-specific details are stored\nin the details field which contains USBCameraDetails, NetworkCameraDetails\nor GigECameraDetails.\n\n## Attributes\n- `device_id` - Unique identifier for the camera\n- `device_name` - Human-readable camera name\n- `device_type` - Type of camera (USB, NETWORK or GIGE)\n- `details` - Type-specific camera details (USBCameraDetails for USB,\n  NetworkCameraDetails for NETWORK, GigECameraDetails for GIGE)\n\n### Example (USB Camera)\n```json\n{\n  \"device_id\": \"usb-camera-0\",\n  \"device_name\": \"Integrated Camera\",\n  \"device_type\": \"USB\",\n  \"details\": {\n    \"device_path\": \"/dev/video0\",\n    \"best_capture\": {\n      \"fourcc\": \"YUYV\",\n      \"width\": 1920,\n      \"height\": 1080,\n      \"fps\": 30\n    }\n  }\n}\n```\n\n### Example (Network Camera)\n```json\n{\n  \"device_id\": \"network-camera-192.168.1.100-80\",\n  \"device_name\": \"ONVIF Camera 192.168.1.100\",\n  \"device_type\": \"NETWORK\",\n  \"details\": {\n    \"ip\": \"192.168.1.100\",\n    \"port\": 80,\n    \"profiles\": [\n      {\n        \"name\": \"Profile_1\",\n        \"rtsp_url\": \"rtsp://192.168.1.100:554/stream1\",\n        \"resolution\": \"1920x1080\",\n        \"encoding\": \"H264\",\n        \"framerate\": 30,\n        \"bitrate\": 4096\n      }\n    ],\n    \"best_profile\": {\n      \"name\": \"Profile_1\",\n      \"rtsp_url\": \"rtsp://192.168.1.100:554/stream1\",\n      \"resolution\": \"1920x1080\",\n      \"encoding\": \"H264\",\n      \"framerate\": 30,\n      \"bitrate\": 4096\n    }\n  }\n}\n```\n\n### Example (GigE Vision Camera)\n```json\n{\n  \"device_id\": \"gige-camera-basler-12345678\",\n  \"device_name\": \"Basler acA1920-25gc\",\n  \"device_type\": \"GIGE\",\n  \"details\": {\n    \"ip\": \"192.168.1.50\",\n    \"vendor\": \"Basler\",\n    \"model\": \"acA1920-25gc\",\n    \"serial\": \"12345678\",\n    \"current_capture\": {\n      \"pixel_format\": \"BayerRG8\",\n      \"width\": 1920,\n      \"height\": 1080,\n      \"fps\": 25.0\n    }\n  }\n}\n```"
       },
       "CameraAuthResponse": {
         "properties": {
@@ -5103,10 +5309,81 @@
         "type": "string",
         "enum": [
           "USB",
-          "NETWORK"
+          "NETWORK",
+          "GIGE"
         ],
         "title": "CameraType",
-        "description": "**Type of camera device.**\n\n## Values\n- `USB` - USB camera connected directly to the system\n- `NETWORK` - Network camera accessible via IP protocols\n\n### Example\n```json\n\"USB\"\n```"
+        "description": "**Type of camera device.**\n\n## Values\n- `USB` - USB camera connected directly to the system\n- `NETWORK` - Network camera accessible via IP protocols\n- `GIGE` - GigE Vision machine vision camera\n\n### Example\n```json\n\"USB\"\n```"
+      },
+      "CpuCore": {
+        "properties": {
+          "cpu": {
+            "type": "integer",
+            "title": "Cpu"
+          },
+          "core_type": {
+            "$ref": "#/components/schemas/CpuCoreType"
+          },
+          "core_id": {
+            "type": "integer",
+            "title": "Core Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cpu",
+          "core_type",
+          "core_id"
+        ],
+        "title": "CpuCore",
+        "description": "**One online logical CPU and its core type.**\n\n## Attributes\n- `cpu` - Logical CPU id, as used for CPU affinity (for example `taskset -c`)\n- `core_type` - Core type of this CPU\n- `core_id` - Lowest logical CPU id among its SMT siblings; hyper-threads of one physical core share it\n\n### Example\n```json\n{\"cpu\": 0, \"core_type\": \"P\", \"core_id\": 0}\n```"
+      },
+      "CpuCoreType": {
+        "type": "string",
+        "enum": [
+          "P",
+          "E",
+          "LPE",
+          "UNIFORM"
+        ],
+        "title": "CpuCoreType",
+        "description": "**Type of a logical CPU on an Intel processor.**\n\n## Values\n- `P` - Performance core on a hybrid processor\n- `E` - Efficient core on a hybrid processor\n- `LPE` - Low-power efficient core on a hybrid processor\n- `UNIFORM` - Core of a non-hybrid processor, where all cores are the same type\n\n### Example\n```json\n\"P\"\n```"
+      },
+      "CpuTopology": {
+        "properties": {
+          "is_hybrid": {
+            "type": "boolean",
+            "title": "Is Hybrid"
+          },
+          "source": {
+            "$ref": "#/components/schemas/CpuTopologySource"
+          },
+          "cores": {
+            "items": {
+              "$ref": "#/components/schemas/CpuCore"
+            },
+            "type": "array",
+            "title": "Cores"
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_hybrid",
+          "source",
+          "cores"
+        ],
+        "title": "CpuTopology",
+        "description": "**Core types of all online logical CPUs of the host.**\n\n## Attributes\n- `is_hybrid` - True when the CPUs are classified into `P`, `E` or `LPE` types\n- `source` - Method used to determine the core types\n- `cores` - Online logical CPUs sorted by id\n\n### Example\n```json\n{\n  \"is_hybrid\": true,\n  \"source\": \"sysfs_pmu\",\n  \"cores\": [\n    {\"cpu\": 0, \"core_type\": \"P\", \"core_id\": 0},\n    {\"cpu\": 6, \"core_type\": \"E\", \"core_id\": 6},\n    {\"cpu\": 14, \"core_type\": \"LPE\", \"core_id\": 14}\n  ]\n}\n```"
+      },
+      "CpuTopologySource": {
+        "type": "string",
+        "enum": [
+          "sysfs_pmu",
+          "sysfs_cache",
+          "uniform"
+        ],
+        "title": "CpuTopologySource",
+        "description": "**Method used to determine the CPU core types.**\n\n## Values\n- `sysfs_pmu` - Hybrid PMU CPU lists in Linux sysfs (`cpu_core`, `cpu_atom`, `cpu_lowpower`)\n- `sysfs_cache` - Cache topology in Linux sysfs, used when the hybrid PMU lists are missing\n- `uniform` - Non-hybrid processor; every core is `UNIFORM`\n\n### Example\n```json\n\"sysfs_pmu\"\n```"
       },
       "DensityJobStatus": {
         "properties": {
@@ -5196,6 +5473,21 @@
             ],
             "title": "Video Output Paths"
           },
+          "min_stream_fps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Stream Fps",
+            "description": "FPS of the slowest stream. A density test passes a stream count only if this reaches `fps_floor`. `null` when no per-stream FPS was measured; `per_stream_fps` is then the only measure.",
+            "examples": [
+              27.5
+            ]
+          },
           "latency_tracer_metrics": {
             "anyOf": [
               {
@@ -5209,7 +5501,7 @@
               }
             ],
             "title": "Latency Tracer Metrics",
-            "description": "Last observed DLStreamer `latency_tracer` sample per stream, keyed by `stream_id` (`{source_name}__{sink_name}`). `null` when the job was executed with `execution_config.enable_latency_metrics=false` (the tracer was not started at all). An empty object `{}` means the tracer was active but produced no samples \u2014 for example when the pipeline exited before the first 1000 ms interval closed."
+            "description": "Last observed DLStreamer `latency_tracer` sample per stream, keyed by `stream_id` (`{source_name}__{sink_name}`). `null` when no latency samples were read: the job was executed with `execution_config.enable_latency_metrics=false`, or latency was requested but DL Streamer Pipeline Server runs without the latency tracer (the job's `details` then say so). An empty object `{}` means samples were read but none arrived \u2014 for example when the pipeline stopped before the server's first export."
           }
         },
         "type": "object",
@@ -5226,7 +5518,7 @@
           "video_output_paths"
         ],
         "title": "DensityJobStatus",
-        "description": "**Status of a density test job.**\n\nInherits all fields from TestsJobStatus without changes.\nDoes not include live_stream_urls because density tests do not support\nlive-streaming output mode (only disabled or file modes are allowed).\n\n## Attributes\n- *Inherited from TestsJobStatus* - id, start_time, elapsed_time, state, details, total_fps, per_stream_fps, total_streams, streams_per_pipeline, video_output_paths"
+        "description": "**Status of a density test job.**\n\nInherits all fields from TestsJobStatus without changes.\nDoes not include live_stream_urls because density tests do not support\nlive-streaming output mode (only disabled or file modes are allowed).\n\n## Attributes\n- *Inherited from TestsJobStatus* - id, start_time, elapsed_time, state, details, total_fps, per_stream_fps, min_stream_fps, total_streams, streams_per_pipeline, video_output_paths"
       },
       "DensityJobSummary": {
         "properties": {
@@ -5339,6 +5631,16 @@
               }
             ],
             "title": "Gpu Id"
+          },
+          "cpu_topology": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CpuTopology"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -5350,7 +5652,7 @@
           "gpu_id"
         ],
         "title": "Device",
-        "description": "**Hardware device description used by multiple APIs.**\n\nThis model is a simplified view of the device information returned\nby the runtime (e.g., OpenVINO) and is suitable for UI consumption.\n\n## Attributes\n- `device_name` - Short identifier used when selecting the device (e.g., \"CPU\", \"GPU\", \"GPU.0\", \"NPU\")\n- `full_device_name` - Human readable device name (CPU/GPU/NPU model)\n- `device_type` - High level device type (INTEGRATED or DISCRETE)\n- `device_family` - Hardware family (CPU, GPU, NPU)\n- `gpu_id` - Optional GPU index when applicable; null for non-GPU devices\n\n### Example\n```json\n{\n  \"device_name\": \"GPU.0\",\n  \"full_device_name\": \"Intel(R) Arc(TM) Graphics (iGPU) (GPU.0)\",\n  \"device_type\": \"INTEGRATED\",\n  \"device_family\": \"GPU\",\n  \"gpu_id\": 0\n}\n```"
+        "description": "**Hardware device description used by multiple APIs.**\n\nThis model is a simplified view of the device information returned\nby the runtime (e.g., OpenVINO) and is suitable for UI consumption.\n\n## Attributes\n- `device_name` - Short identifier used when selecting the device (e.g., \"CPU\", \"GPU\", \"GPU.0\", \"NPU\")\n- `full_device_name` - Human readable device name (CPU/GPU/NPU model)\n- `device_type` - High level device type (INTEGRATED or DISCRETE)\n- `device_family` - Hardware family (CPU, GPU, NPU)\n- `gpu_id` - Optional GPU index when applicable; null for non-GPU devices\n- `cpu_topology` - Core types of the host CPUs for the CPU device; null for other devices\n  or when they cannot be determined\n\n### Example\n```json\n{\n  \"device_name\": \"GPU.0\",\n  \"full_device_name\": \"Intel(R) Arc(TM) Graphics (iGPU) (GPU.0)\",\n  \"device_type\": \"INTEGRATED\",\n  \"device_family\": \"GPU\",\n  \"gpu_id\": 0,\n  \"cpu_topology\": null\n}\n```"
       },
       "DeviceFamily": {
         "type": "string",
@@ -5417,13 +5719,121 @@
           "enable_latency_metrics": {
             "type": "boolean",
             "title": "Enable Latency Metrics",
-            "description": "When true, activates the DLStreamer `latency_tracer` in pipeline-only mode with a 1000 ms interval by setting `GST_DEBUG=GST_TRACER:7` (appended if already set) and `GST_TRACERS=latency_tracer(flags=pipeline,interval=1000)` on the GStreamer subprocess environment. When false (default), neither environment variable is modified.",
+            "description": "When true, the job reports DLStreamer `latency_tracer` samples per stream in `latency_tracer_metrics`. This flag does not start the tracer: DL Streamer Pipeline Server runs it for every pipeline when configured server-wide (`DLSPS2_GST_TRACERS` with `post-metrics=true`, and `DLSPS2_OTEL=true`), and ViPPET only reads the samples the server exports to metrics-manager. If the server is not configured that way, the test runs without latency metrics and the job's `details` say so. When false (default), no latency samples are read.",
             "default": false
           }
         },
         "type": "object",
         "title": "ExecutionConfig",
         "description": "**Configuration for pipeline execution behavior.**\n\nThis configuration controls output generation, runtime limits,\nand metadata publishing for test pipelines.\n\n## Attributes\n- `output_mode` - Mode for pipeline output generation:\n  - `disabled` - No output (fakesink remains, default)\n  - `file` - Save video to file (only allowed with max_runtime=0)\n  - `live_stream` - Stream output live to media server\n- `max_runtime` - Maximum runtime in seconds for the pipeline:\n  - 0: Run until natural completion (EOS), no time limit (default)\n  - >0: Stop pipeline after this duration, with looping if EOS comes early (only allowed with output_mode=disabled or output_mode=live_stream)\n  - <0: Not allowed (will be rejected)\n- `metadata_mode` - Mode for metadata publishing via `gvametapublish` elements present in the pipeline:\n  - `disabled` - No metadata file paths are injected; gvametapublish elements remain unchanged (default)\n  - `file` - gvametapublish elements write JSON-Lines metadata, available via SSE endpoints\n\n### Example (disabled output, no runtime limit)\n```json\n{\n  \"output_mode\": \"disabled\",\n  \"max_runtime\": 0\n}\n```\n\n### Example (save to file, run until EOS)\n```json\n{\n  \"output_mode\": \"file\",\n  \"max_runtime\": 0\n}\n```\n\n### Example (live streaming with 60 second limit)\n```json\n{\n  \"output_mode\": \"live_stream\",\n  \"max_runtime\": 60\n}\n```\n\n### Example (metadata publishing to file)\n```json\n{\n  \"output_mode\": \"disabled\",\n  \"max_runtime\": 0,\n  \"metadata_mode\": \"file\"\n}\n```"
+      },
+      "GigECameraDetails": {
+        "properties": {
+          "ip": {
+            "type": "string",
+            "title": "Ip"
+          },
+          "vendor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "serial": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial"
+          },
+          "current_capture": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GigECapture"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "ip"
+        ],
+        "title": "GigECameraDetails",
+        "description": "**GigE Vision camera details.**\n\nIdentity fields may be missing when the camera could not be opened during\ndiscovery (e.g. it is streaming to another application).\n\n## Attributes\n- `ip` - IP address of the camera\n- `vendor` - Camera vendor name (optional)\n- `model` - Camera model name (optional)\n- `serial` - Camera serial number (optional)\n- `current_capture` - Capture configuration currently set on the camera (optional)"
+      },
+      "GigECapture": {
+        "properties": {
+          "pixel_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pixel Format"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "fps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fps"
+          }
+        },
+        "type": "object",
+        "title": "GigECapture",
+        "description": "**Capture configuration currently set on a GigE Vision camera.**\n\n## Attributes\n- `pixel_format` - GenICam pixel format (e.g., \"Mono8\", \"BayerRG8\")\n- `width` - Frame width in pixels\n- `height` - Frame height in pixels\n- `fps` - Acquisition frame rate"
       },
       "GraphInline": {
         "properties": {
@@ -5679,7 +6089,7 @@
           "interval_ms": {
             "type": "number",
             "title": "Interval Ms",
-            "description": "Length of the measurement window reported by the tracer, in ms.",
+            "description": "Total length of the tracer windows merged into this sample, in ms (about one export period).",
             "examples": [
               1000.25
             ]
@@ -5687,7 +6097,7 @@
           "avg_ms": {
             "type": "number",
             "title": "Avg Ms",
-            "description": "Average frame latency over the window, in ms.",
+            "description": "Mean per-frame latency over the window, in ms: the time from the source element's output to the push into the sink (the sink's own work excluded).",
             "examples": [
               364.31
             ]
@@ -5695,7 +6105,7 @@
           "min_ms": {
             "type": "number",
             "title": "Min Ms",
-            "description": "Minimum frame latency observed in the window, in ms.",
+            "description": "Minimum per-frame latency in the window, in ms: the time from the source element's output to the push into the sink (the sink's own work excluded).",
             "examples": [
               0.004
             ]
@@ -5703,7 +6113,7 @@
           "max_ms": {
             "type": "number",
             "title": "Max Ms",
-            "description": "Maximum frame latency observed in the window, in ms.",
+            "description": "Maximum per-frame latency in the window, in ms: the time from the source element's output to the push into the sink (the sink's own work excluded).",
             "examples": [
               529.26
             ]
@@ -5711,7 +6121,8 @@
           "latency_ms": {
             "type": "number",
             "title": "Latency Ms",
-            "description": "Current end-to-end latency reported by the tracer, in ms.",
+            "description": "Deprecated: mean time between output frames in the window, in ms (frame period, = 1000 / fps). It is NOT a frame latency - use `avg_ms` (mean) and `max_ms`.",
+            "deprecated": true,
             "examples": [
               21.28
             ]
@@ -5726,7 +6137,7 @@
           "latency_ms"
         ],
         "title": "LatencyMetrics",
-        "description": "**Last observed DLStreamer `latency_tracer` sample for a single stream.**\n\nEach value is extracted from a single\n`latency_tracer_pipeline_interval` line emitted by the\n`latency_tracer` (one such line per stream per interval ~1000 ms).\nOnly the most recent sample per stream is kept; history is not\nreported here.\n\nAll timing fields are in milliseconds. `fps` reported by the tracer\nis intentionally **not** included because FPS is already exposed on\nthe job status via `total_fps` / `per_stream_fps` (from\n`gvafpscounter`).\n\n## Attributes\n- `interval_ms` - Length of the measurement window, in milliseconds\n- `avg_ms` - Average frame latency over the window, in milliseconds\n- `min_ms` - Minimum frame latency observed in the window, in milliseconds\n- `max_ms` - Maximum frame latency observed in the window, in milliseconds\n- `latency_ms` - Current end-to-end latency reported by the tracer, in milliseconds\n\n### Example\n```json\n{\n  \"interval_ms\": 1000.25,\n  \"avg_ms\": 364.31,\n  \"min_ms\": 0.004,\n  \"max_ms\": 529.26,\n  \"latency_ms\": 21.28\n}\n```"
+        "description": "**Last observed DLStreamer `latency_tracer` sample for a single stream.**\n\nEach value merges the `latency_tracer` windows of one stream over one\nDL Streamer Pipeline Server export period (`DLSPS2_OTEL_INTERVAL_MS`,\n1000 ms by default, so usually one tracer window). Only the most\nrecent sample per stream is kept; history is not reported here.\n\nAll timing fields are in milliseconds. `fps` reported by the tracer\nis intentionally **not** included because FPS is already exposed on\nthe job status via `total_fps` / `per_stream_fps` (from\n`gvafpscounter`).\n\n## Attributes\n- `interval_ms` - Total length of the tracer windows in the sample, in milliseconds\n- `avg_ms` - Mean frame latency over the window, in milliseconds\n- `min_ms` - Minimum frame latency observed in the window, in milliseconds\n- `max_ms` - Maximum frame latency observed in the window, in milliseconds\n- `latency_ms` - **Deprecated.** Mean time between output frames in the window, in milliseconds (frame period, `1000 / fps`). It is **not** a frame latency; use `avg_ms` (mean) and `max_ms`\n\nA frame's latency is the time from the moment the source element\noutputs the frame to the moment the frame is pushed into the sink;\nthe sink's own work is excluded.\n\n### Example\n```json\n{\n  \"interval_ms\": 1000.25,\n  \"avg_ms\": 364.31,\n  \"min_ms\": 0.004,\n  \"max_ms\": 529.26,\n  \"latency_ms\": 21.28\n}\n```"
       },
       "MessageResponse": {
         "properties": {
@@ -5768,6 +6179,19 @@
             "title": "Display Name",
             "description": "Human-readable model name."
           },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Human-readable explanation of what the model detects or classifies, or null when not provided."
+          },
           "category": {
             "anyOf": [
               {
@@ -5806,7 +6230,7 @@
           "default": {
             "type": "boolean",
             "title": "Default",
-            "description": "Whether the model is marked as a default install candidate in supported_models.yaml. The Models page uses this flag to pre-select recommended models in the bulk-install UI.",
+            "description": "Whether at least one predefined pipeline references this model. The Models page uses this flag to pre-select recommended models in the bulk-install UI.",
             "default": false
           },
           "unsupported_devices": {
@@ -5820,6 +6244,29 @@
             ],
             "title": "Unsupported Devices",
             "description": "Comma-separated list of devices on which the model cannot run (e.g. 'NPU'), or null when no restrictions exist."
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link",
+            "description": "URL of the model page on its upstream hub (currently only Hugging Face), or null when not available."
+          },
+          "gated": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelGated"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hugging Face gating mode, or null when unknown or not applicable (non-Hugging Face models)."
           }
         },
         "type": "object",
@@ -5830,17 +6277,22 @@
           "install_status"
         ],
         "title": "Model",
-        "description": "**Description of a single supported model exposed by the models API.**\n\nLists every model known to vippet-app: both entries from\n`supported_models.yaml` (regardless of whether they are installed) and\nuser-uploaded models. Use `install_status` to know if the model is\nready to use, and `used_by_pipelines` to know whether installing it is\nrecommended (non-empty list means at least one predefined pipeline\nreferences it).\n\nThe `variants` array enumerates every selectable (precision,\nmodel-proc) combination \u2014 used by the pipeline builder to populate\nthe model dropdown. The install page collapses them under a single\n`display_name` and shows the unique precisions only.\n\n## Attributes\n- `name` - Internal model identifier used by the backend\n- `display_name` - Human-readable model name suitable for UI\n- `category` - Logical model category (`classification`, `detection`, `genai`) or null when unknown\n- `source` - Upstream hub the model comes from (`huggingface`, `ultralytics`, `pipeline-zoo-models`, `omz`, `custom`)\n- `install_status` - Current install status (`installed`, `not_installed`, `installing`, `failed`)\n- `variants` - Selectable variants of this model (one per precision and optional model-proc)\n- `used_by_pipelines` - List of predefined-pipeline ids that reference this model. Non-empty list means the model is recommended for installation\n- `default` - Whether the model is marked as a default install candidate in `supported_models.yaml`. Used by the Models page to pre-select recommended models in the bulk-install UI.\n- `unsupported_devices` - Comma-separated string of devices that cannot run this model (or null)\n\n### Example\n```json\n{\n  \"name\": \"yolo11n\",\n  \"display_name\": \"YOLO 11n 640x640\",\n  \"category\": \"detection\",\n  \"source\": \"ultralytics\",\n  \"install_status\": \"installed\",\n  \"variants\": [\n    {\"name\": \"yolo11n_INT8\", \"display_name\": \"YOLO 11n 640x640 (INT8)\", \"precision\": \"INT8\"},\n    {\"name\": \"yolo11n_FP16\", \"display_name\": \"YOLO 11n 640x640 (FP16)\", \"precision\": \"FP16\"}\n  ],\n  \"used_by_pipelines\": [\"smart-nvr\", \"goods-detection\"],\n  \"unsupported_devices\": null\n}\n```"
+        "description": "**Description of a single supported model exposed by the models API.**\n\nLists every model known to vippet-app: both entries from the model\ncatalog (`vippet/models/*.yaml`, seeded into the DB at startup) and\nuser-uploaded models. Use `install_status` to know if the model is\nready to use, and `used_by_pipelines` to know whether installing it is\nrecommended (non-empty list means at least one predefined pipeline\nreferences it).\n\nThe `variants` array enumerates every selectable (precision,\nmodel-proc) combination \u2014 used by the pipeline builder to populate\nthe model dropdown. The install page collapses them under a single\n`display_name` and shows the unique precisions only.\n\n## Attributes\n- `name` - Internal model identifier used by the backend\n- `display_name` - Human-readable model name suitable for UI\n- `category` - Logical model category (`image_classification`, `object_detection`, `image_segmentation`, `pose_estimation`, `vision_language_models`, `large_language_models`, `automatic_speech_recognition`, `text_to_speech`) or null when unknown\n- `source` - Upstream hub the model comes from (`huggingface`, `ultralytics`, `pipeline-zoo-models`, `omz`, `custom`)\n- `install_status` - Current install status (`installed`, `not_installed`, `installing`, `failed`)\n- `variants` - Selectable variants of this model (one per precision and optional model-proc)\n- `used_by_pipelines` - List of predefined-pipeline ids that reference this model. Non-empty list means the model is recommended for installation\n- `default` - Whether at least one predefined pipeline references this model (`used_by_pipelines` is non-empty). Used by the Models page to pre-select recommended models in the bulk-install UI.\n- `unsupported_devices` - Comma-separated string of devices that cannot run this model (or null)\n\n### Example\n```json\n{\n  \"name\": \"yolo11n\",\n  \"display_name\": \"YOLO 11n 640x640\",\n  \"category\": \"object_detection\",\n  \"source\": \"ultralytics\",\n  \"install_status\": \"installed\",\n  \"variants\": [\n    {\"name\": \"yolo11n_INT8\", \"display_name\": \"YOLO 11n 640x640 (INT8)\", \"precision\": \"INT8\"},\n    {\"name\": \"yolo11n_FP16\", \"display_name\": \"YOLO 11n 640x640 (FP16)\", \"precision\": \"FP16\"}\n  ],\n  \"used_by_pipelines\": [\"smart-nvr\", \"goods-detection\"],\n  \"unsupported_devices\": null\n}\n```"
       },
       "ModelCategory": {
         "type": "string",
         "enum": [
-          "classification",
-          "detection",
-          "genai"
+          "image_classification",
+          "object_detection",
+          "image_segmentation",
+          "pose_estimation",
+          "vision_language_models",
+          "large_language_models",
+          "automatic_speech_recognition",
+          "text_to_speech"
         ],
         "title": "ModelCategory",
-        "description": "**Model category for classification, detection, or GenAI tasks.**\n\n## Values\n- `CLASSIFICATION` - Classification model\n- `DETECTION` - Detection model\n- `GENAI` - Generative AI model (for example VLM)\n\n### Example\n```json\n\"detection\"\n```"
+        "description": "**Model category for classification, detection, and other supported tasks.**\n\n## Values\n- `IMAGE_CLASSIFICATION` - Image classification model\n- `OBJECT_DETECTION` - Object detection model\n- `IMAGE_SEGMENTATION` - Image segmentation model\n- `POSE_ESTIMATION` - Pose estimation model\n- `VISION_LANGUAGE_MODELS` - Vision-language model (for example VLM)\n- `LARGE_LANGUAGE_MODELS` - Large language model (text-only, for example LLM)\n- `AUTOMATIC_SPEECH_RECOGNITION` - Automatic speech recognition model\n- `TEXT_TO_SPEECH` - Text-to-speech synthesis model\n\n### Example\n```json\n\"object_detection\"\n```"
       },
       "ModelCheckStatusRequest": {
         "properties": {
@@ -6055,6 +6507,42 @@
                 "yolov8n"
               ]
             ]
+          },
+          "hub": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Upstream hub used for names not found in the model catalog.",
+            "examples": [
+              "ultralytics"
+            ]
+          },
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelCategory"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model category, required when `hub` is `huggingface` (ignored for other hubs)."
+          },
+          "gated": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelGated"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating mode of the hub model, stored on the registered model (null when unknown)."
           }
         },
         "type": "object",
@@ -6062,7 +6550,147 @@
           "names"
         ],
         "title": "ModelDownloadRequest",
-        "description": "**Request body for starting a batch of model download jobs.**\n\nEach name must match an entry in `supported_models.yaml`. Names are\nvalidated as a unique set: duplicates are rejected with 422 so the\nper-name map returned by the endpoint stays unambiguous. An empty\nlist is also rejected (`min_length=1`).\n\nEach name is processed independently \u2014 one model-download job per\nname \u2014 and the per-model status is returned in\n`ModelDownloadJobResponse.jobs[name]`.\n\n## Attributes\n- `names` - List of supported-model names to install. Must be non-empty and unique.\n\n### Example\n```json\n{\n  \"names\": [\"yolo11n\", \"yolov8n\"]\n}\n```"
+        "description": "**Request body for starting a batch of model download jobs.**\n\nEach name must match an entry in the model catalog (`vippet/models/*.yaml`) unless `hub` is set. Names are\nvalidated as a unique set: duplicates are rejected with 422 so the\nper-name map returned by the endpoint stays unambiguous. An empty\nlist is also rejected (`min_length=1`).\n\nEach name is processed independently \u2014 one model-download job per\nname \u2014 and the per-model status is returned in\n`ModelDownloadJobResponse.jobs[name]`.\n\nWhen `hub` is set, names not found in the catalog are downloaded from\nthat hub (names as returned by `POST /models/list`) and registered in\nthe catalog together with every installed precision. Supported hubs:\n`ultralytics` (category derived from the name suffix) and\n`huggingface` (category must be provided via `category`, since\nHuggingFace repo ids have no fixed naming convention to derive it\nfrom).\n\n## Attributes\n- `names` - List of supported-model names to install. Must be non-empty and unique.\n- `hub` - Optional upstream hub for names not in the catalog.\n- `category` - Required when `hub` is `huggingface`; ignored otherwise.\n- `gated` - Optional Hugging Face gating mode reported by the hub listing; stored on the registered model. Ignored for names already in the catalog.\n\n### Example\n```json\n{\n  \"names\": [\"yolo11n\", \"yolov8n\"]\n}\n```"
+      },
+      "ModelGated": {
+        "type": "string",
+        "enum": [
+          "false",
+          "auto",
+          "manual"
+        ],
+        "title": "ModelGated",
+        "description": "**Hugging Face gating mode of a model.**\n\n## Values\n- `FALSE` - Not gated, anyone can download the model\n- `AUTO` - Gated, access is granted automatically after accepting the license\n- `MANUAL` - Gated, access must be approved manually by the model authors\n\n### Example\n```json\n\"auto\"\n```"
+      },
+      "ModelHubListRequest": {
+        "properties": {
+          "hub": {
+            "type": "string",
+            "title": "Hub",
+            "description": "Model hub to search, such as huggingface."
+          },
+          "filters": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Filters",
+            "description": "Hub-specific listing filters, such as author, search, or tags."
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset",
+            "default": 0
+          },
+          "override_credentials": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Credentials",
+            "description": "Optional Base64-encoded connection overrides for this request."
+          }
+        },
+        "type": "object",
+        "required": [
+          "hub"
+        ],
+        "title": "ModelHubListRequest",
+        "description": "Request body for searching models in an upstream model hub."
+      },
+      "ModelHubListResponse": {
+        "properties": {
+          "hub": {
+            "type": "string",
+            "title": "Hub"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count",
+            "description": "Number of items returned in this response."
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total",
+            "description": "Total number of items available, when the hub reports it."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has More",
+            "description": "Whether another page is available."
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset to request the next page, when available."
+          }
+        },
+        "type": "object",
+        "required": [
+          "hub",
+          "items",
+          "limit",
+          "offset"
+        ],
+        "title": "ModelHubListResponse",
+        "description": "Paginated results returned by an upstream model hub.\n\nSome hubs (for example HuggingFace) cannot report a `total` count\ncheaply; callers must then paginate using `has_more`/`next_offset`\ninstead of computing a page count from `total`."
       },
       "ModelInstallStatus": {
         "type": "string",
@@ -6085,7 +6713,7 @@
           "custom"
         ],
         "title": "ModelSource",
-        "description": "**Upstream hub a model is downloaded from.**\n\nMirrors the `hub` value used by the model-download microservice and\nadds `CUSTOM` for user-uploaded models.\n\n## Values\n- `HUGGINGFACE` - HuggingFace Hub\n- `ULTRALYTICS` - Ultralytics model zoo\n- `PIPELINE_ZOO_MODELS` - OpenVINO Pipeline Zoo models\n- `OMZ` - OpenVINO Open Model Zoo (handled locally by vippet-app)\n- `CUSTOM` - User-uploaded model\n\n### Example\n```json\n\"huggingface\"\n```"
+        "description": "**Upstream hub a model is downloaded from.**\n\nMirrors the `hub` value used by the model-download microservice and\nadds `CUSTOM` for user-uploaded models.\n\n## Values\n- `HUGGINGFACE` - HuggingFace Hub\n- `ULTRALYTICS` - Ultralytics model zoo\n- `PIPELINE_ZOO_MODELS` - OpenVINO Pipeline Zoo models\n- `OMZ` - OpenVINO Open Model Zoo\n- `CUSTOM` - User-uploaded model\n\n### Example\n```json\n\"huggingface\"\n```"
       },
       "ModelStatusItem": {
         "properties": {
@@ -6125,7 +6753,7 @@
           "model"
         ],
         "title": "ModelUploadResponse",
-        "description": "**Response body returned after a model has been successfully uploaded.**\n\nThe response is the freshly registered `Model` entry so that the UI\ncan update its state without an extra `GET /models` round-trip.\n\n## Attributes\n- `model` - Newly registered model entry\n\n### Example\n```json\n{\n  \"model\": {\n    \"name\": \"my-custom-detector\",\n    \"display_name\": \"My Custom Detector\",\n    \"category\": \"detection\",\n    \"source\": \"custom\",\n    \"install_status\": \"installed\",\n    \"variants\": [{\"name\": \"my-custom-detector\", \"display_name\": \"My Custom Detector (FP32)\", \"precision\": \"FP32\"}],\n    \"used_by_pipelines\": [],\n    \"unsupported_devices\": null\n  }\n}\n```"
+        "description": "**Response body returned after a model has been successfully uploaded.**\n\nThe response is the freshly registered `Model` entry so that the UI\ncan update its state without an extra `GET /models` round-trip.\n\n## Attributes\n- `model` - Newly registered model entry\n\n### Example\n```json\n{\n  \"model\": {\n    \"name\": \"my-custom-detector\",\n    \"display_name\": \"My Custom Detector\",\n    \"category\": \"object_detection\",\n    \"source\": \"custom\",\n    \"install_status\": \"installed\",\n    \"variants\": [{\"name\": \"my-custom-detector\", \"display_name\": \"My Custom Detector (FP32)\", \"precision\": \"FP32\"}],\n    \"used_by_pipelines\": [],\n    \"unsupported_devices\": null\n  }\n}\n```"
       },
       "ModelVariant": {
         "properties": {
@@ -6483,6 +7111,21 @@
             ],
             "title": "Video Output Paths"
           },
+          "min_stream_fps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Stream Fps",
+            "description": "FPS of the slowest stream. A density test passes a stream count only if this reaches `fps_floor`. `null` when no per-stream FPS was measured; `per_stream_fps` is then the only measure.",
+            "examples": [
+              27.5
+            ]
+          },
           "latency_tracer_metrics": {
             "anyOf": [
               {
@@ -6496,7 +7139,7 @@
               }
             ],
             "title": "Latency Tracer Metrics",
-            "description": "Last observed DLStreamer `latency_tracer` sample per stream, keyed by `stream_id` (`{source_name}__{sink_name}`). `null` when the job was executed with `execution_config.enable_latency_metrics=false` (the tracer was not started at all). An empty object `{}` means the tracer was active but produced no samples \u2014 for example when the pipeline exited before the first 1000 ms interval closed."
+            "description": "Last observed DLStreamer `latency_tracer` sample per stream, keyed by `stream_id` (`{source_name}__{sink_name}`). `null` when no latency samples were read: the job was executed with `execution_config.enable_latency_metrics=false`, or latency was requested but DL Streamer Pipeline Server runs without the latency tracer (the job's `details` then say so). An empty object `{}` means samples were read but none arrived \u2014 for example when the pipeline stopped before the server's first export."
           },
           "live_stream_urls": {
             "anyOf": [
@@ -6528,6 +7171,14 @@
               }
             ],
             "title": "Metadata Stream Urls"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineEvent"
+            },
+            "type": "array",
+            "title": "Events",
+            "description": "Most recent live pipeline events (oldest first, bounded), e.g. a `gvaproximitytrigger_py` trigger firing or a `gvagenai` answer."
           }
         },
         "type": "object",
@@ -6546,7 +7197,7 @@
           "metadata_stream_urls"
         ],
         "title": "PerformanceJobStatus",
-        "description": "**Status of a performance test job.**\n\nInherits all fields from TestsJobStatus and adds live_stream_urls and\nmetadata_stream_urls for live-streaming output mode support.\n\n## Attributes\n- *Inherited from TestsJobStatus* - id, start_time, elapsed_time, state, details, total_fps, per_stream_fps, total_streams, streams_per_pipeline, video_output_paths\n- `live_stream_urls` - Mapping from pipeline id to live stream URL when using live_stream output mode (keys use the same id format as streams_per_pipeline entries; only available for performance tests)\n- `metadata_stream_urls` - Mapping from pipeline id to list of SSE endpoint URLs for streaming live metadata records, one URL per gvametapublish file (null when the pipeline does not include a gvametapublish element writing to a file; URL index corresponds to file_index path parameter)"
+        "description": "**Status of a performance test job.**\n\nInherits all fields from TestsJobStatus and adds live_stream_urls and\nmetadata_stream_urls for live-streaming output mode support, plus events\ncarrying recent live pipeline events.\n\n## Attributes\n- *Inherited from TestsJobStatus* - id, start_time, elapsed_time, state, details, total_fps, per_stream_fps, min_stream_fps, total_streams, streams_per_pipeline, video_output_paths\n- `live_stream_urls` - Mapping from pipeline id to live stream URL when using live_stream output mode (keys use the same id format as streams_per_pipeline entries; only available for performance tests)\n- `metadata_stream_urls` - Mapping from pipeline id to list of SSE endpoint URLs for streaming live metadata records, one URL per gvametapublish file (null when the pipeline does not include a gvametapublish element writing to a file; URL index corresponds to file_index path parameter)\n- `events` - Most recent live pipeline events (oldest first), e.g. a proximity trigger firing or a VLM answer"
       },
       "PerformanceJobSummary": {
         "properties": {
@@ -6876,6 +7527,63 @@
         "title": "PipelineDescriptionSource",
         "description": "**Pipeline source from GStreamer pipeline description string.**\n\nUsed when specifying a pipeline for tests by providing a GStreamer\npipeline description string that will be parsed into a graph.\n\n## Attributes\n- `source` - Discriminator field, always \"description\" for this type\n- `pipeline_description` - GStreamer pipeline string with elements separated by '!' (must be non-empty)\n- `description_id` - Optional custom identifier for this pipeline description (if provided, used instead of generating a hash-based ID; must be URL-safe with only lowercase letters, numbers, and dashes; if not provided, synthetic ID generated from description content hash)\n\n### Example (without description_id - uses generated hash)\n```json\n{\n  \"source\": \"description\",\n  \"pipeline_description\": \"videotestsrc ! videoconvert ! fakesink\"\n}\n```\n\n### Example (with custom description_id)\n```json\n{\n  \"source\": \"description\",\n  \"description_id\": \"my-test-pipeline\",\n  \"pipeline_description\": \"videotestsrc ! videoconvert ! fakesink\"\n}\n```"
       },
+      "PipelineEvent": {
+        "properties": {
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "element": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Element"
+          },
+          "pts_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pts Seconds"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "timestamp_ms",
+          "source",
+          "text"
+        ],
+        "title": "PipelineEvent",
+        "description": "**Live event observed while a performance test pipeline is running.**\n\n## Attributes\n- `timestamp_ms` - Wall-clock time the event was observed, in ms since epoch\n- `source` - Event origin, e.g. `proximity-trigger` or `vlm`\n- `text` - Human-readable description of the event (or the VLM answer). Truncated to 4096 characters, with `... [truncated]` appended when the original was longer\n- `element` - Name of the emitting GStreamer element, when known\n- `pts_seconds` - Stream position the event refers to, in seconds, when known\n- `prompt` - Prompt that produced a VLM answer (`source` = `vlm`), when known. Truncated to 1024 characters, with `... [truncated]` appended when the original was longer"
+      },
       "PipelineGraph": {
         "properties": {
           "nodes": {
@@ -7179,16 +7887,26 @@
           "ready": {
             "type": "boolean",
             "title": "Ready"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
           }
         },
         "type": "object",
         "required": [
           "status",
           "message",
-          "ready"
+          "ready",
+          "version",
+          "revision"
         ],
         "title": "StatusResponse",
-        "description": "**Response model for status endpoint.**\n\nProvides detailed information about application initialization state\nand readiness to serve requests.\n\n## Attributes\n- `status` - Current application status (STARTING, INITIALIZING, READY, or SHUTDOWN)\n- `message` - Optional message describing current activity or initialization progress\n- `ready` - True if application is ready to serve API requests\n\n### Example\n```json\n{\n  \"status\": \"ready\",\n  \"message\": null,\n  \"ready\": true\n}\n```"
+        "description": "**Response model for status endpoint.**\n\nProvides detailed information about application initialization state\nand readiness to serve requests.\n\n## Attributes\n- `status` - Current application status (STARTING, INITIALIZING, READY, or SHUTDOWN)\n- `message` - Optional message describing current activity or initialization progress\n- `ready` - True if application is ready to serve API requests\n- `version` - Build version (image tag / release string) of the running application\n- `revision` - Git commit hash of the source tree the running image was built from, suffixed with \"-dirty\" if the working tree had uncommitted changes at build time (e.g. \"a1b2c3d\" or \"a1b2c3d-dirty\"); \"unknown\" if unavailable\n\n### Example\n```json\n{\n  \"status\": \"ready\",\n  \"message\": null,\n  \"ready\": true,\n  \"version\": \"2026.2.0-rc2\",\n  \"revision\": \"a1b2c3d\"\n}\n```"
       },
       "TestJobResponse": {
         "properties": {

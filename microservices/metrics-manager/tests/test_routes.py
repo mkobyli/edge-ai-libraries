@@ -6,12 +6,37 @@
 import pytest
 from fastapi.testclient import TestClient
 from prometheus_client.core import Metric as PrometheusMetric
+from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Timestamp
 
 from app import capabilities
 
 
 class TestPrometheusMetricsEndpoint:
+    def test_tagged_series_keep_valid_metric_names(self, client: TestClient):
+        response = client.post(
+            "/api/v1/metrics",
+            json={
+                "metrics": [
+                    {"name": "fps", "fields": {"value": 10}, "tags": {"pipeline": "a"}},
+                    {"name": "fps", "fields": {"value": 20}, "tags": {"pipeline": "b"}},
+                ]
+            },
+        )
+        assert response.status_code == 202
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        samples = [
+            sample
+            for family in text_string_to_metric_families(response.text)
+            for sample in family.samples
+            if sample.name == "fps"
+        ]
+        assert {(sample.labels["pipeline"], sample.value) for sample in samples} == {
+            ("a", 10),
+            ("b", 20),
+        }
+
     def test_empty_store_returns_empty_body(self, client: TestClient):
         response = client.get("/metrics")
         assert response.status_code == 200
@@ -106,8 +131,7 @@ class TestCapabilitiesEndpoint:
     ):
         monkeypatch.delenv("METRICS_MANAGER_HOSTNAME", raising=False)
 
-        # Keep a reference to the real reader before patching: calling the
-        # module attribute from inside the fake would re-enter the fake.
+        # Keep the original reader so the fake does not call itself.
         real_read_text = capabilities._read_text
 
         def fake_read_text(path: str) -> str | None:
@@ -231,84 +255,6 @@ _OTLP_EMPTY = {"resourceMetrics": []}
 
 
 class TestOtlpIngestion:
-    def test_histogram_round_trip_keeps_distinct_series(self, client: TestClient):
-        payload = {
-            "resourceMetrics": [
-                {
-                    "scopeMetrics": [
-                        {
-                            "metrics": [
-                                {
-                                    "name": "latency_ms",
-                                    "histogram": {
-                                        "aggregationTemporality": 2,
-                                        "dataPoints": [
-                                            {
-                                                "count": str(count),
-                                                "sum": total,
-                                                "attributes": [
-                                                    {
-                                                        "key": "worker",
-                                                        "value": {"intValue": str(worker)},
-                                                    }
-                                                ],
-                                                "bucketCounts": ["1", "1"],
-                                                "explicitBounds": [5],
-                                            }
-                                            for worker, count, total in [(1, 2, 10), (2, 4, 40)]
-                                        ],
-                                    },
-                                }
-                            ]
-                        }
-                    ]
-                }
-            ]
-        }
-        response = client.post("/api/v1/metrics/otlp", json=payload)
-        assert response.status_code == 202
-        assert response.json()["accepted"] == 2
-        stored = client.get("/api/v1/metrics?name=latency_ms").json()["metrics"]
-        assert {m["tags"]["worker"]: m["fields"] for m in stored} == {
-            "1": {"count": 2, "sum": 10.0, "avg": 5.0},
-            "2": {"count": 4, "sum": 40.0, "avg": 10.0},
-        }
-        assert all(m["tags"]["temporality"] == "cumulative" for m in stored)
-        exported = client.get("/metrics").text.splitlines()
-        counts = [line for line in exported if line.startswith("latency_ms_count{")]
-        assert len(counts) == 2
-        assert any('worker="1"' in line and line.split()[-2] == "2" for line in counts)
-        assert any('worker="2"' in line and line.split()[-2] == "4" for line in counts)
-
-    def test_invalid_otlp_point_does_not_drop_valid_siblings(self, client: TestClient):
-        payload = {
-            "resourceMetrics": [
-                {
-                    "scopeMetrics": [
-                        {
-                            "metrics": [
-                                {
-                                    "name": "queue_length",
-                                    "gauge": {
-                                        "dataPoints": [{"asInt": "42"}, {"asInt": "invalid"}]
-                                    },
-                                }
-                            ]
-                        }
-                    ]
-                }
-            ]
-        }
-        response = client.post("/api/v1/metrics/otlp", json=payload)
-        assert response.status_code == 202
-        assert response.json()["accepted"] == 1
-        stored = client.get("/api/v1/metrics?name=queue_length").json()["metrics"]
-        assert stored[0]["fields"] == {"value": 42}
-        payload["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["gauge"]["dataPoints"] = [
-            {"asInt": "invalid"}
-        ]
-        assert client.post("/api/v1/metrics/otlp", json=payload).status_code == 400
-
     def test_push_valid_otlp_returns_202(self, client: TestClient):
         response = client.post("/api/v1/metrics/otlp", json=_OTLP_GAUGE)
         assert response.status_code == 202
@@ -359,6 +305,157 @@ class TestOtlpIngestion:
         response = client.post("/api/v1/metrics/otlp", json=payload)
         assert response.status_code == 202
         assert response.json()["accepted"] == 1
+
+    def test_push_otlp_histogram_stores_summary_fields(self, client: TestClient):
+        """A real histogram point (count/sum/min/max, no asDouble) is not stored as 0."""
+        payload = {
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "genai_ttft_ms",
+                                    "histogram": {
+                                        "aggregationTemporality": 1,
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": "1704067200000000000",
+                                                "count": "2",
+                                                "sum": 30.0,
+                                                "min": 10.0,
+                                                "max": 20.0,
+                                            }
+                                        ],
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        assert client.post("/api/v1/metrics/otlp", json=payload).status_code == 202
+        stored = client.get("/api/v1/metrics?name=genai_ttft_ms").json()["metrics"]
+        assert stored[0]["fields"] == {
+            "count": 2,
+            "sum": 30.0,
+            "min": 10.0,
+            "max": 20.0,
+            "avg": 15.0,
+        }
+        assert stored[0]["tags"] == {"temporality": "delta"}
+
+    def test_push_otlp_histogram_with_overflowing_sum_keeps_count(self, client: TestClient):
+        """A sum beyond double range must not fail the request or its sibling points."""
+        points = [
+            {"timeUnixNano": "1704067200000000000", "count": "1", "sum": 4.0},
+            {"timeUnixNano": "1704067201000000000", "count": "3", "sum": 10**400},
+        ]
+        payload = {
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {"name": "genai_tpot_ms", "histogram": {"dataPoints": points}}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        response = client.post("/api/v1/metrics/otlp", json=payload)
+        assert response.status_code == 202
+        assert response.json()["accepted"] == 2
+        stored = client.get("/api/v1/metrics?name=genai_tpot_ms").json()["metrics"]
+        assert sorted(m["fields"]["count"] for m in stored) == [1, 3]
+        assert {"count": 3} in [m["fields"] for m in stored]
+
+    def test_push_otlp_histogram_and_as_int_gauge_round_trip(self, client: TestClient):
+        """Histogram summary fields, temporality and string asInt survive ingest and query."""
+        payload = {
+            "resourceMetrics": [
+                {
+                    "resource": {
+                        "attributes": [{"key": "service.name", "value": {"stringValue": "svc"}}]
+                    },
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "request_latency_ms",
+                                    "histogram": {
+                                        "aggregationTemporality": (
+                                            "AGGREGATION_TEMPORALITY_CUMULATIVE"
+                                        ),
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": "1704067200000000000",
+                                                "count": "4",
+                                                "sum": 10.0,
+                                                "bucketCounts": ["1", "3"],
+                                                "explicitBounds": [2.0],
+                                            }
+                                        ],
+                                    },
+                                },
+                                {
+                                    "name": "frames_in_queue",
+                                    "gauge": {
+                                        "dataPoints": [
+                                            {"asInt": "42", "timeUnixNano": "1704067200000000000"},
+                                            {"asInt": "n/a", "timeUnixNano": "1704067201000000000"},
+                                        ]
+                                    },
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+        response = client.post("/api/v1/metrics/otlp", json=payload)
+        assert response.status_code == 202
+        assert response.json()["accepted"] == 2
+
+        histogram = client.get("/api/v1/metrics?name=request_latency_ms").json()["metrics"]
+        assert histogram[0]["fields"] == {"count": 4, "sum": 10.0, "avg": 2.5}
+        assert histogram[0]["tags"] == {"service.name": "svc", "temporality": "cumulative"}
+
+        gauge = client.get("/api/v1/metrics?name=frames_in_queue").json()["metrics"]
+        assert len(gauge) == 1
+        assert gauge[0]["fields"] == {"value": 42}
+        assert gauge[0]["tags"] == {"service.name": "svc"}
+
+        prometheus = client.get("/metrics").text.splitlines()
+
+        def sample(metric: str) -> str:
+            line = next(line for line in prometheus if line.startswith(metric + "{"))
+            return line.split()[-2]
+
+        assert sample("request_latency_ms_count") == "4"
+        assert sample("request_latency_ms_sum") == "10.0"
+        assert sample("frames_in_queue") == "42"
+
+    def test_push_otlp_only_invalid_points_returns_400(self, client: TestClient):
+        payload = {
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "frames_in_queue",
+                                    "gauge": {"dataPoints": [{"asInt": "n/a"}]},
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        assert client.post("/api/v1/metrics/otlp", json=payload).status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +581,8 @@ class TestFetchPrometheusMetrics:
 
         family = PrometheusMetric("fps", "test", "gauge")
         family.add_sample("fps", {}, 30, timestamp=timestamp)
+        family.add_sample("fps", {"x": "a,y=b"}, 10, timestamp=timestamp)
+        family.add_sample("fps", {"x": "a", "y": "b"}, 20, timestamp=timestamp)
         mocker.patch("app.routes.text_string_to_metric_families", return_value=[family])
         response = mocker.MagicMock()
         response.status = 200
@@ -496,6 +595,7 @@ class TestFetchPrometheusMetrics:
         session.__aexit__ = mocker.AsyncMock(return_value=False)
         mocker.patch("app.routes.aiohttp.ClientSession", return_value=session)
         result = await _fetch_prometheus_metrics("http://localhost:9273")
+        assert len(result) == 3
         assert result["fps"].timestamp == expected
 
     @pytest.mark.asyncio

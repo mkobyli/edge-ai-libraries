@@ -62,7 +62,9 @@ def _trim_edge_samples(
 ) -> list[dict[str, float]]:
     """Trim time-ordered samples from each end, not sorted metric values."""
     trim_count = int(len(samples) * trim_fraction)
-    return samples[trim_count:-trim_count] if trim_count else samples
+    if trim_count == 0 or trim_count * 2 >= len(samples):
+        return samples
+    return samples[trim_count:-trim_count]
 
 
 def _drop_npu_settle_sample(
@@ -81,9 +83,8 @@ def _drop_npu_settle_sample(
 
 def _family_sample_count(samples: list[dict[str, float]], family: str) -> int:
     """Count samples with any KPI belonging to the requested family."""
-    return sum(
-        any(key in sample for key in FAMILY_KPI_KEYS[family]) for sample in samples
-    )
+    keys = FAMILY_KPI_KEYS.get(family, ())
+    return sum(any(key in sample for key in keys) for sample in samples)
 
 
 def _family_kpi_status(samples: list[dict[str, float]], family: str) -> str:
@@ -91,7 +92,7 @@ def _family_kpi_status(samples: list[dict[str, float]], family: str) -> str:
     values = [
         sample[key]
         for sample in samples
-        for key in FAMILY_ACTIVITY_KEYS[family]
+        for key in FAMILY_ACTIVITY_KEYS.get(family, ())
         if key in sample
     ]
     if not values:
@@ -103,8 +104,10 @@ def _fetch_metrics_manager(url: str) -> dict[str, float]:
     """Fetch latest metrics from VIPPET metrics-manager JSON API.
 
     Returns flat dict of metric_key -> value.
-    Tagged metrics use composite keys (e.g. gpu_power__gpu_cur_power).
-    Only gpu_id=0 is collected for GPU metrics with multiple IDs.
+    Tagged metrics use composite keys (e.g. gpu_power_power_w__gpu_cur_power).
+    Only gpu_id=0 is collected for GPU metrics with multiple IDs. Metrics
+    reported per GPU tile (e.g. gt0 render + gt1 media) keep only the
+    primary, lowest-named tile, so tiles never overwrite each other.
 
     Handles two response formats:
       - SSE stream (``data: {json}\\n``) — reads the last complete event
@@ -129,6 +132,15 @@ def _fetch_metrics_manager(url: str) -> dict[str, float]:
         data = json.loads(raw)
         metrics = data.get("metrics", data)
         result: dict[str, float] = {}
+        tile_of: dict[str, str] = {}
+
+        def _store(composite: str, value: float, tile: str | None) -> None:
+            if tile is not None:
+                kept = tile_of.get(composite)
+                if kept is not None and kept <= tile:
+                    return
+                tile_of[composite] = tile
+            result[composite] = value
 
         if isinstance(metrics, list):
             for entry in metrics:
@@ -144,7 +156,7 @@ def _fetch_metrics_manager(url: str) -> dict[str, float]:
 
                 type_tag = labels.get("type") or labels.get("engine")
                 composite = f"{name}__{type_tag}" if type_tag else name
-                result[composite] = float(val)
+                _store(composite, float(val), labels.get("tile"))
         elif isinstance(metrics, dict):
             for key, entry in metrics.items():
                 if isinstance(entry, dict):
@@ -160,7 +172,7 @@ def _fetch_metrics_manager(url: str) -> dict[str, float]:
 
                     type_tag = tags.get("type") or tags.get("engine")
                     composite = f"{name}__{type_tag}" if type_tag else name
-                    result[composite] = float(val)
+                    _store(composite, float(val), tags.get("tile"))
                 elif isinstance(entry, (int, float)):
                     result[key] = float(entry)
 
@@ -177,7 +189,7 @@ class HardwareMonitor:
         monitor = HardwareMonitor("http://localhost/metrics/stream")
         monitor.start()
         ... run workload ...
-        hw_stats = monitor.stop()   # returns aggregated dict
+        hw_stats = monitor.stop(["GPU", "NPU"])   # returns aggregated dict
     """
 
     def __init__(
@@ -252,7 +264,16 @@ class HardwareMonitor:
         if temp is not None:
             sample["cpu_temperature"] = temp
 
-        # GPU (Xe/i915) — per-engine utilization
+        # GPU (Xe/i915) — per-engine utilization.
+        # NOTE: ``gpu_render_util_pct`` (engine="render"/"rcs") has been
+        # observed to always read 0 on tested hardware, even when the GPU
+        # is clearly busy per "video"/"compute". This looks like an
+        # upstream qmassa/metrics-manager reporting gap for the render
+        # engine specifically, not a bug in this harness — tracked as a
+        # separate follow-up issue rather than fixed here. The per-family
+        # activity check (FAMILY_ACTIVITY_KEYS) deliberately unions across
+        # all GPU engine keys so this doesn't cause false "idle" GPU
+        # classifications.
         for label, aliases in [
             ("gpu_render_util_pct", ("render", "rcs")),
             ("gpu_video_util_pct", ("video", "vcs")),
@@ -327,11 +348,11 @@ class HardwareMonitor:
                 if trim_count <= index < len(samples) - trim_count:
                     combined_trimmed.append(max(vals))
         if combined_per_sample:
+            agg["gpu_util_combined_max"] = round(max(combined_per_sample), 2)
             average_values = combined_trimmed or combined_per_sample
             agg["gpu_util_combined_avg"] = round(
                 sum(average_values) / len(average_values), 2
             )
-            agg["gpu_util_combined_max"] = round(max(combined_per_sample), 2)
 
         if families:
             kpi_status = {

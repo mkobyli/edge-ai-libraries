@@ -72,6 +72,8 @@ Reuse an image built with the same version as the package. For the `2026.3.0`
 package, the default local source is `metrics-manager:2026.3.0`; the separate
 Docker Hub RC tags are not package inputs, because their embedded collector
 versions include the RC suffix. Building the package does not publish images.
+The builder checks the image's OCI version label before changing its staging
+directory and rejects mismatched or missing versions.
 
 The package is amd64 only. qmassa is Rust, and cross-building it for arm64 has
 not been set up.
@@ -89,8 +91,11 @@ dpkg-deb --contents native/packaging/dist/metrics-manager_*_amd64.deb
 sudo apt install ./native/packaging/dist/metrics-manager_*_amd64.deb
 ```
 
-Installation creates the service account, loads the `msr` module, and starts
-everything. Give it a few seconds, then check the services came up:
+Installation creates the service account, prepares runtime files, attempts to
+load the `msr` module, and starts the default services when systemd is running.
+Failure to prepare runtime files fails installation; optional module and service
+startup failures produce diagnostics. Give it a few seconds, then check the
+services came up:
 
 ```bash
 systemctl list-units 'metrics-manager-*' --no-legend
@@ -249,9 +254,10 @@ Thresholds are diagnostic aids, not hardware safety limits.
 
 NPU frequency arrives from the plugin in Hz. Overview chooses Hz/kHz/MHz/GHz
 for readability, while frequency charts use MHz: `1600000000 Hz` becomes
-`1.60 GHz` in Overview and `1600 MHz` on a chart. NPU bandwidth is already
-an MB/s rate and is not differentiated again by the TUI. NPU memory is already
-in MiB. Unavailable readings remain unavailable rather than becoming zero.
+`1.60 GHz` in Overview and `1600 MHz` on a chart. NPU bandwidth arrives in
+bytes/second and is displayed in decimal MB/s without differentiation.
+NPU memory arrives in bytes and is displayed in MiB. Unavailable readings
+remain unavailable rather than becoming zero.
 
 ### Built-in help
 
@@ -472,7 +478,7 @@ total bandwidth (decimal GB/s); RAPL power for each published domain (W);
 per-GPU aggregate/engine utilisation, temperature, per-tile actual frequency,
 graphics power and dedicated VRAM percentage; NPU utilisation, temperature,
 frequency, power and memory. Frequency charts use MHz. NPU memory uses MiB
-(matching the collector's binary conversion). VRAM percentage is unavailable
+(converted from the collector's byte count). VRAM percentage is unavailable
 when dedicated memory total is zero, as on an iGPU. These are existing
 device-level measurements, not new per-process NPU telemetry or GPU VRAM
 bandwidth counters.
@@ -689,7 +695,8 @@ verify the installed files, not only the version.
 #### Configure optional telemetry with a script
 
 From the source checkout, edit
-[`native/metrics-options.conf`](../../../native/metrics-options.conf), then run:
+[`native/metrics-options.conf`](https://github.com/open-edge-platform/edge-ai-libraries/blob/main/microservices/metrics-manager/native/metrics-options.conf)
+in a repository checkout, then run the repository's helper:
 
 ```bash
 ./native/configure-metrics.sh

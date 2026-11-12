@@ -88,6 +88,26 @@ class TestMetricsStore:
         assert latest["gpu_frequency{gpu_id=0,tile=gt1}"].fields["value"] == 100
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "first,second",
+        [
+            ({"x": "a,y=b"}, {"x": "a", "y": "b"}),
+            ({"x=y": "z"}, {"x": "y=z"}),
+            ({"x": r"a\,y=b"}, {"x": "a\\", "y": "b"}),
+        ],
+    )
+    async def test_get_latest_metrics_preserves_label_separators(self, store, first, second):
+        await store.add_metrics(
+            [
+                Metric(name="fps", fields={"value": 10}, tags=first),
+                Metric(name="fps", fields={"value": 20}, tags=second),
+            ]
+        )
+        latest = await store.get_latest_metrics()
+        assert len(latest) == 2
+        assert {metric.fields["value"] for metric in latest.values()} == {10, 20}
+
+    @pytest.mark.asyncio
     async def test_get_latest_metrics_picks_newest_within_a_series(self, store):
         """Within one series the most recent sample still wins."""
         for i in range(3):

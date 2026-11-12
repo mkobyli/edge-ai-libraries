@@ -33,9 +33,9 @@ BUILD_ARGS := \
 # Helm packaging configuration. Charts are pushed to the same OCI path as
 # the container image; the chart version carries a `-helm` suffix so the
 # two artefacts coexist under intel/metrics-manager:<X.Y.Z> (image) and
-# intel/metrics-manager:<X.Y.Z>-helm (chart).
+# intel/metrics-manager:<X.Y.Z>-helm (chart). The chart is versioned independently.
 HELM_CHART_DIR     := helm/metrics-manager
-HELM_CHART_VERSION := $(VERSION)-helm
+HELM_CHART_VERSION := $(shell sed -n 's/^version:[[:space:]]*//p' $(HELM_CHART_DIR)/Chart.yaml)
 HELM_OCI_REGISTRY  ?= oci://registry-1.docker.io/intel
 HELM_PACKAGE_DIR   := dist/helm
 
@@ -59,7 +59,7 @@ help:
 	@echo "  make logs               Tail container logs"
 	@echo "  make test               Run pytest inside the test image"
 	@echo "  make clean              Remove built images and stopped containers"
-	@echo "  make bump NEW=2026.2.0  Update VERSION and all places that mirror it"
+	@echo "  make bump NEW=2026.3.0  Update legacy application mirrors (not Helm); see README"
 	@echo ""
 	@echo "Helm chart targets (require the 'helm' CLI):"
 	@echo "  make helm-lint          helm lint $(HELM_CHART_DIR)"
@@ -128,6 +128,7 @@ clean:
 # -----------------------------------------------------------------------------
 
 helm-lint:
+	@test -n "$(HELM_CHART_VERSION)" || (echo "ERROR: chart version is missing from $(HELM_CHART_DIR)/Chart.yaml" && exit 1)
 	helm lint $(HELM_CHART_DIR)
 
 helm-template:
@@ -144,10 +145,10 @@ generate-helm: helm-package
 helm-push: helm-package
 	helm push $(HELM_PACKAGE_DIR)/metrics-manager-$(HELM_CHART_VERSION).tgz $(HELM_OCI_REGISTRY)
 
-# Bump the version everywhere it is mirrored. Usage:  make bump NEW=2026.2.0
+# Update legacy application mirrors. Usage: make bump NEW=2026.3.0
+# Review the complete release checklist in README; Helm is versioned separately.
 # Updates: VERSION, pyproject.toml, .env, .env.example, compose.yaml,
-#          app/settings.py, app/logging_config.py, docs/DOCKERHUB.md,
-#          helm/metrics-manager/Chart.yaml (version + appVersion)
+#          app/settings.py, app/logging_config.py, docs/DOCKERHUB.md
 bump:
 	@test -n "$(NEW)" || (echo "ERROR: provide a new version with NEW=...  e.g. make bump NEW=2026.2.0" && exit 1)
 	@echo "$(VERSION) -> $(NEW)"
@@ -159,7 +160,5 @@ bump:
 	@sed -i.bak -E 's/(service_version: str = Field\(default=)"[^"]+"/\1"$(NEW)"/' app/settings.py && rm app/settings.py.bak
 	@sed -i.bak -E 's/(service_version: str = )"[^"]+"/\1"$(NEW)"/' app/logging_config.py && rm app/logging_config.py.bak
 	@sed -i.bak -E 's/(metrics-manager:)[0-9][0-9A-Za-z.+]*/\1$(NEW)/g; s/(Intel® Metrics Manager \*\*)[0-9][0-9A-Za-z.+-]*(\*\*)/\1$(NEW)\2/g' docs/DOCKERHUB.md && rm docs/DOCKERHUB.md.bak
-	@sed -i.bak -E 's/(metrics-manager:)[0-9][0-9A-Za-z.+]*/\1$(NEW)/g; s/--version [0-9][0-9A-Za-z.+]*-helm/--version $(NEW)-helm/g' docs/HELM.md && rm docs/HELM.md.bak
-	@sed -i.bak -E 's/^version: [0-9][0-9A-Za-z.+-]*-helm/version: $(NEW)-helm/; s/^appVersion: "[^"]+"/appVersion: "$(NEW)"/' $(HELM_CHART_DIR)/Chart.yaml && rm $(HELM_CHART_DIR)/Chart.yaml.bak
 	@echo "Done. Review the diff:  git diff"
 	@echo "Then commit and (optionally) tag:  git add -A && git commit -m 'release: $(NEW)' && git tag v$(NEW)"

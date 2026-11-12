@@ -196,8 +196,6 @@ Historical release entries and Helm metadata remain unchanged.
 
 None at this release. See GitHub issues for feature requests and discussions.
 
----
-
 ## Version 2026.0.1
 
 **Release Date:** May 5, 2026
@@ -211,8 +209,6 @@ None at this release. See GitHub issues for feature requests and discussions.
   - Browser (`Accept: text/html`) → HTML page
   - SSE client (`Accept: text/event-stream`) → raw stream
   - **Impact**: Single endpoint works for both browsers and programmatic clients
-
----
 
 ## Version 2026.0.0
 
