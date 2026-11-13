@@ -79,8 +79,7 @@ If you want to run the service locally without Docker, use the following approac
 
 - **Python 3.12+** (`python3 --version`)
 - **uv**: follow the [uv installation instructions](https://docs.astral.sh/uv/getting-started/installation/)
-- **Running telemetry backend**: Telegraf with a Prometheus endpoint and HTTP
-  ingestion listener. The steps below run the API separately from this backend.
+- **Running telemetry backend**: the [bare-metal package](./bare-metal-package.md) supplies Telegraf and the native collectors. The package does not include the REST API; the steps below run that API separately.
 - **Git**
 
 ### Step 1: Clone and Navigate
@@ -130,15 +129,15 @@ PROMETHEUS_TELEGRAF_ENDPOINT=http://localhost:9273
 
 ### Step 5: Verify the Telemetry Backend
 
-Check that your configured telemetry backend is reachable:
+Install and start the bare-metal package as described in its guide, then check:
 
 ```bash
+systemctl is-active metrics-manager-telegraf.service
 curl --fail http://127.0.0.1:9273/metrics | head
 ```
 
-The example settings expect `127.0.0.1:9273` for metrics and `127.0.0.1:8186`
-for writes. Adapt them to your backend and do not start a second Telegraf on
-occupied ports. The container's
+Its Telegraf listens on `127.0.0.1:9273` for metrics and `127.0.0.1:8186`
+for writes. Do not start a second Telegraf on these ports. The container's
 root-level `telegraf.conf` uses container paths and environment substitutions;
 it is not a standalone host configuration.
 
@@ -287,8 +286,8 @@ The script runs every 10 seconds and outputs InfluxDB Line Protocol.
 | `Rust toolchain not found`  | First Docker build compiles Rust. Try `docker compose build --no-cache`.                       |
 | `Module not found: app`     | Run from `edge-ai-libraries/microservices/metrics-manager` using the environment created by `uv sync`. |
 | `Port 9090 already in use`  | For Compose, set `HOST_METRICS_PORT=19090`. For a local API, change the Uvicorn `--port` argument. |
-| `Telegraf not found`        | Build the Docker image or configure an existing telemetry backend. |
-| `Permission denied on /sys` | Check the collector-specific device/capability requirements; do not run the local API as root to grant collector access. |
+| `Telegraf not found`        | Use the bare-metal package's bundled Telegraf or build the Docker image. |
+| `Permission denied on /sys` | Check the collector-specific device/capability requirements. Use the packaged service separation locally rather than running the API as root. |
 
 ## Supporting Resources
 

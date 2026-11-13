@@ -1,32 +1,112 @@
+<!--
+SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Release Notes: Metrics Manager
 
-## Version 2026.3.0-dev
+## Unreleased
 
-**Release Date:** TBD
+This upcoming release improves the **responsive native TUI**, introduces
+**explicit base-unit telemetry** and **optional Docker collectors with host-NIC
+networking**, and includes runtime fixes and documentation improvements.
 
-**Changed (breaking):**
+Target version: **2026.3.0**. This section is not a publication announcement.
+Historical release entries and Helm metadata remain unchanged.
 
-- **NPU Frequency Reported in Hz**: The Prometheus metric `npu_frequency` (line-protocol field `frequency`) keeps its name but now carries the NPU (DPU) clock in **raw Hz** (e.g. `1.95e+09` for 1950 MHz). It previously carried the MHz number (e.g. `1950`) under a Hz name, i.e. a value 1e6 too small (and 25% low on Arrow Lake, see below). The value is decoded by the new `PmtTelemetry.get_freq_hz()` with the same per-buttress PLL-ratio formula as the `intel_vpu` kernel driver (`ivpu_hw_btrs.c`), without the kernel's truncation to whole MHz. The misleading `get_freq()` (documented as MHz but returning MHz/500 on Meteor Lake, Lunar Lake and Panther Lake) and `get_display_freq_hz()` getters were removed. Dashboards and queries that treated `npu_frequency` as MHz must divide by `1e6` (or use a Hz unit such as Grafana `rothz`).
-- **NPU Monitor CLI CSV Frequency in Hz**: The CSV written by the bundled `npu_monitor_tool` CLI (`--csv`) keeps its `frequency` column name, but the column now holds the clock in Hz instead of the MHz number.
+**New**
 
-**New:**
+- **Host-NIC deployment**: adds the opt-in `host-nic-telemetry` Compose profile,
+  sharing the default native image and collectors. Its network collector
+  defaults on; an explicit false setting takes precedence. Listener ports,
+  relay/scrape URLs and healthchecks follow the configured host ports. Bridge
+  networking remains the default. Select one service explicitly: enabling a
+  profile does not stop the default service, and host networking exposes
+  listeners directly on host interfaces.
+- **Optional Docker collectors**: adds explicit collector flags while keeping
+  additions disabled in the default bridge deployment. Mounted Telegraf
+  drop-ins are loaded from a private startup snapshot; review previously
+  inactive files before upgrading. Conflicting automatic/custom inputs fail
+  startup instead of duplicating measurements. Optional Turbostat has a bounded
+  executable/MSR preflight and is skipped with a warning when unavailable.
+  Recreate containers to apply configuration changes.
 
-- **Hardware Telemetry Collectors (opt-in)**: Nine collectors, each enabled by its own `ENABLE_*` environment variable (or `config.enable*` Helm value), expose additional Intel hardware metrics through the existing Prometheus endpoint: CPU package power, per-core frequency, temperature and C-state residency (`ENABLE_RAPL_POWER`), platform (`psys`) power (`ENABLE_PSYS_POWER`), DRAM bandwidth (`ENABLE_DRAM_BW`), disk I/O (`ENABLE_DISK_IO`), network and NIC statistics (`ENABLE_NET_IO`), per-device interrupts (`ENABLE_INTERRUPTS`), high-frequency temperature statistics (`ENABLE_TEMP_STATS`), GPU throttle state (`ENABLE_GPU_THROTTLE`) and turbostat diagnostics (`ENABLE_TURBOSTAT`). **All are off by default**, so these optional collectors add no metrics unless enabled, including for deployments that mount their own `telegraf.conf`. The additional NPU `power_state` field and the NPU changes described above are independent of these toggles. See [Hardware Telemetry Collectors](./get-started/hardware-telemetry.md).
-- **NPU `power_state`**: `npu_reader.py` now also reports the NPU PCI power state as `npu_power_state` (D0=0, D1=1, D2=2, D3hot=3, D3cold=4, unknown=-1). This adds one field to the existing `npu` measurement.
-- **`host-nic-telemetry` Compose profile**: Opt-in `metrics-manager-host-nic` service that runs with host networking so the network collector reports the host's physical NICs. The default bridge deployment is unchanged.
-- **Optional `perf` build variant**: New `INSTALL_PERF` build argument installs `linux-perf` (GPL-2.0, about 150 MB), required only for DRAM bandwidth collection. It is off by default and not in the published image.
+**Improved**
 
-**Improved:**
+- **Native TUI**: provides responsive Overview, Trends, Details and Alerts
+  views, configurable thresholds and process limits, and five-minute chart
+  history by default. Network and storage views distinguish unavailable or
+  stale readings from measured zeros.
+- **Native metric units**: migrates CPU/GPU clocks, GPU device/client memory
+  and DRAM throughput to explicit bytes, bytes/second, Hz, W and Celsius fields,
+  without old-name aliases. NPU retains `npu_power`, `npu_frequency`,
+  `npu_temperature`, `npu_bandwidth`, `npu_memory_mb` and `npu_frequency_max_mhz`
+  with W, actual Hz, Celsius, decimal MB/s, binary MiB and MHz respectively.
+  DRAM display/charts use
+  decimal GB/s. Standard Telegraf fields, percentage semantics and existing
+  alert thresholds are unchanged. Upgrade collectors, TUI and custom queries
+  together using the [breaking-change migration guide](./get-started/native-metric-migration.md),
+  also included in the bare-metal package.
+- **Plugin-first delivery**: uses the shared, SHA-256-verified official
+  Telegraf 1.40.3 archive and native Go collector implementation across Docker
+  and the bare-metal package. The digest-pinned native Go toolchain is 1.27.3.
+  The official Telegraf binary also embeds Go 1.27.3; it is not rebuilt locally.
+- **Python dependencies**: aligns runtime and development dependencies with
+  upstream, including FastAPI 0.143.1 and Uvicorn 0.54.0. OpenVINO remains an
+  optional build extra. Resolution follows the existing manifest-based build;
+  this change does not introduce a Python lockfile.
+- **Security updates**: uses a shared, digest-pinned Debian 13 Python base and
+  applies available Debian package updates. Build proxy values are no longer
+  retained in image history; explicit runtime proxy configuration remains
+  supported. Available updates do not guarantee that remaining Debian
+  vulnerabilities have fixes. See the [release validation gate](./get-started/testing.md#release-validation-scope).
+- **RC identity**: separates the default `2026.3.0-rc1` and extended
+  `2026.3.0-extended-rc1` images. API/log identity and native binary versions
+  follow the build tag, while the project and Debian package stay at 2026.3.0.
+  A runtime service-version override affects API/log identity only.
 
-- **Telegraf configuration directory**: Telegraf now also loads `/etc/telegraf/active.d`, which the entrypoint assembles at startup from the enabled drop-ins in `telegraf.d/`. With every toggle off the directory is empty.
-- **Safer optional collectors**: Turbostat is skipped with a warning when its binary or `/dev/cpu/0/msr` is not usable, and the DRAM bandwidth, RAPL and GPU throttle readers idle and log their reason instead of failing.
+**Fixed**
 
-**Fixed:**
+- **Native NPU measurements**: corrects PLL decoding for MTL/ARL/LNL/PTL and
+  bandwidth rates using actual elapsed time with single-wrap correction.
+  **Breaking unit correction:** the unchanged `npu_frequency` contains real Hz, not the
+  legacy MHz-scale number. Divide by `1e6` in queries that need MHz. Unsupported
+  utilization/memory readings are omitted instead of publishing artificial
+  zero/negative values. Presence-based memory detection, busy-counter reset
+  handling, power state and the frequency ceiling are retained.
+- **NPU diagnostics and recovery**: invalid intervals drop the sample without
+  changing counter baselines. Every busy-time or memory read/parse failure is
+  reported to stderr; a missing busy-time attribute is reported once at startup,
+  while a missing memory node remains silent. Stdout stays Line Protocol only.
+  TUI tests cover measured zero, unavailable data and recovery. ViPPET UI and
+  benchmark ingestion use the planned NPU names with explicit display conversions;
+  report column units remain unchanged.
+- **Stale NPU series**: container, bare-metal and ViPPET Prometheus exports
+  expire inactive series after 15 seconds. Other fields do not refresh omitted
+  fields' timestamps; SSE forwards the reduced snapshot after expiration.
+  Allow flush/poll latency. Expiration applies to all series; custom inputs
+  slower than this window need a longer `expiration_interval`.
+- **OTLP histogram ingestion**: stores count and available finite summary
+  statistics, aggregation temporality and typed attributes; parses integer
+  strings without float conversion. Invalid numeric points are reported and
+  skipped independently. Histogram buckets are not stored. Tagged series remain
+  distinct through the API and Prometheus export.
+- **GPU capability registry**: adds the upstream Xe3/Xe3p platform entries and
+  corrects Battlemage, Lunar Lake and Arrow Lake IDs. These are inferred
+  capabilities; a listed minimum kernel does not guarantee that a device is
+  enabled or supported by the installed runtime.
 
-- **Arrow Lake NPU Frequency**: Arrow Lake now uses the MTL buttress formula (`ratio * 50 MHz * 2 / 3`), matching the `intel_vpu` kernel driver, instead of the LNL formula that under-reported the clock by 25%.
-- **NPU Bandwidth Rate**: `npu_bandwidth` is now an MB/s rate (NoC bandwidth counter delta divided by the actual elapsed sampling interval) instead of the raw delta per ~1 s polling loop, so polling jitter no longer skews it. A single wrap of the underlying 32-bit counter between two samples is corrected instead of being reported as a large negative value. A counter reset, or more than one wrap within one interval, can't be detected.
-- **NPU Monitor CLI Output**: The bundled `npu_monitor_tool` CLI now displays the NPU clock in `[MHz]` (previously the MHz number labelled `[Hz]`). Its console and CSV `bandwidth` are now an MB/s rate over the actual elapsed time; previously they were the raw per-interval delta, divided by 1024 (GB) whenever the cumulative counter exceeded 1024, so the CSV column mixed MB and GB. The CSV `utilization` and `memory_usage` cells are now empty (console `N/A`) instead of `0` / `-1.00` when the platform can't measure them.
-- **No More Fake Sentinel Values**: `npu_utilization` is omitted from the emitted sample (instead of a fake `0`) when `npu_busy_time_us` isn't exposed by the platform or can't be read. `npu_memory_mb` is omitted (instead of a fake `-1`) on platforms before Panther Lake (Meteor Lake, Arrow Lake, Lunar Lake), and on Panther Lake when the `npu_memory_utilization` node is missing or can't be read. Consumers should treat a missing field as "not measured", not as a real zero/negative reading.
+- **Multisocket memory bandwidth**: honors each IMC PMU's CPU affinity instead
+  of assuming a single CPU can access counters on every socket.
+- **Asynchronous resource cleanup**: tracks and cancels pending HTTP pushes
+  before closing the forwarding session, including exceptional shutdown paths.
+  Timestamp handling preserves epoch zero and structured timestamp precision.
+- **CORS validation**: rejects malformed JSON arrays and non-string array
+  entries rather than silently treating them as another configuration format.
+- **Debian package dependencies**: declares the account-management, systemd,
+  module-loading and runtime-library prerequisites needed for installation.
+
+---
 
 ## Version 2026.2.0
 
@@ -41,12 +121,19 @@
 
 **Improved:**
 
-- **Telegraf 1.38.4 Built from Source**: Compiled from the upstream `v1.38.4` tag using a digest-pinned Go 1.26.4 toolchain. Patches vulnerable bundled dependencies (`rclone` → 1.73.5, `go-billy` → 5.9.0), remediating known CVEs and producing a fully reproducible build.
+- **Native Go Telemetry Plugins**: The CPU, Intel® GPU and Intel® NPU collectors are now single static Go binaries (`mm-plugin-cpu`, `mm-plugin-gpu`, `mm-plugin-npu`) in `/usr/libexec/metrics-manager/`, replacing the previous shell and Python readers. Output is unchanged for existing series, so dashboards and Prometheus queries keep working. The same binaries are shipped by the bare-metal package, so a container and a native install report identical metrics from one codebase.
+  - **New GPU series**: per-tile frequency and throttle reasons, GPU memory, and GPU temperature. Multi-tile parts such as Meteor Lake now report every graphics tile instead of only the first, so `gpu_frequency` carries an additional `tile` label.
+  - **New CPU series**: `cpu_core_class` breaks frequency and utilisation down by P, E and low-power-E cores.
+  - **Opt-in per-process GPU usage**: `mm-plugin-gpu -clients` emits a `gpu_client` measurement tagged by PID. It is excluded from the Prometheus endpoint by default, because one series per process is unbounded cardinality.
+- **Telegraf 1.39.3**: The official upstream release archive is used and verified against a pinned SHA-256 digest before extraction, so a tampered or truncated download fails the build.
+- **Pinned Third-Party Versions**: All third-party component versions live in a single `versions.env`, mirrored into the `Dockerfile` and enforced by tests, so the container and the bare-metal package cannot drift apart.
 - **qmassa 2.1.0 and qmmd 0.2.0**: Installed with `cargo install --locked --git … --tag …` from upstream instead of crates.io, preventing build failures from yanked versions and bringing the latest Intel® GPU telemetry improvements.
 - **Security Hardening**: Several attack-surface reductions in the production image: `supervisor` installed via `pip` (4.3.0), `perl-base` purged, `curl` removed (healthcheck replaced with a Python one-liner), and supervisord's Unix socket configured with an explicit user/password placeholder.
 - **Build and Developer Loop**: Go module and build caches added to the `Dockerfile`, with leaner service startup/shutdown in `Makefile` and `compose.yaml` for shorter `make test` and `docker compose up/down` turnaround.
 - **Documentation**: Capabilities endpoint documented in the API reference, updated system requirements, corrected links and release-branch references, improved cross-linking, and an expanded troubleshooting section.
 - **Test Coverage**: New tests for the capabilities endpoint and response model, plus additional route and application wiring tests.
+
+---
 
 ## Version 2026.1.0
 
@@ -140,16 +227,20 @@ None at this release. See GitHub issues for feature requests and discussions.
 
 ### Current Image
 
-- Intel® Metrics Manager **2026.2.0**
-- Telegraf **1.39.3** (system metrics agent)
-- qmassa **1.3.1** (Intel® GPU telemetry via named pipe)
-- qmmd **0.1.1** _(optional)_ — Lightweight Prometheus GPU exporter (bundled but **not started by default**; use only if you need a separate GPU metrics port)
-- Intel® NPU telemetry via bundled `npu_monitor_tool` / `npu_reader`
+- Intel® Metrics Manager **2026.3.0** (unreleased target)
+- Telegraf **1.40.3** (official system metrics agent)
+- qmassa **2.1.0** (Intel® GPU telemetry via named pipe)
+- qmmd **0.2.0** _(optional)_ — Lightweight Prometheus GPU exporter (bundled but **not started by default**; use only if you need a separate GPU metrics port)
+- Native Go collectors `mm-plugin-cpu`, `mm-plugin-gpu`, `mm-plugin-npu`,
+  `mm-plugin-proc`, `mm-plugin-membw` and opt-in `mm-plugin-rapl` in `/usr/libexec/metrics-manager/`
 - Python **3.12** runtime + FastAPI service
 - supervisord process supervisor
 
 > [!NOTE]
-> **Note on qmmd:** The default Metrics Manager already collects GPU metrics via `qmassa_reader.py` and Telegraf. Enable qmmd only if you need a standalone Prometheus exporter on a separate port. See [Environment Variables](./get-started/environment-variables.md#optional-components) for details.
+> The default Metrics Manager already collects GPU metrics via qmassa,
+> `mm-plugin-gpu` and Telegraf. Enable qmmd only if you need a standalone
+> Prometheus exporter on a separate port. See
+> [Environment Variables](./get-started/environment-variables.md#optional-components).
 
 ## Support Matrix
 
@@ -188,7 +279,12 @@ No breaking changes. All existing endpoints remain compatible.
 
 ## Disclaimer
 
-This container image is intended for demo and evaluation purposes and is not hardened for production deployments out of the box. To receive expanded security maintenance from Canonical on the Python/Debian base layer, you may follow the relevant Ubuntu Pro / vendor guidance and rebuild the image from the published `Dockerfile`.
+This container image is intended for demo and evaluation purposes and is not
+hardened for production deployments out of the box. Its base layer uses Debian;
+follow [Debian security advisories](https://www.debian.org/security/) and rebuild
+and rescan the final images when updates are available. Ubuntu Pro coverage
+does not apply to this Debian image. Functional validation does not establish
+that all vulnerabilities are fixed or that a deployment is production-ready.
 
 ## License
 

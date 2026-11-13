@@ -39,6 +39,47 @@ export interface MetricHistoryPoint {
 
 const MAX_HISTORY_WINDOW_MS = 60_000;
 
+export const createMetricHistoryPoint = (
+  metrics: ReturnType<typeof useMetrics>,
+  timestamp: number,
+): MetricHistoryPoint => {
+  const gpus: Record<string, GpuMetrics> = {};
+  metrics.availableGpuIds.forEach((gpuId) => {
+    const gpuMetric = metrics.gpuDetailedMetrics[gpuId];
+    gpus[gpuId] = {
+      compute: gpuMetric?.compute,
+      render: gpuMetric?.render,
+      copy: gpuMetric?.copy,
+      video: gpuMetric?.video,
+      videoEnhance: gpuMetric?.videoEnhance,
+      frequency: gpuMetric?.frequency,
+      gpuPower: gpuMetric?.gpuPower,
+      pkgPower: gpuMetric?.pkgPower,
+    };
+  });
+  return {
+    timestamp,
+    fps: metrics.fps,
+    cpu: metrics.cpu,
+    cpuUser: metrics.cpuDetailed.user,
+    cpuIdle: metrics.cpuDetailed.idle,
+    cpuAvgFrequency: metrics.cpuDetailed.avgFrequency,
+    cpuTemp: metrics.cpuDetailed.temp,
+    memory: metrics.memory,
+    npuUsage: metrics.npu,
+    npuFrequency: metrics.npuDetailed.frequency,
+    npuPower: metrics.npuDetailed.power,
+    npuTemperature: metrics.npuDetailed.temperature,
+    latencyAvg: metrics.latency?.avgMs,
+    latencyMin: metrics.latency?.minMs,
+    latencyMax: metrics.latency?.maxMs,
+    vlmTtftMs: metrics.vlm?.ttftMs,
+    vlmTpotMs: metrics.vlm?.tpotMs,
+    vlmGenerateDurationMs: metrics.vlm?.generateDurationMs,
+    gpus,
+  };
+};
+
 export const useMetricHistory = () => {
   const metrics = useMetrics();
   const isConnected = useAppSelector(selectIsConnected);
@@ -59,63 +100,13 @@ export const useMetricHistory = () => {
     lastUpdateRef.current = now;
 
     setHistory((prev) => {
-      const gpus: Record<string, GpuMetrics> = {};
-      metrics.availableGpuIds.forEach((gpuId) => {
-        const gpuMetric = metrics.gpuDetailedMetrics[gpuId];
-        gpus[gpuId] = {
-          compute: gpuMetric?.compute,
-          render: gpuMetric?.render,
-          copy: gpuMetric?.copy,
-          video: gpuMetric?.video,
-          videoEnhance: gpuMetric?.videoEnhance,
-          frequency: gpuMetric?.frequency,
-          gpuPower: gpuMetric?.gpuPower,
-          pkgPower: gpuMetric?.pkgPower,
-        };
-      });
-
-      const newPoint: MetricHistoryPoint = {
-        timestamp: now,
-        fps: metrics.fps,
-        cpu: metrics.cpu,
-        cpuUser: metrics.cpuDetailed.user,
-        cpuIdle: metrics.cpuDetailed.idle,
-        cpuAvgFrequency: metrics.cpuDetailed.avgFrequency,
-        cpuTemp: metrics.cpuDetailed.temp,
-        memory: metrics.memory,
-        npuUsage: metrics.npu || undefined,
-        npuFrequency: metrics.npuDetailed.frequency,
-        npuPower: metrics.npuDetailed.power,
-        npuTemperature: metrics.npuDetailed.temperature,
-        latencyAvg: metrics.latency?.avgMs,
-        latencyMin: metrics.latency?.minMs,
-        latencyMax: metrics.latency?.maxMs,
-        vlmTtftMs: metrics.vlm?.ttftMs,
-        vlmTpotMs: metrics.vlm?.tpotMs,
-        vlmGenerateDurationMs: metrics.vlm?.generateDurationMs,
-        gpus,
-      };
+      const newPoint = createMetricHistoryPoint(metrics, now);
 
       const updated = [...prev, newPoint];
       const cutoff = now - MAX_HISTORY_WINDOW_MS;
       return updated.filter((point) => point.timestamp >= cutoff);
     });
-  }, [
-    isConnected,
-    metrics.fps,
-    metrics.cpu,
-    metrics.cpuDetailed.user,
-    metrics.cpuDetailed.idle,
-    metrics.cpuDetailed.avgFrequency,
-    metrics.cpuDetailed.temp,
-    metrics.memory,
-    metrics.npu,
-    metrics.npuDetailed,
-    metrics.availableGpuIds,
-    metrics.gpuDetailedMetrics,
-    metrics.latency,
-    metrics.vlm,
-  ]);
+  }, [isConnected, metrics]);
 
   return history;
 };

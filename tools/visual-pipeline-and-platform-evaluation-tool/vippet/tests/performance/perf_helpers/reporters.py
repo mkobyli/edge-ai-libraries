@@ -27,7 +27,7 @@ _KEY_TO_FAMILY: dict[str, str] = {
 
 
 def _family_for_column(column: str) -> str | None:
-    """Map a CSV column like ``npu_utilization_avg`` back to its device family."""
+    """Map an aggregated metric column back to its hardware family."""
     for suffix in ("_avg", "_max"):
         if column.endswith(suffix):
             return _KEY_TO_FAMILY.get(column[: -len(suffix)])
@@ -126,16 +126,16 @@ class CSVReporter:
                 hw = tc.get("hw_metrics", {}) or {}
                 kpi_status = hw.get("kpi_status", {}) or {}
 
-                def _f(key: str) -> str:
-                    v = hw.get(key)
-                    if v is not None:
-                        return f"{v:.2f}"
-                    # No numeric value: if this column belongs to a family
-                    # that never reported a single sample, say so explicitly
-                    # instead of leaving a blank cell that looks like a
-                    # formatting bug.
+                def _f(
+                    key: str,
+                    metrics: dict[str, Any] = hw,
+                    statuses: dict[str, str] = kpi_status,
+                ) -> str:
+                    value = metrics.get(key)
+                    if value is not None:
+                        return f"{value:.2f}"
                     family = _family_for_column(key)
-                    if family and kpi_status.get(family) == "no_samples":
+                    if family and statuses.get(family) == "no_samples":
                         return "NO_SAMPLES"
                     return ""
 
@@ -1013,7 +1013,7 @@ def generate_html_report(runs: list[dict[str, Any]]) -> str:
                 <th style="text-align:right">GPU Util</th><th style="text-align:right">GPU Freq</th>
                 <th style="text-align:right">GPU Power</th><th style="text-align:right">GPU Peak</th>
                 <th style="text-align:right">Pkg Power</th>
-                <th style="text-align:right">NPU Util</th><th style="text-align:right">NPU Freq</th><th style="text-align:right">NPU Power</th>
+                <th style="text-align:right">NPU Util</th><th style="text-align:right">NPU Freq (MHz)</th><th style="text-align:right">NPU Power</th>
                 <th style="text-align:right">CPU Util</th><th style="text-align:right">CPU Temp</th><th style="text-align:right">CPU Temp Peak</th>
               </tr></thead>
               <tbody>{"".join(table_rows_html)}</tbody>

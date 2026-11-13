@@ -9,7 +9,7 @@
 - RHEL 9 or newer
 - Any Linux distribution with kernel 5.4+
 
-The shipped Docker build targets **Linux/amd64**.
+The shipped Docker build and bare-metal package target **Linux/amd64**.
 Telemetry uses Linux-specific paths (`/sys`, `/proc`, `/dev/dri`). Running
 Docker inside a VM on another operating system exposes the VM's environment,
 not the physical host's Windows or macOS telemetry.
@@ -118,7 +118,7 @@ If GPU is absent, qmassa logs `No DRM devices found` and exits gracefully. Other
   collector does not publish `-1` as a substitute for unavailable memory.
 
 See the [native metric migration guide](./native-metric-migration.md) for
-field names and display conversions.
+field names and TUI display conversions.
 
 If NPU is absent or driver is not loaded, the NPU reader logs a warning and enters idle mode. Other metrics continue normally.
 

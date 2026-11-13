@@ -219,6 +219,7 @@ test: build-test ## Run unit tests and generate coverage report
 		OUTPUT_VIDEO_DIR=/tmp \
 		METADATA_DIR=/tmp \
 		python -m coverage run --branch --source=./ --data-file=/tmp/.vippet-coverage -m unittest discover -v -s ./tests/unit -p '*_test.py' && \
+		python -m coverage run --append --branch --source=./ --data-file=/tmp/.vippet-coverage -m pytest -q -p no:cacheprovider ./tests/unit/perf_helpers_test.py && \
 		python -m coverage report --data-file=/tmp/.vippet-coverage --show-missing --skip-covered --omit=*/config-3.py,*/config.py,*_test.py && \
 		python -m coverage html --data-file=/tmp/.vippet-coverage --directory=/tmp/.vippet-coverage-html --omit=*/config-3.py,*/config.py,*_test.py"
 

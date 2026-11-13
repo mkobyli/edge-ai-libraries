@@ -11,17 +11,17 @@ benchmark artefacts.
 import contextlib
 import dataclasses
 import logging
-import httpx
 import os
 import sys
 import time
-import pytest
 from collections.abc import Callable, Generator
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from dataclasses import dataclass, field
+import httpx
+import pytest
 from perf_helpers.hw_monitor import HardwareMonitor
 from perf_helpers.job_outcome import describe_missing_hw_samples
 from perf_helpers.preflight import (
@@ -51,8 +51,8 @@ try:
         REQUEST_TIMEOUT,
         RESULT_FORMATS,
         SAVE_LOG,
-        SKIP_MISSING_MODELS,
         SETTINGS,
+        SKIP_MISSING_MODELS,
         STREAM_COUNTS,
     )
 except SettingsError as exc:

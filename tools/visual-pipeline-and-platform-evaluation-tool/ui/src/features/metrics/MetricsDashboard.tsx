@@ -215,7 +215,7 @@ export const MetricsDashboard = ({
 
   const npuData = history.map((point) => ({
     timestamp: point.timestamp,
-    usage: point.npuUsage ?? 0,
+    usage: point.npuUsage,
   }));
 
   const npuPowerData = history.map((point) => ({
@@ -228,7 +228,8 @@ export const MetricsDashboard = ({
     frequency: point.npuFrequency ?? 0,
   }));
 
-  const hasNpuData = hasNpu || npuData.some((point) => point.usage > 0);
+  const hasNpuData =
+    hasNpu || npuData.some((point) => point.usage !== undefined);
 
   const latencyData = history.map((point) => ({
     timestamp: point.timestamp,
@@ -386,7 +387,7 @@ export const MetricsDashboard = ({
         {hasNpuData && !isSummary && (
           <MetricCard
             title="NPU Usage"
-            value={npuData.at(-1)?.usage ?? 0}
+            value={liveMetrics.npu}
             unit="%"
             icon={<Gpu className="h-6 w-6 text-geode-chart" />}
             isSummary={isSummary}

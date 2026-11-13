@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -72,6 +71,8 @@ func NewCollector(sysfsRoot, hostname string) (*Collector, error) {
 	busyPath := filepath.Join(devPath, "npu_busy_time_us")
 	if _, err := os.Stat(busyPath); err == nil {
 		collector.busyPath = busyPath
+	} else if os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "mm-plugin-npu: npu_busy_time_us not found at %s; utilization will be omitted\n", busyPath)
 	}
 
 	// Memory utilisation and the frequency ceiling come from the driver
@@ -115,7 +116,7 @@ func NewCollector(sysfsRoot, hostname string) (*Collector, error) {
 func (c *Collector) BusyTimeSupported() bool { return c.busyPath != "" }
 
 // MemoryUtilisationSupported reports whether NPU memory usage is exposed. When
-// false, the memory_bytes field is omitted.
+// false, the memory_mb field is omitted.
 func (c *Collector) MemoryUtilisationSupported() bool { return c.memoryPath != "" }
 
 // Gen reports the detected SoC generation.
@@ -130,7 +131,7 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 	sampleTime := c.now()
 	elapsed := sampleTime.Sub(c.prevTime).Seconds()
 	if elapsed <= 0 {
-		return nil, fmt.Errorf("NPU sampling interval must be positive, got %s", sampleTime.Sub(c.prevTime))
+		return nil, fmt.Errorf("non-positive NPU sampling interval: %s", sampleTime.Sub(c.prevTime))
 	}
 	c.prevTime = sampleTime
 
@@ -148,18 +149,23 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 	}
 	c.prevBandwidth = bandwidth
 
-	fields := []lineproto.Field{
-		lineproto.FloatField("power_w", power),
-		lineproto.FloatField("frequency_hz", c.telemetry.FrequencyHz()),
-		lineproto.IntField("temperature_c", int64(c.telemetry.TemperatureC())),
-		lineproto.FloatField("bandwidth_bytes_per_second", bandwidthDelta/elapsed),
-		lineproto.IntField("tile_config", int64(c.telemetry.TileConfig())),
+	fields := make([]lineproto.Field, 0, 9)
+	if power >= 0 {
+		fields = append(fields, lineproto.FloatField("power", power))
 	}
+	fields = append(fields,
+		lineproto.FloatField("frequency", c.telemetry.FrequencyHz()),
+		lineproto.IntField("temperature", int64(c.telemetry.TemperatureC())),
+	)
+	if c.telemetry.regs.memoryBW >= 0 {
+		fields = append(fields, lineproto.FloatField("bandwidth", bandwidthDelta/elapsed/1e6))
+	}
+	fields = append(fields, lineproto.IntField("tile_config", int64(c.telemetry.TileConfig())))
 	if utilization, ok := c.utilization(elapsed); ok {
 		fields = append(fields, lineproto.IntField("utilization", utilization))
 	}
 	if memory, ok := c.memoryBytes(); ok {
-		fields = append(fields, lineproto.NumberField("memory_bytes", strconv.FormatUint(memory, 10)))
+		fields = append(fields, lineproto.FloatField("memory_mb", float64(memory)/1024/1024))
 	}
 	fields = append(fields, lineproto.IntField("power_state", c.powerState()))
 
@@ -167,7 +173,7 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 	// is omitted rather than reported as zero where the driver does not
 	// publish it.
 	if maxFreq, ok := c.maxFrequencyMHz(); ok {
-		fields = append(fields, lineproto.FloatField("frequency_max_hz", maxFreq*1e6))
+		fields = append(fields, lineproto.FloatField("frequency_max_mhz", maxFreq))
 	}
 
 	return []lineproto.Point{{
@@ -205,20 +211,23 @@ func (c *Collector) powerState() int64 {
 }
 
 // utilization returns the share of the interval the NPU spent busy, as a
-// truncated percentage capped at 100.
+// truncated percentage capped at 100, and whether it is measurable.
 func (c *Collector) utilization(elapsed float64) (int64, bool) {
+	if elapsed <= 0 {
+		return 0, false
+	}
 	busyUS, ok := c.readBusyUS()
 	prevBusyUS, hadPrev := c.prevBusyUS, c.hasPrevBusy
 	c.prevBusyUS, c.hasPrevBusy = busyUS, ok
 
-	if !ok || !hadPrev || elapsed <= 0 {
+	if !ok || !hadPrev {
 		return 0, false
 	}
 
 	// The counter resets when the NPU driver reloads. A negative delta is
-	// meaningless, so report idle rather than a large negative number.
+	// meaningless, so omit utilisation until the next valid interval.
 	if busyUS < prevBusyUS {
-		return 0, true
+		return 0, false
 	}
 
 	percent := 100 * float64(busyUS-prevBusyUS) / (elapsed * 1e6)
@@ -235,7 +244,9 @@ func (c *Collector) memoryBytes() (uint64, bool) {
 	}
 	bytes, err := readUint(c.memoryPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "mm-plugin-npu: omitting memory usage:", err)
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "mm-plugin-npu: warning: Failed to read npu_memory_utilization: %v\n", err)
+		}
 		return 0, false
 	}
 	return bytes, true
@@ -263,7 +274,7 @@ func (c *Collector) readBusyUS() (uint64, bool) {
 	}
 	value, err := readUint(c.busyPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "mm-plugin-npu: omitting utilization:", err)
+		fmt.Fprintf(os.Stderr, "mm-plugin-npu: warning: Failed to read npu_busy_time_us: %v\n", err)
 		return 0, false
 	}
 	return value, true

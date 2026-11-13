@@ -67,3 +67,7 @@ TIMESERIES_UID=2999
 TIMESERIES_USER_NAME=timeseries_user
 VIDEO_GID=${VIDEO_GID}
 EOF
+
+if [ -f .env.images ]; then
+    cat .env.images >> .env
+fi

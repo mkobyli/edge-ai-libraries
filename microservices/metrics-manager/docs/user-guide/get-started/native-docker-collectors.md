@@ -3,44 +3,90 @@ SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Additional Collectors in the Native-Enabled Docker Image
+# Additional collectors in the native-enabled Docker image
 
 This guide applies to the native Go collector image targeting **2026.3.0**
 (currently unreleased). Build locally until the image is published.
-Configure this image through its environment variables and mounted Telegraf
-drop-ins, as described below.
+The [bare-metal package](./bare-metal-package.md) continues to use
+`native/metrics-options.conf` and `native/configure-metrics.sh`; those tools
+configure systemd, not Docker.
 
-## Default and Optional Inputs
+## Default and optional inputs
 
-The shipped `telegraf.conf` still starts CPU, GPU, NPU, process, and
-memory-bandwidth collectors, alongside Telegraf CPU, memory, package-temperature,
+The shipped `telegraf.conf` still starts CPU, GPU, NPU, process and
+memory-bandwidth collectors, alongside Telegraf CPU, memory, package-temperature
 and base `intel_powerstat` package-power/C-state inputs. GPU throttle/frequency
 detail is already part of the native GPU collector. Optional flags do not
 disable this baseline.
 
-Memory bandwidth uses the `cpumask` of each integrated memory controller (IMC)
-performance monitoring unit (PMU) to cover its representative CPUs across
-dies/sockets, not a fixed CPU 0. It retains one host-total series set and refuses
-partial totals on controller errors. The container must see the relevant PMU sysfs
-entries and have perf access under the host policy. No new mount, capability, or
-automatic privilege escalation is introduced.
+Memory bandwidth uses each IMC PMU's `cpumask` to cover its representative
+CPUs across dies/sockets, not a fixed CPU 0. It retains one host-total series
+set and refuses partial totals on controller errors. The same
+[PMU discovery and diagnostics](./bare-metal-package.md#when-something-is-missing)
+apply in Docker: the container must see the relevant PMU sysfs entries and have
+perf access under the host policy. No new mount, capability or automatic
+privilege escalation is introduced.
 
 The following flags default to **false** in the default bridge deployment.
 The opt-in host-NIC variant defaults only `ENABLE_NETWORK` to **true**; an
 explicit `false` overrides it. Docker accepts only lowercase
-`true` or `false`: `auto`, empty strings, numeric values, and other spellings
-are startup errors.
+`true` or `false`: `auto`, empty strings, numeric values and other spellings
+are startup errors. Bare-metal `auto` still means "leave existing configuration
+unchanged"; it has no Docker equivalent.
 
-| Flag                     | Additional coverage                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------- |
-| `ENABLE_RAPL`            | Native RAPL package/platform (`psys`) power                                           |
+| Flag | Additional coverage |
+|---|---|
+| `ENABLE_RAPL` | Native RAPL package/platform (`psys`) power |
 | `ENABLE_POWERSTAT_EXTRA` | Per-CPU frequency and temperature, without repeating baseline package/C-state metrics |
-| `ENABLE_TURBOSTAT`       | IPC, SMI, and other Turbostat diagnostics; requires the explicit binary mount below   |
-| `ENABLE_TEMPERATURE`     | 100 ms package-temperature samples and 1 s minimum, maximum, and mean                 |
-| `ENABLE_INTERRUPTS`      | Numbered device IRQ counters, including per-CPU series                                |
-| `ENABLE_NETWORK`         | Primary eth*/en* traffic and NIC driver counters in the container's network namespace |
-| `ENABLE_NETWORK_VIRTUAL` | Separate veth/lxc traffic and driver counters, independent of `ENABLE_NETWORK`        |
-| `ENABLE_STORAGE`         | Filesystem usage and disk I/O; serial/WWID export disabled                            |
+| `ENABLE_TURBOSTAT` | IPC, SMI and other Turbostat diagnostics; requires the explicit binary mount below |
+| `ENABLE_TEMPERATURE` | 100 ms package-temperature samples and 1 s min/max/mean |
+| `ENABLE_INTERRUPTS` | Numbered device IRQ counters, including per-CPU series |
+| `ENABLE_NETWORK` | Primary eth*/en* traffic and NIC driver counters in the container's network namespace |
+| `ENABLE_NETWORK_VIRTUAL` | Separate veth/lxc traffic and driver counters, independent of `ENABLE_NETWORK` |
+| `ENABLE_STORAGE` | Filesystem usage and disk I/O; serial/WWID export disabled |
+
+## NPU metric units and availability
+
+The native `mm-plugin-npu` collector retains `frequency` in actual **Hz**;
+Telegraf exports it as `npu_frequency`. The PLL conversion is ratio times
+50 MHz times 2/3 on Meteor Lake and Arrow Lake, and ratio times 50 MHz divided
+by 2 on Lunar Lake and Panther Lake. For example, Arrow Lake ratio 48 emits
+`frequency=1600000000`. The driver-provided ceiling is exported as
+`frequency_max_mhz` in **MHz**, and `power_state` retains its PCI D-state encoding.
+Power and temperature retain `power` in W and `temperature` in degrees Celsius.
+
+This corrects the older plugin's display-scaled frequency. Consumers displaying
+MHz must divide `npu_frequency` by `1_000_000`;
+do not infer the unit from its magnitude. Deploy the corrected collector
+together with compatible consumers. Historical values from older plugin
+versions have the old scale and must not be interpreted as actual Hz.
+
+`bandwidth` is decimal **MB/s**, calculated from the byte traffic delta divided
+by the actual elapsed seconds and `1_000_000`, with correction for a 32-bit counter wrap.
+A non-positive interval drops the sample with a diagnostic on stderr and
+leaves the previous counter baseline intact.
+
+`utilization` and `memory_mb` are omitted when their sysfs readings are
+unavailable or invalid; measured zero is still emitted. Memory support is
+detected by sysfs availability, regardless of SoC generation. The existing
+`memory_mb` field divides the driver's byte count by `1_048_576` to obtain
+binary MiB without rounding, despite the historical `_mb` spelling.
+After a busy-time read failure or counter reset, utilisation resumes only
+after a valid baseline and a subsequent valid reading.
+
+Omitted fields do not immediately remove previously exported series.
+The shipped container and bare-metal configurations set Telegraf's
+`expiration_interval` to `15s`, independently for each series. SSE preserves
+the last sample timestamp until the series expires, then omits it from the
+next snapshot. Allow for flush and polling latency. This window also applies
+to non-NPU series and accommodates the default 10-second custom scripts;
+increase it if custom inputs run less frequently.
+
+The same native collector is used in the bare-metal package. Its command-line
+options, Line Protocol output, stderr diagnostics and no-hardware idle
+behaviour are unchanged; no Python reader is required.
+
+## Enabling optional inputs
 
 For example, from the component directory:
 
@@ -51,11 +97,11 @@ docker compose logs --tail=100 metrics-manager
 ```
 
 Set persistent choices in `.env`. Compose explicitly passes these settings into
-the container. With plain `docker run`, pass them using options such as
-`-e ENABLE_RAPL=true`. The legacy Python-image names such as `ENABLE_RAPL_POWER`,
-`ENABLE_DRAM_BW`, and `ENABLE_PSYS_POWER` are not aliases.
+the container. With plain `docker run`, pass them using `-e ENABLE_RAPL=true`,
+etc. The legacy Python-image names such as `ENABLE_RAPL_POWER`, `ENABLE_DRAM_BW`
+and `ENABLE_PSYS_POWER` are not aliases.
 
-## Configuration Loading and Customization
+## Configuration loading and customization
 
 At startup the entrypoint:
 
@@ -93,21 +139,21 @@ same plugins. Keep those additions manual when using custom selections.
 The shipped baseline temperature/powerstat inputs and their optional additions
 are intentionally distinct and can coexist.
 
-### Selection, Export Volume, and Identifiers
+### Selection, export volume and identifiers
 
 The primary example selects `eth*`/`en*` in both `net` and `ethtool`; the
 virtual example selects `veth*`/`lxc*` in both, without entering another network
 namespace. Names do not prove physical NICs: bridge-mode `eth0` is often virtual.
-For bond, bridge, wireless, or custom names, edit both interface lists in your
+For bond, bridge, wireless or custom names, edit both interface lists in your
 manual drop-ins. Avoid overlapping selections or summing traffic across layers.
 On upgrade, a custom primary `interfaces = []` includes virtual links; narrow
 it before adding the virtual traffic block. Existing virtual drop-ins are not
 rewritten and remain driver-only until edited.
 
 For storage, set `inputs.disk.mount_points` and `inputs.diskio.devices` in a
-manual copy; RAID, partitions, and device-mapper remain selectable. Defaults
+manual copy; RAID, partitions and device-mapper remain selectable. Defaults
 retain all disk I/O layers except loop/ram, not a cross-layer aggregate.
-The bundled example uses `skip_serial_number = true`, `device_tags = ["ID_MODEL"]`,
+The bundled example uses `skip_serial_number = true`, `device_tags = ["ID_MODEL"]`
 and `tagexclude = ["serial", "wwid"]`. Review existing mounted copies separately:
 they are **not** automatically made private. For explicit serial/WWID opt-in,
 set `skip_serial_number = false`, remove those tags from `tagexclude`, and
@@ -117,18 +163,20 @@ Disabling future export does not erase existing downstream data.
 IRQs retain total and per-CPU fields (`cpu_as_tag = false`): D numbered IRQs on
 C CPUs create roughly D * (C + 1) series per host. Add `fieldinclude = ["total"]`
 before the example's `tagpass` table only if you deliberately want total-only
-export. Dashboard row/device/interface limits never reduce exported series or
-hide identifiers from the API; configure selection in the collector drop-ins.
+export. TUI row/device/interface limits never reduce exported series or hide
+identifiers from the API. See the
+[selection and privacy guidance](./bare-metal-package.md#optional-storage-monitoring)
+for mount/device selection, metadata opt-in and the display/export distinction.
 
-### Applying Changed Configuration
+### Applying changed configuration
 
 `false` means **do not add the bundled configuration**; it does not remove a
 user-configured input. You remain responsible for avoiding duplicates between
 your own files, including wrappers around native executables, and for keeping
-one agent, Prometheus output, and HTTP listener.
+one agent, Prometheus output and HTTP listener.
 
 The container snapshots drop-ins at startup; there is no hot reload. After
-changing configuration, flags, or mounts, recreate it:
+changing configuration, flags or mounts, recreate it:
 
 ```bash
 docker compose up -d --no-build --force-recreate metrics-manager
@@ -136,15 +184,15 @@ docker compose up -d --no-build --force-recreate metrics-manager
 
 An ordinary `docker compose restart` does not apply changed environment values.
 
-## Compose Deployment Variants
+## Compose deployment variants
 
 There are exactly two runtime variants; both use the same image, native plugins,
-configuration mounts, and existing hardware access settings:
+configuration mounts and existing hardware access settings:
 
-| Service                    | Profile              | Network | Automatic network addition       |
-| -------------------------- | -------------------- | ------- | -------------------------------- |
-| `metrics-manager`          | Default (no profile) | Bridge  | Off                              |
-| `metrics-manager-host-nic` | `host-nic-telemetry` | Host    | On unless `ENABLE_NETWORK=false` |
+| Service | Profile | Network | Automatic network addition |
+|---|---|---|---|
+| `metrics-manager` | Default (no profile) | Bridge | Off |
+| `metrics-manager-host-nic` | `host-nic-telemetry` | Host | On unless `ENABLE_NETWORK=false` |
 
 The `test` profile remains a separate development test runner, not a third
 deployment variant. There are no per-collector profiles.
@@ -189,20 +237,20 @@ flag false to avoid a startup conflict with the automatic input.
 Virtual veth/lxc traffic and driver collection still requires
 `ENABLE_NETWORK_VIRTUAL=true`.
 
-### Ports, URLs, and Exposure
+### Ports, URLs and exposure
 
-In bridge mode, `HOST_METRICS_PORT`, `HOST_TELEGRAF_PORT`, and
+In bridge mode, `HOST_METRICS_PORT`, `HOST_TELEGRAF_PORT` and
 `HOST_TELEGRAF_HTTP_PORT` only map host ports to fixed container ports
 9090/9273/8186. This behavior is unchanged.
 
 In host-NIC mode, the same variables set the **actual listener ports**.
-Compose supplies matching API/Telegraf ports and ingestion and scraping URLs. The
-healthcheck uses the runtime API port. There is no `ports` mapping and no Compose
-bridge network on this service.
+Compose supplies matching API/Telegraf ports, ingestion and scraping URLs, and
+the healthcheck uses the runtime API port. There is no `ports` mapping and no
+Compose bridge network on this service.
 
 For example, set three distinct unused ports in `.env`:
 
-```bash
+```dotenv
 HOST_METRICS_PORT=19090
 HOST_TELEGRAF_PORT=19273
 HOST_TELEGRAF_HTTP_PORT=18186
@@ -215,7 +263,7 @@ curl -fsS http://127.0.0.1:19090/health
 curl -fsS http://127.0.0.1:19273/metrics
 ```
 
-Empty, malformed, out-of-range, or duplicate internal listener ports fail
+Empty, malformed, out-of-range or duplicate internal listener ports fail
 startup. Ports occupied by another service still cause bind errors: stop that
 service or choose other ports, then inspect logs to confirm all listeners.
 A custom main Telegraf configuration must use `${TELEGRAF_PORT}` and
@@ -230,9 +278,9 @@ to untrusted networks. Read-only `/sys` and `/run` mounts do not reduce this
 network exposure. Docker port mappings also retain their existing all-interface
 default in bridge mode.
 
-## Turbostat: Opt-In Host Binary
+## Turbostat: opt-in host binary
 
-Defaults are `ENABLE_TURBOSTAT=false`, `TURBOSTAT_INTERVAL=5` seconds, and
+Defaults are `ENABLE_TURBOSTAT=false`, `TURBOSTAT_INTERVAL=5` seconds and
 `TURBOSTAT_BIN=/usr/local/bin/turbostat` **inside the container**. The interval
 must be positive integer seconds representable by Telegraf; paths must be
 absolute, without spaces or shell expansion. Invalid settings fail startup
@@ -246,7 +294,7 @@ export HOST_TURBOSTAT_BIN="/usr/lib/linux-tools/$(uname -r)/turbostat"
 test -f "$HOST_TURBOSTAT_BIN" && test -x "$HOST_TURBOSTAT_BIN"
 ```
 
-Install compatible tools first if they are unavailable. The path may change after a
+Install compatible tools first if unavailable. The path may change after a
 kernel upgrade. Save this optional override as `compose.turbostat.yaml`:
 
 ```yaml
@@ -281,9 +329,8 @@ For the host-NIC variant, change the override's service key to
 `--profile host-nic-telemetry` when starting it.
 
 The entrypoint runs the mounted executable's `--version` **inside the container**
-with a three-second timeout and checks read access to the model-specific register (MSR)
-interface of CPU 0.
-Missing executables, incompatible libraries, timeouts, or inaccessible MSRs emit
+with a three-second timeout and checks read access to CPU 0's MSR interface.
+Missing executables, incompatible libraries, timeouts or inaccessible MSRs emit
 a warning and omit only the automatic Turbostat addition. Other inputs continue.
 The container does not install tools or load host kernel modules automatically.
 
@@ -294,7 +341,7 @@ prevent subsequent hardware/permission changes: inspect runtime logs.
 Manually configured Turbostat inputs remain the user's responsibility and are
 not removed or rewritten by the automatic preflight.
 
-## Verification and Hardware Scope
+## Verification and hardware scope
 
 ```bash
 docker compose logs --tail=100 metrics-manager
@@ -313,32 +360,31 @@ does not prove that Telegraf or every hardware input works.
   and perf-event permissions, not an external `perf` executable.
 - **Network:** bridge-mode inputs observe the container's network namespace,
   not physical host NICs. Neither `pid: host` nor `/sys` changes that. Use the
-  `host-nic-telemetry` variant for host NICs.
+  bare-metal package or the `host-nic-telemetry` variant for host NICs.
   Host networking requires resolving listener conflicts and exposure as above;
   Docker port remapping no longer applies. Review interface selection rather
   than adding physical/bridge/veth counters together.
 - **Storage:** disk I/O counters and visible mounted filesystems are different
   scopes. Select the intended devices/mounts instead of summing physical disks,
-  partitions, and device-mapper layers. The current example requests model/serial
+  partitions and device-mapper layers. The current example requests model/serial
   tags and retains WWID where available; review those tags before exporting.
-- **Running Average Power Limit (RAPL):** package power can appear without `psys`; that is
-  not whole-board power.
+- **RAPL:** package power can appear without `psys`; that is not whole-board power.
 - **Cardinality:** per-CPU IRQ and changing process/client labels increase
-  exported series independently of the number of rows shown by a dashboard.
+  exported series independently of the number of rows shown by the TUI.
 
-## Comparing with Python-Reader Images
+## Comparing with Python-reader images
 
 Enabling equivalent hardware coverage does not guarantee identical names/labels:
 
-| Python-reader name                                | Native-enabled image name                              |
-| ------------------------------------------------- | ------------------------------------------------------ |
-| `dram_bw_{read,write,total}_gbps`                 | `memory_bandwidth_{read,write,total}_bytes_per_second` |
-| `gpu_throttle_act_freq_mhz`                       | `gpu_frequency_act_freq_hz`                            |
-| `gpu_throttle_driver_freq_mhz`                    | `gpu_frequency_cur_freq_hz`                            |
-| `gpu_throttle_throttled`                          | `gpu_throttle_status`                                  |
-| `gpu_throttle_throttle_{pl1,pl2,prochot,thermal}` | `gpu_throttle_{pl1,pl2,prochot,thermal}`               |
+| Python-reader name | Native-enabled image name |
+|---|---|
+| `dram_bw_{read,write,total}_gbps` | `memory_bandwidth_{read,write,total}_bytes_per_second` |
+| `gpu_throttle_act_freq_mhz` | `gpu_frequency_act_freq_hz` |
+| `gpu_throttle_driver_freq_mhz` | `gpu_frequency_cur_freq_hz` |
+| `gpu_throttle_throttled` | `gpu_throttle_status` |
+| `gpu_throttle_throttle_{pl1,pl2,prochot,thermal}` | `gpu_throttle_{pl1,pl2,prochot,thermal}` |
 
-Native memory bandwidth exports **bytes/s**; convert it to decimal GB/s with
+Native memory bandwidth exports **bytes/s** and the TUI displays decimal GB/s:
 `GB/s = bytes/s / 1000000000`. Native GPU frequencies export Hz rather than MHz.
 See the [2026.3.0 migration table](./native-metric-migration.md).
 Sampling windows and data sources can

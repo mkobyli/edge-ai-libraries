@@ -18,16 +18,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Fraction of time-ordered samples trimmed from each end before averaging,
-# to discard warm-up/wind-down outliers. Mirrors
-# ``managers.benchmark_metrics.TRIM_FRACTION`` — VIPPET's built-in benchmark
-# applies the same edge trimming before averaging.
 DEFAULT_TRIM_FRACTION = 0.1
+NPU_SETTLE_MIN_SAMPLES = 3
 
-# Per-family KPI keys collected into the aggregated hw_metrics dict (without
-# the _avg/_min/_max suffixes added by `_aggregate`). Used both to compute
-# each family's per-sample count and, by reporters.py, to map a CSV/HTML
-# column back to the device family it belongs to.
 FAMILY_KPI_KEYS: dict[str, tuple[str, ...]] = {
     "CPU": ("cpu_util_pct", "cpu_freq_mhz", "cpu_temperature", "mem_used_percent"),
     "GPU": (
@@ -50,19 +43,6 @@ FAMILY_KPI_KEYS: dict[str, tuple[str, ...]] = {
         "npu_bandwidth",
     ),
 }
-
-# Keys whose value, if ever nonzero across the run, proves the family's
-# hardware was actually doing work. Checked as a union (not a strict
-# ordered fallback): the first key with a nonzero value anywhere decides
-# "ok". This deliberately looks across *all* of a GPU's per-engine
-# utilization keys rather than just "render", because
-# ``gpu_render_util_pct`` has been observed to always read 0 on tested
-# hardware (see the TODO in ``_collect`` below) — relying on it alone
-# would misclassify an active GPU as idle.
-#
-# For NPU this set is exactly "npu_utilization, falling back to
-# npu_frequency_mhz / npu_power" as specced: if utilization is always 0/absent,
-# a nonzero frequency or power reading still proves the NPU was awake.
 FAMILY_ACTIVITY_KEYS: dict[str, tuple[str, ...]] = {
     "CPU": ("cpu_util_pct",),
     "GPU": (
@@ -74,6 +54,50 @@ FAMILY_ACTIVITY_KEYS: dict[str, tuple[str, ...]] = {
     ),
     "NPU": ("npu_utilization", "npu_frequency_mhz", "npu_power"),
 }
+
+
+def _trim_edge_samples(
+    samples: list[dict[str, float]],
+    trim_fraction: float,
+) -> list[dict[str, float]]:
+    """Trim time-ordered samples from each end, not sorted metric values."""
+    trim_count = int(len(samples) * trim_fraction)
+    if trim_count == 0 or trim_count * 2 >= len(samples):
+        return samples
+    return samples[trim_count:-trim_count]
+
+
+def _drop_npu_settle_sample(
+    samples: list[dict[str, float]],
+) -> tuple[list[dict[str, float]], int]:
+    """Remove only the first sample's NPU keys without mutating input data."""
+    if len(samples) < NPU_SETTLE_MIN_SAMPLES or not any(
+        key.startswith("npu_") for key in samples[0]
+    ):
+        return samples, 0
+    first = {
+        key: value for key, value in samples[0].items() if not key.startswith("npu_")
+    }
+    return [first, *samples[1:]], 1
+
+
+def _family_sample_count(samples: list[dict[str, float]], family: str) -> int:
+    """Count samples with any KPI belonging to the requested family."""
+    keys = FAMILY_KPI_KEYS.get(family, ())
+    return sum(any(key in sample for key in keys) for sample in samples)
+
+
+def _family_kpi_status(samples: list[dict[str, float]], family: str) -> str:
+    """Distinguish unavailable activity, measured inactivity and active hardware."""
+    values = [
+        sample[key]
+        for sample in samples
+        for key in FAMILY_ACTIVITY_KEYS.get(family, ())
+        if key in sample
+    ]
+    if not values:
+        return "no_samples"
+    return "ok" if any(value != 0 for value in values) else "idle"
 
 
 def _fetch_metrics_manager(url: str) -> dict[str, float]:
@@ -158,84 +182,6 @@ def _fetch_metrics_manager(url: str) -> dict[str, float]:
         return {}
 
 
-def _trim_edge_samples(
-    samples: list[dict[str, float]], trim_fraction: float
-) -> list[dict[str, float]]:
-    """Trim ``trim_fraction`` of the time-ordered *samples* from each end.
-
-    This copies the logic of ``managers.benchmark_metrics._trim_metric_edge_values``
-    (VIPPET's built-in benchmark trimming) rather than importing it, because
-    this harness runs as an external HTTP client against a deployed VIPPET
-    instance and does not import its internal modules.
-    """
-    if not samples:
-        return []
-    trim_count = int(len(samples) * trim_fraction)
-    if trim_count == 0 or trim_count * 2 >= len(samples):
-        return samples
-    return samples[trim_count:-trim_count]
-
-
-# NPU settle sample: the first metrics-manager poll after a run starts can
-# still carry NPU readings from the *previous* test case (PMT telemetry and the
-# busy-time / bandwidth counters are sampled over the preceding interval). With
-# enough samples, the NPU keys of the first sample are dropped so that this
-# carry-over cannot mark an otherwise idle NPU as "ok" or skew its averages.
-# CPU/GPU keys of that sample are kept, and _trim_edge_samples is unchanged.
-NPU_SETTLE_MIN_SAMPLES = 3
-
-
-def _drop_npu_settle_sample(
-    samples: list[dict[str, float]],
-) -> tuple[list[dict[str, float]], int]:
-    """Return *samples* with the NPU keys removed from the first sample.
-
-    Only applies when there are at least ``NPU_SETTLE_MIN_SAMPLES`` samples
-    and the first sample actually carries an NPU KPI key. Returns the
-    (possibly new) sample list and the number of samples whose NPU keys were
-    dropped (0 or 1). The input list and its dicts are not modified.
-    """
-    if len(samples) < NPU_SETTLE_MIN_SAMPLES:
-        return samples, 0
-    npu_keys = FAMILY_KPI_KEYS["NPU"]
-    first = samples[0]
-    if not any(k in first for k in npu_keys):
-        return samples, 0
-    settled_first = {k: v for k, v in first.items() if k not in npu_keys}
-    return [settled_first, *samples[1:]], 1
-
-
-def _family_sample_count(samples: list[dict[str, float]], family: str) -> int:
-    """Count samples that reported at least one of *family*'s KPI keys."""
-    keys = FAMILY_KPI_KEYS.get(family, ())
-    return sum(1 for s in samples if any(k in s for k in keys))
-
-
-def _family_kpi_status(samples: list[dict[str, float]], family: str) -> str:
-    """Classify *family*'s hardware activity across the sampled run.
-
-    Returns one of:
-      - ``"no_samples"``: none of the family's activity keys were ever
-        reported by metrics-manager (missing hardware, unwired sensor, or
-        the harness never got a single successful poll).
-      - ``"idle"``: samples exist for the family but every activity value
-        was zero for the whole run (hardware present but never dispatched
-        work — e.g. a pipeline variant that doesn't actually run inference
-        on this device).
-      - ``"ok"``: at least one activity value was nonzero somewhere in the
-        run.
-    """
-    activity_keys = FAMILY_ACTIVITY_KEYS.get(family, ())
-    present = False
-    for key in activity_keys:
-        for s in samples:
-            if key in s:
-                present = True
-                if s[key] != 0:
-                    return "ok"
-    return "idle" if present else "no_samples"
-
-
 class HardwareMonitor:
     """Background-thread hardware sampler.
 
@@ -252,6 +198,8 @@ class HardwareMonitor:
         sample_interval: float = 2.0,
         trim_fraction: float = DEFAULT_TRIM_FRACTION,
     ):
+        if not 0 <= trim_fraction < 0.5:
+            raise ValueError("metrics.trim_fraction must satisfy 0 <= value < 0.5")
         self._metrics_url = metrics_url
         self._interval = sample_interval
         self._trim_fraction = trim_fraction
@@ -269,39 +217,22 @@ class HardwareMonitor:
         logger.debug("HardwareMonitor started (interval=%.1fs)", self._interval)
 
     def stop(self, families: list[str] | None = None) -> dict[str, Any]:
-        """Stop sampling and return the aggregated hardware stats.
-
-        Args:
-            families: Device families the caller expects data for (e.g.
-                ``["GPU", "NPU"]`` — typically
-                ``pipeline_case.device_family.split("_")``). When given,
-                the result carries a per-family ``kpi_status`` (``ok`` /
-                ``no_samples`` / ``idle``), a per-family sample count
-                (``<family>_sample_count``, lowercased), and a
-                ``kpi_warnings`` summary string. A warning is logged and
-                raised via :mod:`warnings` for any requested family whose
-                status isn't ``ok`` — so missing/idle hardware shows up in
-                the pytest summary instead of silently producing blank
-                report cells.
-        """
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=max(self._interval * 2, 10))
-        stats = self._aggregate(families or [])
+        stats = self._aggregate(families)
         logger.debug("HardwareMonitor stopped (%d samples)", len(self._samples))
-
         for family, status in stats.get("kpi_status", {}).items():
             if status == "ok":
                 continue
-            count = stats.get(f"{family.lower()}_sample_count", 0)
+            count = stats[f"{family.lower()}_sample_count"]
             message = (
                 f"HardwareMonitor: device family {family!r} reported "
-                f"kpi_status={status!r} ({count} of {stats.get('sample_count', 0)} "
+                f"kpi_status={status!r} ({count} of {stats['sample_count']} "
                 f"sample(s) carried a {family} KPI key)"
             )
             logger.warning(message)
             warnings.warn(message, stacklevel=2)
-
         return stats
 
     def _loop(self) -> None:
@@ -356,10 +287,10 @@ class HardwareMonitor:
                     sample[label] = round(val, 2)
                     break
 
-        # GPU frequency (Hz -> MHz), primary tile only
+        # GPU frequency
         val = mm.get("gpu_frequency_cur_freq_hz__cur_freq")
         if val is not None:
-            sample["gpu_freq_mhz"] = round(val / 1e6, 0)
+            sample["gpu_freq_mhz"] = val / 1e6
 
         # GPU power
         val = mm.get("gpu_power_power_w__gpu_cur_power")
@@ -369,89 +300,73 @@ class HardwareMonitor:
         if val is not None:
             sample["pkg_power_w"] = round(val, 3)
 
-        # NPU frequency: metrics-manager reports npu_frequency_hz in Hz; the
-        # report KPI is in MHz like cpu_freq_mhz / gpu_freq_mhz.
-        val = mm.get("npu_frequency_hz")
-        if val is not None:
-            sample["npu_frequency_mhz"] = round(val / 1e6, 1)
+        frequency = mm.get("npu_frequency")
+        if frequency is not None:
+            sample["npu_frequency_mhz"] = round(frequency / 1e6, 1)
 
-        # NPU: report KPI keys and units are kept from earlier releases
-        # (memory in MiB, bandwidth in MB/s) so reports stay comparable.
-        for kpi, source, divisor in (
-            ("npu_utilization", "npu_utilization", 1.0),
-            ("npu_power", "npu_power_w", 1.0),
-            ("npu_temperature", "npu_temperature_c", 1.0),
-            ("npu_memory_mb", "npu_memory_bytes", 1024.0 * 1024.0),
-            ("npu_bandwidth", "npu_bandwidth_bytes_per_second", 1e6),
+        # NPU
+        for key in (
+            "npu_utilization",
+            "npu_power",
+            "npu_temperature",
+            "npu_memory_mb",
+            "npu_bandwidth",
         ):
-            val = mm.get(source)
-            if val is not None:
-                sample[kpi] = val / divisor
+            if key in mm:
+                sample[key] = mm[key]
 
         return sample
 
-    def _aggregate(self, families: list[str]) -> dict[str, Any]:
-        agg: dict[str, Any] = {"sample_count": len(self._samples)}
+    def _aggregate(self, families: list[str] | None = None) -> dict[str, Any]:
+        samples, settle_dropped = _drop_npu_settle_sample(self._samples)
+        trimmed = _trim_edge_samples(samples, self._trim_fraction)
+        agg: dict[str, Any] = {
+            "sample_count": len(samples),
+            "npu_settle_samples_dropped": settle_dropped,
+        }
+        keys = {key for sample in samples for key in sample}
 
-        # Drop NPU readings carried over into the first sample (see
-        # NPU_SETTLE_MIN_SAMPLES) before any NPU _avg/_min/_max, kpi_status
-        # or npu_sample_count is computed.
-        samples, npu_settle_dropped = _drop_npu_settle_sample(self._samples)
+        for key in sorted(keys):
+            values = [sample[key] for sample in samples if key in sample]
+            average_values = [
+                sample[key] for sample in trimmed if key in sample
+            ] or values
+            agg[f"{key}_avg"] = round(sum(average_values) / len(average_values), 2)
+            agg[f"{key}_min"] = round(min(values), 2)
+            agg[f"{key}_max"] = round(max(values), 2)
 
-        if samples:
-            agg["npu_settle_samples_dropped"] = npu_settle_dropped
-
-            # Trim warm-up/wind-down samples from both ends before
-            # averaging (see DEFAULT_TRIM_FRACTION / _trim_edge_samples).
-            # _min / _max are computed from the *untrimmed* samples so a
-            # real transient peak still shows in the report.
-            trimmed = _trim_edge_samples(samples, self._trim_fraction)
-
-            keys: set[str] = set()
-            for s in samples:
-                keys.update(s.keys())
-
-            for key in sorted(keys):
-                all_values = [s[key] for s in samples if key in s]
-                if not all_values:
-                    continue
-                trimmed_values = [s[key] for s in trimmed if key in s]
-                avg_source = trimmed_values or all_values
-                agg[f"{key}_avg"] = round(sum(avg_source) / len(avg_source), 2)
-                agg[f"{key}_min"] = round(min(all_values), 2)
-                agg[f"{key}_max"] = round(max(all_values), 2)
-
-            # Combined GPU utilization: max(render, video) per sample, then
-            # averaged (over the trimmed samples); max is over all samples.
-            combined_all = []
-            for s in samples:
-                render = s.get("gpu_render_util_pct")
-                video = s.get("gpu_video_util_pct")
-                vals = [v for v in (render, video) if v is not None]
-                if vals:
-                    combined_all.append(max(vals))
-            if combined_all:
-                agg["gpu_util_combined_max"] = round(max(combined_all), 2)
-
-                combined_trimmed = []
-                for s in trimmed:
-                    render = s.get("gpu_render_util_pct")
-                    video = s.get("gpu_video_util_pct")
-                    vals = [v for v in (render, video) if v is not None]
-                    if vals:
-                        combined_trimmed.append(max(vals))
-                combined_avg_source = combined_trimmed or combined_all
-                agg["gpu_util_combined_avg"] = round(
-                    sum(combined_avg_source) / len(combined_avg_source), 2
-                )
+        # Combined GPU utilization: max(render, video) per sample, then averaged.
+        combined_per_sample = []
+        combined_trimmed = []
+        for index, sample in enumerate(samples):
+            render = sample.get("gpu_render_util_pct")
+            video = sample.get("gpu_video_util_pct")
+            vals = [v for v in (render, video) if v is not None]
+            if vals:
+                combined_per_sample.append(max(vals))
+                trim_count = int(len(samples) * self._trim_fraction)
+                if trim_count <= index < len(samples) - trim_count:
+                    combined_trimmed.append(max(vals))
+        if combined_per_sample:
+            agg["gpu_util_combined_max"] = round(max(combined_per_sample), 2)
+            average_values = combined_trimmed or combined_per_sample
+            agg["gpu_util_combined_avg"] = round(
+                sum(average_values) / len(average_values), 2
+            )
 
         if families:
-            kpi_status = {f: _family_kpi_status(samples, f) for f in families}
+            kpi_status = {
+                family: _family_kpi_status(samples, family) for family in families
+            }
             agg["kpi_status"] = kpi_status
-            for f in families:
-                agg[f"{f.lower()}_sample_count"] = _family_sample_count(samples, f)
+            for family in families:
+                agg[f"{family.lower()}_sample_count"] = _family_sample_count(
+                    samples, family
+                )
             agg["kpi_warnings"] = ";".join(
-                f"{f}:{s}" for f, s in kpi_status.items() if s != "ok"
+                f"{family}:{status}"
+                for family, status in kpi_status.items()
+                if status != "ok"
             )
 
         return agg

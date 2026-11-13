@@ -256,17 +256,13 @@ export const selectNpuMetrics = (state: RootState) => {
     state.metrics.metrics,
     "npu_utilization",
   )?.value;
-  // npu_frequency_hz is reported in Hz; the UI displays MHz.
-  const frequencyHz = findMetric(
-    state.metrics.metrics,
-    "npu_frequency_hz",
-  )?.value;
+  const frequencyHz = findMetric(state.metrics.metrics, "npu_frequency")?.value;
   const frequency =
-    frequencyHz !== undefined ? frequencyHz / 1_000_000 : undefined;
-  const power = findMetric(state.metrics.metrics, "npu_power_w")?.value;
+    frequencyHz === undefined ? undefined : frequencyHz / 1_000_000;
+  const power = findMetric(state.metrics.metrics, "npu_power")?.value;
   const temperature = findMetric(
     state.metrics.metrics,
-    "npu_temperature_c",
+    "npu_temperature",
   )?.value;
 
   return { utilization, frequency, power, temperature };

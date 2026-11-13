@@ -130,7 +130,7 @@ export const useMetrics = () => {
     gpus,
     latency,
     vlm,
-    npu: npu ?? 0,
+    npu,
     npuDetailed,
   };
 };

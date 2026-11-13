@@ -10,7 +10,7 @@ until the corresponding image is published; registry commands below show the
 target release tag, not a guarantee that it is already available.
 
 **Breaking native metric migration:** 2026.3.0 uses explicit base-unit fields
-without legacy aliases. Upgrade collectors and custom queries together;
+without legacy aliases. Upgrade collectors, TUI and custom queries together;
 see the [conversion and configuration guide](./docs/user-guide/get-started/native-metric-migration.md).
 
 A unified metrics collection, ingestion, and relay service that combines Telegraf-based system metrics with a flexible REST API for custom metrics. Supports multiple input formats including JSON, InfluxDB Line Protocol, and OpenTelemetry (OTLP).
@@ -207,7 +207,9 @@ layers, use `docker compose build --no-cache metrics-manager`.
 
 Build proxies use Docker's predefined proxy arguments without persisting their
 values. Empty runtime defaults are preserved; runtime proxies are supplied explicitly
-through Compose.
+through Compose. Rescan both final variants before publishing: updating the
+base and official Telegraf does not guarantee that all Debian HIGH findings
+have upstream fixes.
 
 ```bash
 # Uses the TAG from .env (defaults to 2026.3.0)
@@ -260,7 +262,9 @@ After validation and authorization to publish, push each explicit tag;
 do not publish the stable `2026.3.0` or `latest` tags for this RC:
 
 The [release validation scope](./docs/user-guide/get-started/testing.md#release-validation-scope)
-distinguishes functional checks from real-hardware validation.
+distinguishes functional, hardware and security checks. The 2026.3.0 RC
+publication gate requires resolution of CRITICAL/HIGH findings in the final
+artifacts; unresolved Debian findings keep publication pending.
 
 ```bash
 docker push intel/metrics-manager:2026.3.0-rc1
@@ -393,8 +397,8 @@ metrics-manager/
 │   ├── logging_config.py    # Structured logging setup
 │   └── responses.py         # API response models
 ├── tests/                   # Pytest test suite
-├── native/                  # Go telemetry plugins
-│   ├── cmd/                 # Collector command-line entry points
+├── native/                  # Go telemetry plugins, shared by the container
+│   ├── cmd/                 #   and the bare-metal package
 │   │   ├── mm-plugin-cpu/   # CPU frequency and per-core-class utilisation
 │   │   ├── mm-plugin-gpu/   # Intel GPU, parsed from the qmassa named pipe
 │   │   └── mm-plugin-npu/   # Intel NPU, read via PMT sysfs
@@ -434,6 +438,7 @@ metrics-manager/
 | [Environment Variables](./docs/user-guide/get-started/environment-variables.md) | Configuration through environment variables and Telegraf config     |
 | [Custom Metrics](./docs/user-guide/get-started/custom-metrics.md)               | Using the REST API for custom metrics                               |
 | [Deploy with Helm](./docs/user-guide/get-started/deploy-with-helm.md)           | Kubernetes deployment via the published OCI Helm chart              |
+| [Bare-metal Package](./docs/user-guide/get-started/bare-metal-package.md)       | Installing telemetry and the terminal dashboard without a container |
 | [Testing](./docs/user-guide/get-started/testing.md)                             | Unit tests, smoke tests, development setup                          |
 | [How It Works](./docs/user-guide/how-it-works.md)                               | Architecture, data flow, and component relationships                |
 | [API Reference](./docs/user-guide/api-reference.md)                             | All endpoints, formats, examples, response models                   |

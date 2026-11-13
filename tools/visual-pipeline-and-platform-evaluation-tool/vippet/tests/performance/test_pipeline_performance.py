@@ -12,16 +12,14 @@ import logging
 import time
 from typing import Any
 
-import pytest
 import httpx
-
+import pytest
 from helpers.api_helpers import (
     start_performance_job,
     stop_performance_job,
     wait_for_job_completion,
 )
 from helpers.pipeline_case_helpers import PipelineCase
-
 from perf_helpers.config import (
     BASE_URL,
     MAX_RETRIES,
@@ -209,12 +207,9 @@ def test_pipeline_performance(
             describe_connection_lost(pipeline_label, BASE_URL, exc), pytrace=False
         )
     finally:
-        # device_family is an underscore-separated list of the families this
-        # variant requires (e.g. "GPU_NPU" -> ["GPU", "NPU"]); hw_monitor
-        # uses it to flag device families that reported no samples or were
-        # idle the whole run instead of silently producing blank KPI cells.
-        requested_families = pipeline_case.device_family.split("_")
-        hw_stats = hw_monitor.stop(requested_families)
+        hw_stats = hw_monitor.stop(
+            families=pipeline_case.device_family.upper().split("_")
+        )
 
     duration = time.time() - start_time
     is_success = final_status.get("state") == "COMPLETED"

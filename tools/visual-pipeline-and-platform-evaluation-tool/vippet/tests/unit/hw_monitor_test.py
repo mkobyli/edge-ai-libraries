@@ -88,6 +88,9 @@ class TestFamilyKpiStatus(unittest.TestCase):
     def test_no_samples_on_empty_sample_list(self):
         self.assertEqual(_family_kpi_status([], "NPU"), "no_samples")
 
+    def test_unknown_family_has_no_samples(self) -> None:
+        self.assertEqual(_family_kpi_status([{"cpu_util_pct": 10.0}], "TPU"), "no_samples")
+
     def test_idle_when_present_but_always_zero(self):
         # The "Defect Detection NPU" case: npu_utilization/frequency/power
         # all read 0 for the whole run even though samples exist.
@@ -235,12 +238,19 @@ class TestStopPerFamilyStatus(unittest.TestCase):
         self.assertEqual(stats["kpi_warnings"], "")
         self.assertEqual(len(caught), 0)
 
-    def test_no_families_requested_keeps_legacy_shape(self):
-        # Backward compatibility: callers that don't pass families (or pass
-        # none) get the pre-existing aggregate shape without kpi_status.
+    def test_unknown_family_reports_missing_samples_without_crashing(self) -> None:
+        monitor = self._monitor_with_samples([{"cpu_util_pct": 10.0}])
+        with self.assertWarnsRegex(UserWarning, "TPU.*no_samples"):
+            stats = monitor.stop(["TPU"])
+
+        self.assertEqual(stats["kpi_status"], {"TPU": "no_samples"})
+        self.assertEqual(stats["tpu_sample_count"], 0)
+        self.assertEqual(stats["kpi_warnings"], "TPU:no_samples")
+
+    def test_no_families_requested_includes_settle_diagnostic(self) -> None:
         monitor = self._monitor_with_samples([])
         stats = monitor.stop()
-        self.assertEqual(stats, {"sample_count": 0})
+        self.assertEqual(stats, {"sample_count": 0, "npu_settle_samples_dropped": 0})
 
 
 class TestNpuSettleSample(unittest.TestCase):
@@ -331,23 +341,26 @@ class TestCollectNativeCollectorMetrics(unittest.TestCase):
         ):
             return monitor._collect()  # noqa: SLF001
 
-    def test_npu_frequency_hz_is_reported_in_mhz(self):
-        sample = self._collect_from({"npu_frequency_hz": 1.4e9, "npu_power_w": 1.5})
+    def test_npu_frequency_in_hz_is_reported_in_mhz(self) -> None:
+        sample = self._collect_from({"npu_frequency": 1.4e9, "npu_power": 1.5})
         self.assertEqual(sample["npu_frequency_mhz"], 1400.0)
         self.assertEqual(sample["npu_power"], 1.5)
-        self.assertNotIn("npu_frequency_hz", sample)
+        self.assertNotIn("npu_frequency", sample)
 
-    def test_missing_npu_frequency_is_omitted(self):
-        sample = self._collect_from({"npu_power_w": 1.5})
+    def test_missing_npu_frequency_is_omitted(self) -> None:
+        sample = self._collect_from({"npu_power": 1.5})
         self.assertNotIn("npu_frequency_mhz", sample)
+        self.assertEqual(sample["npu_power"], 1.5)
 
-    def test_legacy_metric_names_are_ignored(self):
-        # Names published before metrics-manager 2026.3.0 must not leak in.
+    def test_intermediate_npu_and_legacy_cpu_gpu_names_are_ignored(self) -> None:
         sample = self._collect_from(
             {
                 "npu_frequency_mhz": 1400.0,
-                "npu_frequency": 1.4e9,
-                "npu_power": 1.5,
+                "npu_frequency_hz": 1.4e9,
+                "npu_power_w": 1.5,
+                "npu_temperature_c": 48.0,
+                "npu_memory_bytes": 128.0 * 1024 * 1024,
+                "npu_bandwidth_bytes_per_second": 50_366e6,
                 "cpu_frequency_avg_frequency": 2_800_000.0,
                 "gpu_frequency__cur_freq": 2350.0,
                 "gpu_power__gpu_cur_power": 9.0,
@@ -355,13 +368,13 @@ class TestCollectNativeCollectorMetrics(unittest.TestCase):
         )
         self.assertEqual(sample, {})
 
-    def test_npu_kpis_keep_their_report_units(self):
+    def test_npu_kpis_keep_their_report_units(self) -> None:
         sample = self._collect_from(
             {
                 "npu_utilization": 99.4,
-                "npu_temperature_c": 48.0,
-                "npu_memory_bytes": 128.0 * 1024 * 1024,
-                "npu_bandwidth_bytes_per_second": 50_366e6,
+                "npu_temperature": 48.0,
+                "npu_memory_mb": 128.0,
+                "npu_bandwidth": 50_366.0,
             }
         )
         self.assertEqual(sample["npu_utilization"], 99.4)

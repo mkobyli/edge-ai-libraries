@@ -28,6 +28,7 @@ CAPABILITIES_URL: str = SETTINGS["metrics.capabilities_url"]
 METRICS_SAMPLE_INTERVAL: float = SETTINGS["metrics.sample_interval_seconds"]
 METRICS_TRIM_FRACTION: float = SETTINGS["metrics.trim_fraction"]
 
+
 # --- benchmark section ---
 PIPELINE_FILTER: str | list[str] = SETTINGS["benchmark.pipelines"]
 VARIANT_FILTER: list[str] = SETTINGS["benchmark.variants"]

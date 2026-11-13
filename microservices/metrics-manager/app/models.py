@@ -384,14 +384,19 @@ def _otlp_histogram_fields(dp: dict[str, Any]) -> dict[str, int | float]:
     reported when present and finite. Raises ``ValueError`` for a malformed point.
     """
     count = _otlp_int(dp.get("count", 0))
-    if count < 0:
-        raise ValueError(f"negative histogram count: {count}")
+    if not 0 <= count < 1 << 64:
+        raise ValueError(f"histogram count outside uint64 range: {count}")
     fields: dict[str, int | float] = {"count": count}
     for key in ("sum", "min", "max"):
         if dp.get(key) is not None:
             number = _otlp_finite_float(dp[key])
             if number is not None:
                 fields[key] = number
+            else:
+                _logger.warning(
+                    "Omitting non-finite OTLP histogram statistic",
+                    extra={"statistic": key},
+                )
     if "sum" in fields and count > 0:
         fields["avg"] = fields["sum"] / count
     return fields
@@ -457,6 +462,17 @@ class OpenTelemetryMetric(BaseModel):
                     for dp in data_points:
                         try:
                             fields = _otlp_point_fields(dp, metric_type)
+                            tags = dict(resource_attrs)
+                            tags.update(_otlp_attributes(dp.get("attributes", [])))
+                            if temporality:
+                                tags["temporality"] = temporality
+                            metric = Metric(
+                                name=name,
+                                fields=fields,
+                                tags=tags,
+                                timestamp=dp.get("timeUnixNano"),
+                                metric_type=metric_type,
+                            )
                         except (TypeError, ValueError) as exc:
                             _logger.warning(
                                 "Skipping malformed OTLP data point",
@@ -464,20 +480,6 @@ class OpenTelemetryMetric(BaseModel):
                             )
                             continue
 
-                        tags = dict(resource_attrs)
-                        tags.update(_otlp_attributes(dp.get("attributes", [])))
-                        if temporality:
-                            tags["temporality"] = temporality
-                        timestamp = dp.get("timeUnixNano")
-
-                        metrics.append(
-                            Metric(
-                                name=name,
-                                fields=fields,
-                                tags=tags,
-                                timestamp=timestamp,
-                                metric_type=metric_type,
-                            )
-                        )
+                        metrics.append(metric)
 
         return metrics
