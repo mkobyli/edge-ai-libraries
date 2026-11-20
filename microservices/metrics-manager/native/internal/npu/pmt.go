@@ -142,6 +142,10 @@ func (t *Telemetry) Update() error {
 	if err != nil {
 		return fmt.Errorf("reading telemetry from %s: %w", t.path, err)
 	}
+	minimumSize := max(t.regs.energy, t.regs.socTemperatures, t.regs.workpoint, t.regs.memoryBW) + 8
+	if len(buffer) < minimumSize {
+		return fmt.Errorf("telemetry snapshot too short: got %d bytes, need at least %d", len(buffer), minimumSize)
+	}
 	t.buffer = buffer
 	return nil
 }
