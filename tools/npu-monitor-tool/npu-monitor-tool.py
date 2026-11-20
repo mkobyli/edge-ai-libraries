@@ -491,6 +491,7 @@ def main(): # pylint: disable=too-many-branches
                     mem_util_unit = 'MB'
                 mem_util_str = f'{mem_util:>31.2f} [{mem_util_unit}]'
             else:
+                LOG.debug('Memory utilization sysfs node not found.')
                 mem_util_str = f'{"N/A":>31} [--]'
 
             pu.update_buffer()
