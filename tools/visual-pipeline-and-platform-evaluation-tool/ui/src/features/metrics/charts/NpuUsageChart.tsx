@@ -5,7 +5,7 @@ import {
 } from "@/features/metrics/charts";
 
 interface NpuUsageChartProps extends DashboardChartCommonProps {
-  data: Array<{ timestamp: number; usage: number }>;
+  data: Array<{ timestamp: number; usage?: number }>;
 }
 
 export const NpuUsageChart = ({

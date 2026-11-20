@@ -1,6 +1,6 @@
 export interface MetricCardProps {
   title: string;
-  value: number;
+  value: number | undefined;
   unit: string;
   icon: React.ReactNode;
   isSummary?: boolean;
@@ -68,14 +68,16 @@ export const MetricCard = ({
           useDemoStyles && forceDark ? "text-white" : "text-foreground"
         }`}
       >
-        {value.toFixed(2)}
-        <span
-          className={`text-sm ml-1.5 font-semibold ${
-            isSummary ? summaryUnitClassName : "text-muted-foreground"
-          }`}
-        >
-          {unit}
-        </span>
+        {value === undefined ? "N/A" : value.toFixed(2)}
+        {value !== undefined && (
+          <span
+            className={`text-sm ml-1.5 font-semibold ${
+              isSummary ? summaryUnitClassName : "text-muted-foreground"
+            }`}
+          >
+            {unit}
+          </span>
+        )}
       </p>
     </div>
   </div>
