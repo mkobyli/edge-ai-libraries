@@ -913,23 +913,23 @@ func buildNPU(idx *Index) NPU {
 	return NPU{
 		Present:       len(idx.NamesWithPrefix(npuPrefix)) > 0,
 		Utilization:   idx.Value("npu_utilization", nil),
-		FrequencyHz:   idx.Value("npu_frequency_hz", nil),
-		PowerW:        idx.Value("npu_power_w", nil),
-		TempC:         idx.Value("npu_temperature_c", nil),
-		BandwidthMBps: scaleReading(idx.Value("npu_bandwidth_bytes_per_second", nil), 1e6),
+		FrequencyHz:   idx.Value("npu_frequency", nil),
+		PowerW:        idx.Value("npu_power", nil),
+		TempC:         idx.Value("npu_temperature", nil),
+		BandwidthMBps: idx.Value("npu_bandwidth", nil),
 		TileConfig:    idx.Value("npu_tile_config", nil),
 		MemoryMiB:     npuMemory(idx),
 		PowerState:    idx.Value("npu_power_state", nil),
 		// A ceiling of zero would be as meaningless here as it is for the
 		// CPU, so the same guard applies.
-		MaxFrequencyMHz: statedLimit(scaleReading(idx.Value("npu_frequency_max_hz", nil), 1e6)),
+		MaxFrequencyMHz: statedLimit(idx.Value("npu_frequency_max_mhz", nil)),
 	}
 }
 
-// npuMemory converts bytes to display MiB and rejects invalid negative sizes.
+// npuMemory reads the MiB value and rejects invalid negative sizes.
 func npuMemory(idx *Index) Reading {
-	if r := idx.Value("npu_memory_bytes", nil); !r.OK || r.Value >= 0 {
-		return scaleReading(r, 1<<20)
+	if r := idx.Value("npu_memory_mb", nil); !r.OK || r.Value >= 0 {
+		return r
 	}
 
 	return Reading{}

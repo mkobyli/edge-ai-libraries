@@ -3,10 +3,6 @@
 
 // Package npu reads Intel NPU telemetry through the kernel's Platform
 // Monitoring Technology (PMT) sysfs interface.
-//
-// It is a port of the Python NPU readers this package replaced, and
-// deliberately reproduces their arithmetic and output formatting so that the
-// switch does not change a single emitted byte.
 package npu
 
 import (
@@ -20,9 +16,6 @@ import (
 
 // CPUGen identifies the SoC generation, which determines the telemetry
 // register layout.
-//
-// The order matters: memory utilisation is only exposed from PTL onwards, and
-// that check is a numeric comparison.
 type CPUGen int
 
 const (
@@ -70,8 +63,8 @@ type registers struct {
 // registerSets are the per-generation offsets. Arrow Lake reuses the Meteor
 // Lake layout.
 var registerSets = map[CPUGen]registers{
-	GenMTL: {energy: 0x628, socTemperatures: 0x98, workpoint: 0x68, memoryBW: 0x0},
-	GenARL: {energy: 0x628, socTemperatures: 0x98, workpoint: 0x68, memoryBW: 0x0},
+	GenMTL: {energy: 0x628, socTemperatures: 0x98, workpoint: 0x68, memoryBW: -1},
+	GenARL: {energy: 0x628, socTemperatures: 0x98, workpoint: 0x68, memoryBW: -1},
 	GenLNL: {energy: 0x5d0, socTemperatures: 0x70, workpoint: 0x18, memoryBW: 0xc18},
 	GenPTL: {energy: 0x670, socTemperatures: 0x78, workpoint: 0x18, memoryBW: 0xc18},
 }

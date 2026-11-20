@@ -40,6 +40,38 @@ func wantContains(t *testing.T, view, want string) {
 	}
 }
 
+func TestNPUSnapshotAvailabilityAndFrequencyLimit(t *testing.T) {
+	base := "npu_frequency 1600000000\nnpu_frequency_max_mhz 1600\nnpu_power 2\n"
+	model := testModel(nil)
+	for _, step := range []struct {
+		name       string
+		fields     string
+		wantUtil   string
+		wantMemory string
+		available  bool
+	}{
+		{"measured", "npu_utilization 50\nnpu_memory_mb 512\n", "50.0%", "512 MiB", true},
+		{"zero", "npu_utilization 0\nnpu_memory_mb 0\n", "0.0%", "0 MiB", true},
+		{"unavailable", "", absent, absent, false},
+		{"recovered", "npu_utilization 25\nnpu_memory_mb 128\n", "25.0%", "128 MiB", true},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			model, _ = update(t, model, snapshotMsg(source.Snapshot{
+				At: fixedNow, Samples: parseFixture(t, base+step.fields),
+			}))
+			if model.dash.NPU.Utilization.OK != step.available || model.dash.NPU.MemoryMiB.OK != step.available {
+				t.Fatalf("availability not replaced by snapshot: %+v", model.dash.NPU)
+			}
+			wantReading(t, "current frequency in Hz", model.dash.NPU.FrequencyHz, 1_600_000_000)
+			wantReading(t, "frequency limit in MHz", model.dash.NPU.MaxFrequencyMHz, 1600)
+			section := strings.Join(strings.Fields(model.npuSection()), " ")
+			wantContains(t, section, "1.60 GHz of 1.60 GHz")
+			wantContains(t, section, "utilization "+step.wantUtil)
+			wantContains(t, section, "memory "+step.wantMemory)
+		})
+	}
+}
+
 func TestViewRendersCPUAndMemory(t *testing.T) {
 	view := renderFixture(t, hostExposition)
 
@@ -466,6 +498,9 @@ gpu_memory_vram_used_bytes{gpu_id="0"} 1.073741824e+09
 }
 
 func TestViewRendersNPUPanel(t *testing.T) {
+	if strings.Contains(acceleratorExposition, "npu_memory_mb") {
+		t.Fatal("fixture must omit unsupported memory instead of emitting a sentinel")
+	}
 	view := renderFixture(t, acceleratorExposition)
 
 	wantContains(t, view, "NPU")
@@ -473,7 +508,6 @@ func TestViewRendersNPUPanel(t *testing.T) {
 	wantContains(t, view, "1.40 GHz")
 	wantContains(t, view, "1.75 W")
 	wantContains(t, view, "12.5 MB/s")
-	// The -1 sentinel means the counter does not exist on this platform.
 	wantContains(t, view, "memory        "+absent)
 }
 
