@@ -3,6 +3,36 @@
 Automated benchmarking of VIPPET pipelines on Intel platforms — CPU, GPU (Xe), and NPU.
 Collects hardware KPIs per job and produces JSON, CSV, and HTML bar-chart reports.
 
+## NPU Metric Contract and Offline Regressions
+
+Deploy the corrected native Metrics Manager collector and ViPPET consumers
+together. `npu_frequency` is Hz; the report key `npu_frequency_mhz` is MHz.
+`npu_power` is W, `npu_temperature` is degrees Celsius, `npu_bandwidth` is
+decimal MB/s and `npu_memory_mb` is binary MiB. Intermediate unit-suffixed
+NPU names are not accepted as aliases. Missing readings stay absent; zero is
+still a measurement, not an unavailable marker.
+
+CSV, HTML and JSON retain per-family `ok`, `idle` and `no_samples` statuses,
+sample counts and warnings. With at least three samples, leading NPU readings
+are removed before NPU aggregation without removing CPU/GPU data or changing
+the total sample count. `npu_settle_samples_dropped` is present even for an
+empty run. Time-ordered edge trimming affects averages only; min/max retain
+the settled full range. `metrics.trim_fraction` must be finite and in `[0, 0.5)`;
+zero disables trimming. Existing YAML, environment and CLI precedence applies.
+
+From the ViPPET project root, run these offline checks without hardware or a
+running backend (the standard `make test` also executes the pytest regressions):
+
+```bash
+cd vippet
+python -m pytest -q -p no:cacheprovider \
+  tests/unit/hw_monitor_test.py tests/unit/reporters_test.py \
+  tests/unit/perf_helpers_test.py tests/unit/performance*_test.py
+```
+
+Hardware validation still requires a deployed stack and an NPU workload.
+No historical hardware result is evidence of validation for a new build.
+
 ## Prerequisites
 
 - ViPPET running and reachable (default API base URL: `http://localhost/api/v1`; change it

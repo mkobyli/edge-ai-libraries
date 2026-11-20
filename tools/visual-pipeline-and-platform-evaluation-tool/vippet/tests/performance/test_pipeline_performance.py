@@ -213,8 +213,8 @@ def test_pipeline_performance(
         # variant requires (e.g. "GPU_NPU" -> ["GPU", "NPU"]); hw_monitor
         # uses it to flag device families that reported no samples or were
         # idle the whole run instead of silently producing blank KPI cells.
-        requested_families = pipeline_case.device_family.split("_")
-        hw_stats = hw_monitor.stop(requested_families)
+        requested_families = pipeline_case.device_family.upper().split("_")
+        hw_stats = hw_monitor.stop(families=requested_families)
 
     duration = time.time() - start_time
     is_success = final_status.get("state") == "COMPLETED"

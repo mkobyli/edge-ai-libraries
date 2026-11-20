@@ -1013,7 +1013,7 @@ def generate_html_report(runs: list[dict[str, Any]]) -> str:
                 <th style="text-align:right">GPU Util</th><th style="text-align:right">GPU Freq</th>
                 <th style="text-align:right">GPU Power</th><th style="text-align:right">GPU Peak</th>
                 <th style="text-align:right">Pkg Power</th>
-                <th style="text-align:right">NPU Util</th><th style="text-align:right">NPU Freq</th><th style="text-align:right">NPU Power</th>
+                <th style="text-align:right">NPU Util</th><th style="text-align:right">NPU Freq (MHz)</th><th style="text-align:right">NPU Power</th>
                 <th style="text-align:right">CPU Util</th><th style="text-align:right">CPU Temp</th><th style="text-align:right">CPU Temp Peak</th>
               </tr></thead>
               <tbody>{"".join(table_rows_html)}</tbody>

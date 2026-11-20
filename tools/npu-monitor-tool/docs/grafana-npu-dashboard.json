@@ -146,6 +146,7 @@
             ]
           },
           "unit": "celsius",
+          "noValue": "N/A",
           "decimals": 1
         },
         "overrides": []
@@ -232,7 +233,8 @@
               }
             ]
           },
-          "unit": "watt"
+          "unit": "watt",
+          "noValue": "N/A"
         },
         "overrides": []
       },
@@ -261,7 +263,7 @@
       "targets": [
         {
           "exemplar": true,
-          "expr": "npu_monitor_freq_hz{}",
+          "expr": "npu_monitor_freq_hz{} / 1e6",
           "interval": "",
           "legendFormat": "NPU: {{dev_id}}",
           "refId": "S"
@@ -318,7 +320,9 @@
               }
             ]
           },
-          "unit": "rothz"
+          "unit": "suffix:MHz",
+          "noValue": "N/A",
+          "decimals": 0
         },
         "overrides": []
       },
@@ -347,7 +351,9 @@
       "targets": [
         {
           "exemplar": true,
-          "expr": "npu_monitor_freq_hz{}",
+          "expr": "npu_monitor_freq_hz{} / 1e6",
+          "instant": true,
+          "range": false,
           "interval": "",
           "legendFormat": "NPU: {{dev_id}}",
           "refId": "S"
@@ -380,7 +386,9 @@
               }
             ]
           },
-          "unit": "rothz"
+          "unit": "suffix:MHz",
+          "noValue": "N/A",
+          "decimals": 0
         },
         "overrides": []
       },
@@ -389,7 +397,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -412,7 +420,7 @@
       "targets": [
         {
           "exemplar": true,
-          "expr": "npu_util{} / 100",
+          "expr": "npu_util{}",
           "interval": "",
           "legendFormat": "NPU: {{dev_id}}",
           "refId": "S"
@@ -469,9 +477,10 @@
               }
             ]
           },
-          "unit": "percentunit",
+          "unit": "percent",
+          "noValue": "N/A",
           "min": 0,
-          "max": 1
+          "max": 100
         },
         "overrides": []
       },
@@ -537,7 +546,8 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "short",
+          "noValue": "N/A"
         },
         "overrides": []
       },
@@ -551,7 +561,7 @@
         "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -631,7 +641,8 @@
               }
             ]
           },
-          "unit": "bytes"
+          "unit": "bytes",
+          "noValue": "N/A"
         },
         "overrides": []
       },
@@ -660,7 +671,7 @@
       "targets": [
         {
           "exemplar": true,
-          "expr": "npu_memory_bandwidth{} * (1024 * 1024)",
+          "expr": "npu_memory_bandwidth{}",
           "interval": "",
           "legendFormat": "NPU: {{dev_id}}",
           "refId": "S"
@@ -717,7 +728,8 @@
               }
             ]
           },
-          "unit": "Bps"
+          "unit": "suffix:MB/s",
+          "noValue": "N/A"
         },
         "overrides": []
       },

@@ -252,6 +252,8 @@ class HardwareMonitor:
         sample_interval: float = 2.0,
         trim_fraction: float = DEFAULT_TRIM_FRACTION,
     ):
+        if not 0 <= trim_fraction < 0.5:
+            raise ValueError("metrics.trim_fraction must satisfy 0 <= value < 0.5")
         self._metrics_url = metrics_url
         self._interval = sample_interval
         self._trim_fraction = trim_fraction
@@ -369,9 +371,9 @@ class HardwareMonitor:
         if val is not None:
             sample["pkg_power_w"] = round(val, 3)
 
-        # NPU frequency: metrics-manager reports npu_frequency_hz in Hz; the
+        # NPU frequency: metrics-manager reports npu_frequency in Hz; the
         # report KPI is in MHz like cpu_freq_mhz / gpu_freq_mhz.
-        val = mm.get("npu_frequency_hz")
+        val = mm.get("npu_frequency")
         if val is not None:
             sample["npu_frequency_mhz"] = round(val / 1e6, 1)
 
@@ -379,10 +381,10 @@ class HardwareMonitor:
         # (memory in MiB, bandwidth in MB/s) so reports stay comparable.
         for kpi, source, divisor in (
             ("npu_utilization", "npu_utilization", 1.0),
-            ("npu_power", "npu_power_w", 1.0),
-            ("npu_temperature", "npu_temperature_c", 1.0),
-            ("npu_memory_mb", "npu_memory_bytes", 1024.0 * 1024.0),
-            ("npu_bandwidth", "npu_bandwidth_bytes_per_second", 1e6),
+            ("npu_power", "npu_power", 1.0),
+            ("npu_temperature", "npu_temperature", 1.0),
+            ("npu_memory_mb", "npu_memory_mb", 1.0),
+            ("npu_bandwidth", "npu_bandwidth", 1.0),
         ):
             val = mm.get(source)
             if val is not None:
@@ -390,17 +392,16 @@ class HardwareMonitor:
 
         return sample
 
-    def _aggregate(self, families: list[str]) -> dict[str, Any]:
+    def _aggregate(self, families: list[str] | None = None) -> dict[str, Any]:
         agg: dict[str, Any] = {"sample_count": len(self._samples)}
 
         # Drop NPU readings carried over into the first sample (see
         # NPU_SETTLE_MIN_SAMPLES) before any NPU _avg/_min/_max, kpi_status
         # or npu_sample_count is computed.
         samples, npu_settle_dropped = _drop_npu_settle_sample(self._samples)
+        agg["npu_settle_samples_dropped"] = npu_settle_dropped
 
         if samples:
-            agg["npu_settle_samples_dropped"] = npu_settle_dropped
-
             # Trim warm-up/wind-down samples from both ends before
             # averaging (see DEFAULT_TRIM_FRACTION / _trim_edge_samples).
             # _min / _max are computed from the *untrimmed* samples so a

@@ -9,7 +9,7 @@ import (
 )
 
 func TestBaseUnitTemperaturesRetainAlertThresholds(t *testing.T) {
-	dashboard := buildFixture(t, "npu_temperature_c 100\ngpu_temperature_temperature_c{gpu_id=\"0\"} 100\n")
+	dashboard := buildFixture(t, "npu_temperature 100\ngpu_temperature_temperature_c{gpu_id=\"0\"} 100\n")
 	config := DefaultDashboardConfig()
 	tracker := NewAlertTracker(config.Alerts, config.Processes)
 	for sample := range 3 {
@@ -34,12 +34,12 @@ gpu_memory_vram_total_bytes{gpu_id="0"} 8589934592
 gpu_memory_vram_used_bytes{gpu_id="0"} 2147483648
 gpu_power_power_w{gpu_id="0",type="gpu_cur_power"} 12.5
 gpu_temperature_temperature_c{gpu_id="0"} 65
-npu_frequency_hz 1600000000
-npu_frequency_max_hz 1800000000
-npu_memory_bytes 536870912
-npu_bandwidth_bytes_per_second 12500000
-npu_power_w 2.5
-npu_temperature_c 75
+npu_frequency 1600000000
+npu_frequency_max_mhz 1800
+npu_memory_mb 512
+npu_bandwidth 12.5
+npu_power 2.5
+npu_temperature 75
 memory_bandwidth_read_bytes_per_second 1000000000
 memory_bandwidth_write_bytes_per_second 250000000
 memory_bandwidth_total_bytes_per_second 1250000000
@@ -77,16 +77,16 @@ memory_bandwidth_total_bytes_per_second 1250000000
 	}
 }
 
-func TestLegacyScaledNamesAreNotAliases(t *testing.T) {
+func TestReplacedMetricNamesAreNotAliases(t *testing.T) {
 	dashboard := buildFixture(t, `cpu_frequency_avg_frequency 2400000
 gpu_frequency_act_freq{gpu_id="0",tile="gt0"} 750
-npu_memory_mb 512
-npu_frequency 1600000000
+npu_memory_bytes 536870912
+npu_frequency_hz 1600000000
 memory_bandwidth_total_mibps 1024
 `)
 	if dashboard.CPU.FrequencyKHz.OK || dashboard.NPU.MemoryMiB.OK ||
 		dashboard.NPU.FrequencyHz.OK || dashboard.Memory.TotalGBps.OK ||
 		dashboard.GPUs[0].Tiles[0].ActualMHz.OK {
-		t.Fatal("legacy unit-bearing series unexpectedly treated as current metrics")
+		t.Fatal("replaced series unexpectedly treated as current metrics")
 	}
 }

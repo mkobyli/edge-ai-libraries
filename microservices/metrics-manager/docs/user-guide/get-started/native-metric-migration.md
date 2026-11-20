@@ -5,10 +5,15 @@ SPDX-License-Identifier: Apache-2.0
 
 # Native Metric Migration for 2026.3.0
 
-The unreleased 2026.3.0 native collectors use bytes, bytes/second, Hz, W, and
+The unreleased 2026.3.0 CPU/GPU/DRAM native collectors use bytes, bytes/second, Hz, W, and
 degrees Celsius with explicit unit-bearing field names. This is a **breaking,
 one-time contract migration** for the native Docker image and Debian package. Old names
 are not emitted as aliases. Upgrade collectors and dashboards together.
+
+NPU retains the established names and mixed wire units documented below:
+frequency in Hz, power in W, temperature in degrees Celsius, bandwidth in
+decimal MB/s, memory in binary MiB, and the frequency ceiling in MHz.
+Intermediate unit-suffixed NPU names are removed, not retained as aliases.
 
 Standard Telegraf inputs (including powerstat, Turbostat, CPU, memory, network,
 and disk) are unchanged. So are the qmassa JSON input schema, engine/CPU
@@ -34,16 +39,16 @@ Tags, device/tile identities, and collector selection behavior are preserved.
 | `gpu_fan` (RPM)                                          | `gpu_fan_speed_hz` (rotations/second)                  | 1/60      |
 | `gpu_memory_{smem_total,smem_used,vram_total,vram_used}` | Same names with `_bytes` appended                      | 1         |
 | `gpu_client_{smem_used,smem_rss,vram_used,vram_rss}`     | Same names with `_bytes` appended                      | 1         |
-| `npu_power`                                              | `npu_power_w`                                          | 1         |
-| `npu_frequency` (already corrected Hz)                   | `npu_frequency_hz`                                     | 1         |
-| `npu_temperature`                                        | `npu_temperature_c`                                    | 1         |
-| `npu_bandwidth` (decimal MB/s)                           | `npu_bandwidth_bytes_per_second`                       | 1,000,000 |
-| `npu_memory_mb` (actually MiB)                           | `npu_memory_bytes`                                     | 1,048,576 |
-| `npu_frequency_max_mhz`                                  | `npu_frequency_max_hz`                                 | 1,000,000 |
+| `npu_power_w` (intermediate)                             | `npu_power`                                            | 1         |
+| `npu_frequency_hz` (intermediate)                        | `npu_frequency`                                        | 1         |
+| `npu_temperature_c` (intermediate)                       | `npu_temperature`                                      | 1         |
+| `npu_bandwidth_bytes_per_second` (intermediate)           | `npu_bandwidth`                                        | 1/1,000,000 |
+| `npu_memory_bytes` (intermediate)                        | `npu_memory_mb`                                        | 1/1,048,576 |
+| `npu_frequency_max_hz` (intermediate)                    | `npu_frequency_max_mhz`                                | 1/1,000,000 |
 | `memory_bandwidth_{read,write,total}_mibps`              | `memory_bandwidth_{read,write,total}_bytes_per_second` | 1,048,576 |
 
 Line-protocol measurement names stay unchanged; their fields are renamed
-accordingly. For example, `npu` now has `frequency_hz` and `memory_bytes`;
+accordingly. For example, `npu` has `frequency` and `memory_mb`;
 `gpu_power` has `power_w` instead of `value`. There is no second GPU
 `value` field repeating requested frequency.
 
@@ -58,15 +63,16 @@ LNL/PTL `ratio * 50e6 / 2`.
 Convert raw metrics at the display or query boundary:
 
 - Clocks: divide Hz by `1e6` for MHz or `1e9` for GHz.
-- Memory sizes: divide bytes by `1048576` for MiB or `1073741824` for GiB.
+- CPU/GPU memory sizes: divide bytes by `1048576` for MiB or `1073741824` for GiB.
 - Whole-system DRAM throughput: divide bytes/s by `1e9` for decimal GB/s.
-- NPU throughput: divide bytes/s by `1e6` for decimal MB/s.
+- NPU memory and throughput: `npu_memory_mb` is already MiB and
+   `npu_bandwidth` is already decimal MB/s; do not convert either again.
 
 Examples for external dashboards:
 
 ```promql
 gpu_frequency_act_freq_hz / 1e6
-npu_memory_bytes / 1048576
+npu_memory_mb
 memory_bandwidth_total_bytes_per_second / 1e9
 gpu_fan_speed_hz * 60
 ```
@@ -77,6 +83,20 @@ bytes before dividing by elapsed time. NPU bandwidth preserves actual sampling
 interval and single 32-bit counter-wrap handling. Missing optional NPU data
 stays absent; measured zeros stay zero. Memory is no longer rounded to two
 decimal places of MiB before export.
+
+MTL/ARL do not expose the required memory-traffic counter, so bandwidth is
+omitted rather than reading offset zero. Memory reporting instead follows
+sysfs availability on every generation. Invalid busy-time reads and resets
+require a fresh baseline; a measured idle interval is still zero. Negative
+power after an energy-counter decrease is omitted. Truncated PMT snapshots
+do not advance any baselines. Non-positive elapsed time is rejected.
+
+The shipped container, Debian and ViPPET Prometheus outputs use
+`expiration_interval = "15s"` for all fields, preserving default 10-second
+inputs while allowing missing NPU fields to disappear. Retained custom
+Telegraf configurations must be updated separately. UI/history use `N/A`
+and gaps for missing samples; harness reports convert Hz to MHz at their
+boundary and keep KPI statuses, counts and warnings separate from numbers.
 
 ## Upgrade Checklist
 

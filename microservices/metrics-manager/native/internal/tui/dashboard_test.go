@@ -42,7 +42,7 @@ mem_used{host="itest"} 1.426063e+10
 // not: the host was idle, and a fixture of zeros could not tell the act_freq
 // field apart from cur_freq, nor one engine from another. Readings that were
 // genuinely constant on the host -- the frequency limits, the shared memory
-// total, the -1 memory sentinel -- are kept verbatim.
+// total -- are kept verbatim. Unavailable NPU memory is omitted.
 const acceleratorExposition = `gpu_engine_usage_usage{engine="render",gpu_id="0",driver="i915",host="itest",type="render"} 11
 gpu_engine_usage_usage{engine="compute",gpu_id="0",driver="i915",host="itest",type="compute"} 22
 gpu_engine_usage_usage{engine="copy",gpu_id="0",driver="i915",host="itest",type="copy"} 33
@@ -72,11 +72,10 @@ gpu_throttle_status{gpu_id="0",driver="i915",host="itest",tile="gt1"} 0
 gpu_throttle_pl1{gpu_id="0",driver="i915",host="itest",tile="gt1"} 0
 gpu_throttle_thermal{gpu_id="0",driver="i915",host="itest",tile="gt1"} 0
 gpu_throttle_vr_tdc{gpu_id="0",driver="i915",host="itest",tile="gt1"} 0
-npu_bandwidth_bytes_per_second{host="itest"} 12500000
-npu_frequency_hz{host="itest"} 1.4e+09
-npu_memory_bytes{host="itest"} -1048576
-npu_power_w{host="itest"} 1.75
-npu_temperature_c{host="itest"} 36
+npu_bandwidth{host="itest"} 12.5
+npu_frequency{host="itest"} 1.4e+09
+npu_power{host="itest"} 1.75
+npu_temperature{host="itest"} 36
 npu_tile_config{host="itest"} 2
 npu_utilization{host="itest"} 63.5
 `
@@ -468,15 +467,16 @@ func TestBuildDashboardNPU(t *testing.T) {
 	wantReading(t, "tile config", npu.TileConfig, 2)
 }
 
-func TestBuildDashboardNPUMemorySentinel(t *testing.T) {
-	// The plugin reports -1 where the sysfs node does not exist, which is
-	// the case on Meteor Lake and Arrow Lake. Showing "-1 MB" would dress a
-	// sentinel up as a measurement.
+func TestBuildDashboardNPUMemoryAvailability(t *testing.T) {
 	if got := buildFixture(t, acceleratorExposition).NPU.MemoryMiB; got.OK {
 		t.Errorf("memory = %v, want absent", got.Value)
 	}
+	if got := buildFixture(t, "npu_memory_mb -1\n").NPU.MemoryMiB; got.OK {
+		t.Errorf("negative memory = %v, want absent", got.Value)
+	}
+	wantReading(t, "zero memory", buildFixture(t, "npu_memory_mb 0\n").NPU.MemoryMiB, 0)
 
-	wantReading(t, "real memory", buildFixture(t, `npu_memory_bytes{host="itest"} 536870912
+	wantReading(t, "real memory", buildFixture(t, `npu_memory_mb{host="itest"} 512
 `).NPU.MemoryMiB, 512)
 }
 

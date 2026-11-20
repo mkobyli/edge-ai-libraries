@@ -1,5 +1,23 @@
 # React + TypeScript + Vite
 
+## NPU Metrics and Tests
+
+Use Node.js 22.22 or newer and install dependencies with `npm ci`.
+Run `npm test` for NPU selectors, history and rendered indicators,
+`npx tsc -b` for type checking, and `npm run build` for the production bundle.
+
+The Metrics Manager exports `npu_frequency` in Hz. The UI converts it to MHz
+by dividing by `1_000_000`, without guessing units from the value.
+Unavailable NPU utilization stays absent through selectors and history:
+cards and progress indicators show `N/A`, and charts leave a gap. A measured
+zero remains `0.00%` and a zero-valued chart point.
+
+Deploy this UI together with the corrected native NPU collector. Old
+display-scaled frequency values are not compatible with this conversion.
+The UI replaces its metrics snapshot on every SSE message; omitted fields
+disappear after Telegraf expires them (15 seconds in the shipped container
+and bare-metal configurations, plus polling/flush latency).
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

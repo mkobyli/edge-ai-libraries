@@ -17,7 +17,7 @@ export const NpuUsageProgress = () => {
   );
   const { npu } = useMetrics();
   return (
-    <Progress value={npu} max={100}>
+    <Progress value={npu ?? null} max={100}>
       <>
         <div className="flex items-center justify-between">
           <ProgressLabel>
@@ -27,11 +27,11 @@ export const NpuUsageProgress = () => {
             </span>
           </ProgressLabel>
           <ProgressValue>
-            {(_, value) => `${value?.toFixed(2) ?? 0}%`}
+            {() => (npu === undefined ? "N/A" : `${npu.toFixed(2)}%`)}
           </ProgressValue>
         </div>
         <ProgressTrack>
-          <ProgressIndicator />
+          {npu !== undefined && <ProgressIndicator />}
         </ProgressTrack>
       </>
     </Progress>

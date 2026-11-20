@@ -47,8 +47,8 @@ export default defineConfig(({ mode }) => {
           ws: false,
           configure: (proxy) => {
             // Disable response buffering so SSE events stream through immediately
-            proxy.on("proxyRes", (proxyRes) => {
-              const url = proxyRes.req?.path ?? "";
+            proxy.on("proxyRes", (proxyRes, req) => {
+              const url = req.url ?? "";
               if (url.includes("/stream")) {
                 proxyRes.headers["cache-control"] = "no-cache";
                 proxyRes.headers["x-accel-buffering"] = "no";
