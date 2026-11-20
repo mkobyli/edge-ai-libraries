@@ -41,6 +41,38 @@ docker compose --profile test run --rm metrics-manager-test \
 
 ---
 
+## NPU Regression Checks
+
+Run the native collector and TUI tests from `microservices/metrics-manager/native`:
+
+```bash
+go test -race ./...
+go vet ./...
+```
+
+These tests use synthetic PMT/sysfs fixtures, not physical NPU hardware. They
+cover per-generation PLL decoding, actual sampling intervals, wraparound,
+missing versus zero values, sysfs memory availability, reset recovery and
+truncated snapshots without advancing baselines.
+
+From `microservices/metrics-manager`, with the existing test dependencies
+installed, run:
+
+```bash
+python -m pytest -q -p no:cacheprovider tests/test_telegraf_integration.py
+```
+
+Put the pinned Telegraf binary from `versions.env` on `PATH` to execute all
+three real-exporter cases; otherwise those integration cases are skipped.
+They verify measured zeros, independently expiring utilization/memory fields,
+unchanged sample timestamps and subsequent recovery through the API parser.
+The shipped expiration interval is 15 seconds for all fields; the tests
+accelerate it to one second without changing production configuration.
+
+Standalone monitor tests live in `tools/npu-monitor-tool/tests/`. ViPPET's
+UI and performance README files document their offline NPU regression commands.
+Hardware and full deployed-stack validation remain separate acceptance steps.
+
 ## Running Tests Locally
 
 ### Prerequisites

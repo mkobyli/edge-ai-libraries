@@ -10,6 +10,21 @@ This guide applies to the native Go collector image targeting **2026.3.0**
 Configure this image through its environment variables and mounted Telegraf
 drop-ins, as described below.
 
+## NPU Telemetry Contract
+
+`mm-plugin-npu` emits the established NPU names, including `npu_frequency`
+in Hz, `npu_power` in W, `npu_temperature` in degrees Celsius,
+`npu_bandwidth` in decimal MB/s, `npu_memory_mb` in binary MiB and
+`npu_frequency_max_mhz` in MHz. Install matching TUI and ViPPET consumers;
+intermediate unit-suffixed NPU names are not aliases. See
+[Native Metric Migration](./native-metric-migration.md) for formulas,
+availability, reset recovery and custom configuration upgrades.
+
+Unavailable fields are omitted, not replaced with zero. The shipped exporter
+expires omitted fields after 15 seconds plus flush/poll latency. This setting
+applies to all series and remains above the default 10-second input interval.
+The standalone Python monitor/exporter is independent of the native plugin.
+
 ## Default and Optional Inputs
 
 The shipped `telegraf.conf` still starts CPU, GPU, NPU, process, and

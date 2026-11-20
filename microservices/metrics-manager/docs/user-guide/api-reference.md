@@ -507,23 +507,36 @@ Filtered to `coretemp_package_id_*` (CPU package temperature). Tag: `sensor`.
 | `frequency`              | GPU frequency                |
 | `power`                  | GPU power consumption        |
 
-### Intel NPU (`npu`) via `scripts/npu_reader.py`
+### Intel NPU (`npu`) via `mm-plugin-npu`
 
-| Prometheus Name   | Field         | Description                                                                                                                                                                  |
-|-------------------|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `npu_power`       | `power`       | NPU power draw in watts (derived from `VPU_ENERGY` delta)                                                                                                                    |
-| `npu_frequency`   | `frequency`   | NPU (DPU) clock frequency in Hz (decoded from `VPU_WORKPOINT`)                                                                                                               |
-| `npu_temperature` | `temperature` | NPU SoC temperature in °C (integer)                                                                                                                                          |
-| `npu_bandwidth`   | `bandwidth`   | NoC memory bandwidth rate in MB/s (counter delta over the actual elapsed sampling interval; a single wrap of the 32-bit counter between samples is corrected)                |
-| `npu_tile_config` | `tile_config` | Active tile configuration                                                                                                                                                    |
-| `npu_utilization` | `utilization` | % NPU utilization over the last interval (0–100). Omitted (not sent as `0`) when the `npu_busy_time_us` sysfs node isn't exposed or can't be read                            |
-| `npu_memory_mb`   | `memory_mb`   | NPU memory usage in MB. Omitted (not sent as `-1`) on pre-PTL platforms (MTL, ARL, LNL), and on PTL when the `npu_memory_utilization` sysfs node is missing or can't be read |
+| Prometheus Name | Field | Description |
+| --- | --- | --- |
+| `npu_power` | `power` | Watts from the energy delta; omitted after an energy-counter decrease |
+| `npu_frequency` | `frequency` | DPU clock in Hz, decoded with the generation-specific PLL formula |
+| `npu_temperature` | `temperature` | NPU SoC temperature in degrees Celsius |
+| `npu_bandwidth` | `bandwidth` | Decimal MB/s over the actual sampling interval, with single 32-bit wrap correction; omitted on MTL/ARL |
+| `npu_tile_config` | `tile_config` | Active tile configuration |
+| `npu_utilization` | `utilization` | Percent busy; omitted after missing/invalid reads or a counter reset until a fresh baseline is available |
+| `npu_memory_mb` | `memory_mb` | Binary MiB, available whenever the driver exposes a readable `npu_memory_utilization` node, regardless of generation |
+| `npu_frequency_max_mhz` | `frequency_max_mhz` | Driver frequency ceiling in MHz; omitted when unavailable or zero |
+| `npu_power_state` | `power_state` | PCI state: D0=0, D1=1, D2=2, D3hot=3, D3cold=4, unknown=-1 |
+
+Measured zero remains zero; unavailable measurements are not zero-filled.
+Truncated PMT snapshots and non-positive sampling intervals are rejected without
+advancing counter baselines. The shipped Prometheus exporters expire omitted
+fields after 15 seconds, plus flush/poll latency, while other fields can refresh.
+Deploy matching collectors, TUI and ViPPET consumers together; intermediate
+unit-suffixed NPU names are not aliases. See the
+[migration guide](./get-started/native-metric-migration.md).
 
 **Requirements:**
 
 - Intel NPU present and the `intel_vpu` driver loaded (`ls /sys/bus/pci/drivers/intel_vpu/`)
 - `/sys/class/intel_pmt/` accessible inside the container (provided by `privileged: true` + `/sys:/sys:ro`)
-- Supported generations: Meteor Lake (MTL), Arrow Lake (ARL/ARL-H/ARL-S), Lunar Lake (LNL), Panther Lake (PTL). On pre-PTL platforms, `npu_memory_mb` is **omitted** from the emitted sample entirely (rather than a sentinel value) — a consumer that needs to distinguish "not supported" from "zero" should treat a missing field as the former, not query for `-1`.
+- Supported generations: Meteor Lake (MTL), Arrow Lake (ARL/ARL-H/ARL-S),
+  Lunar Lake (LNL), Panther Lake (PTL). Memory availability depends on sysfs,
+  not a PTL-only restriction. Treat a missing optional field as unavailable,
+  not a measured zero.
 
 ---
 
