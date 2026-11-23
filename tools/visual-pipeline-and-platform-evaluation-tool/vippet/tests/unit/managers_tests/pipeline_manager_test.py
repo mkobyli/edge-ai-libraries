@@ -48,12 +48,18 @@ _DLSPS2_ELEMENTS = [
 _elements_patcher = patch(
     "explore.GstInspector._get_dlsps2_elements", return_value=_DLSPS2_ELEMENTS
 )
+# Loading predefined pipelines checks every variant against the DLSPS 2.0
+# device list: keep all variants instead of asking the server.
+_variant_supported_patcher = patch(
+    "managers.pipeline_manager.is_variant_supported", return_value=True
+)
 
 
 def setUpModule() -> None:
-    """Install the VideosManager and element-list patches before any test runs."""
+    """Install the VideosManager, element-list and variant patches before any test runs."""
     global _videos_manager_patcher
     _elements_patcher.start()
+    _variant_supported_patcher.start()
     mock_instance = MagicMock()
     mock_instance.get_video_filename.side_effect = _mock_get_video_filename
     mock_instance.get_video_path.side_effect = _mock_get_video_path
@@ -69,6 +75,7 @@ def tearDownModule() -> None:
     """Remove the patches after the module's tests finish."""
     global _videos_manager_patcher
     _elements_patcher.stop()
+    _variant_supported_patcher.stop()
     if _videos_manager_patcher is not None:
         _videos_manager_patcher.stop()
         _videos_manager_patcher = None
@@ -2325,6 +2332,22 @@ class TestPredefinedPipelinesStructure(unittest.TestCase):
 
         self.assertGreater(multi_variant_count, 0)
         self.assertEqual(multi_variant_count, predefined_count)
+
+    @patch("managers.pipeline_manager.PipelineLoader")
+    def test_audio_definitions_are_skipped(self, mock_loader_cls):
+        """Audio definitions have no graph and must not be loaded as pipelines."""
+        configs = {
+            "config_0.yaml": MOCK_PIPELINE_CONFIGS[0],
+            "config_1.yaml": {"name": "Speech to Text", "type": "audio"},
+        }
+        mock_loader_cls.list.return_value = list(configs)
+        mock_loader_cls.config.side_effect = configs.__getitem__
+        mock_loader_cls.get_pipelines_directory.return_value = "/mock/pipelines"
+
+        names = [p.name for p in PipelineManager().get_pipelines()]
+
+        self.assertIn("object-detection", names)
+        self.assertNotIn("Speech to Text", names)
 
 
 class TestDeletePredefinedPipeline(unittest.TestCase):

@@ -78,6 +78,11 @@ interval and single 32-bit counter-wrap handling. Missing optional NPU data
 stays absent; measured zeros stay zero. Memory is no longer rounded to two
 decimal places of MiB before export.
 
+The Docker, Debian and ViPPET Telegraf configurations expire previously seen
+Prometheus series after 15 seconds without an update. This applies to all
+series, not just NPU. When customizing input intervals, keep exporter expiry
+longer than the slowest input interval.
+
 ## Upgrade Checklist
 
 1. Upgrade the native plugins for every producer read by your dashboards.

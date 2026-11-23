@@ -28,6 +28,10 @@ SUPERVISORD_CONF = REPO_ROOT / "supervisord.conf"
 DOCKERFILE = REPO_ROOT / "Dockerfile"
 ENTRYPOINT = REPO_ROOT / "entrypoint.sh"
 QMASSA_UNIT = REPO_ROOT / "native/packaging/systemd/metrics-manager-qmassa.service"
+VIPPET_TELEGRAF_CONF = (
+    REPO_ROOT.parents[1]
+    / "tools/visual-pipeline-and-platform-evaluation-tool/vippet-telegraf.conf"
+)
 
 
 @pytest.fixture(scope="module")
@@ -61,6 +65,24 @@ class TestDefaultTelegrafConfig:
         assert "[[outputs.prometheus_client]]" in telegraf_text
         config = tomllib.loads(telegraf_text)
         assert config["outputs"]["prometheus_client"][0]["listen"] == ":${TELEGRAF_PORT}"
+
+    @pytest.mark.parametrize(
+        "config_path",
+        [
+            pytest.param(TELEGRAF_CONF, id="docker"),
+            pytest.param(REPO_ROOT / "native/packaging/etc/telegraf.conf", id="debian"),
+            pytest.param(
+                VIPPET_TELEGRAF_CONF,
+                id="vippet",
+                marks=pytest.mark.skipif(
+                    not VIPPET_TELEGRAF_CONF.is_file(), reason="requires the ViPPET checkout"
+                ),
+            ),
+        ],
+    )
+    def test_prometheus_expires_unavailable_fields(self, config_path: Path):
+        output = tomllib.loads(config_path.read_text())["outputs"]["prometheus_client"][0]
+        assert output["expiration_interval"] == "15s"
 
     def test_http_listener_for_custom_metrics_relay(self, telegraf_text: str):
         # /api/v1/metrics endpoints persist via Telegraf's HTTP listener on :8186.
