@@ -296,6 +296,114 @@ func TestBandwidthRateAndRollover(t *testing.T) {
 	}
 }
 
+func TestUnavailableBandwidthIsOmitted(t *testing.T) {
+	for _, guid := range []string{"0x130670b2", "0x1306a0b3"} {
+		t.Run(guid, func(t *testing.T) {
+			root := buildNPUSysfs(t, guid, make([]byte, 4096), "", "")
+			collector, err := NewCollector(root, "h")
+			if err != nil {
+				t.Fatal(err)
+			}
+			collector.now = func() time.Time { return collector.prevTime.Add(time.Second) }
+			points, err := collector.Collect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			line, err := points[0].Append(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(line), "bandwidth_bytes_per_second=") {
+				t.Fatalf("unsupported bandwidth must be omitted: %s", line)
+			}
+		})
+	}
+}
+
+func TestTruncatedSnapshotPreservesBaseline(t *testing.T) {
+	regs := registerSets[GenPTL]
+	root := buildNPUSysfs(t, "0x3086000", telemetryBuffer(4096, map[int]uint64{
+		regs.energy: 10 << 14, regs.memoryBW: 100,
+	}), "1000", "")
+	collector, err := NewCollector(root, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Unix(100, 0)
+	collector.prevTime = start
+	collector.now = func() time.Time { return start.Add(time.Second) }
+	writeFile(t, collector.telemetry.path, make([]byte, regs.memoryBW+7))
+	writeFile(t, collector.busyPath, []byte("2000"))
+	if points, err := collector.Collect(); err == nil || len(points) != 0 {
+		t.Fatalf("Collect() = %v, %v, want an error without a point", points, err)
+	}
+	if energy := collector.telemetry.EnergyJoules(); energy != 10 {
+		t.Fatalf("rejected snapshot replaced the buffer: energy = %v", energy)
+	}
+	collector.now = func() time.Time { return start.Add(2 * time.Second) }
+	writeFile(t, collector.telemetry.path, telemetryBuffer(4096, map[int]uint64{
+		regs.energy: 14 << 14, regs.memoryBW: 130,
+	}))
+	writeFile(t, collector.busyPath, []byte("1001000"))
+	points, err := collector.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, err := points[0].Append(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"power_w=2,", "bandwidth_bytes_per_second=15000,", "utilization=50i,"} {
+		if !strings.Contains(string(line), want) {
+			t.Fatalf("recovery must use the previous valid sample: missing %q in %s", want, line)
+		}
+	}
+}
+
+func TestCounterResetsOmitInvalidPowerAndUtilization(t *testing.T) {
+	regs := registerSets[GenPTL]
+	root := buildNPUSysfs(t, "0x3086000", telemetryBuffer(4096, map[int]uint64{
+		regs.energy: 10 << 14,
+	}), "10000000", "")
+	collector, err := NewCollector(root, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collector.now = func() time.Time { return collector.prevTime.Add(time.Second) }
+	for _, sample := range []struct {
+		energy       uint64
+		busy         string
+		wantFields   []string
+		absentFields []string
+	}{
+		{energy: 2, busy: "0", absentFields: []string{"power_w=", "utilization="}},
+		{energy: 5, busy: "500000", wantFields: []string{"power_w=3,", "utilization=50i,"}},
+	} {
+		writeFile(t, collector.telemetry.path, telemetryBuffer(4096, map[int]uint64{
+			regs.energy: sample.energy << 14,
+		}))
+		writeFile(t, collector.busyPath, []byte(sample.busy))
+		points, err := collector.Collect()
+		if err != nil {
+			t.Fatal(err)
+		}
+		line, err := points[0].Append(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range sample.absentFields {
+			if strings.Contains(string(line), field) {
+				t.Fatalf("reset must omit %q: %s", field, line)
+			}
+		}
+		for _, field := range sample.wantFields {
+			if !strings.Contains(string(line), field) {
+				t.Fatalf("recovery must use the reset baseline: missing %q in %s", field, line)
+			}
+		}
+	}
+}
+
 func TestMemoryAndCeilingUseUnroundedBaseUnits(t *testing.T) {
 	root := buildNPUSysfs(t, "0x3086000", make([]byte, 4096), "", "1048577")
 	device := filepath.Join(root, "bus/pci/drivers/intel_vpu/0000:00:0b.0")
@@ -441,7 +549,6 @@ func TestCollectorUtilisation(t *testing.T) {
 		{name: "half busy", prevBusy: 0, currBusy: "500000", elapsed: time.Second, want: "utilization=50i"},
 		{name: "fully busy", prevBusy: 0, currBusy: "1000000", elapsed: time.Second, want: "utilization=100i"},
 		{name: "capped above 100", prevBusy: 0, currBusy: "5000000", elapsed: time.Second, want: "utilization=100i"},
-		{name: "counter reset", prevBusy: 9000000, currBusy: "10", elapsed: time.Second, want: "utilization=0i"},
 		{name: "idle", prevBusy: 500, currBusy: "500", elapsed: time.Second, want: "utilization=0i"},
 	}
 

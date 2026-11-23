@@ -70,8 +70,8 @@ type registers struct {
 // registerSets are the per-generation offsets. Arrow Lake reuses the Meteor
 // Lake layout.
 var registerSets = map[CPUGen]registers{
-	GenMTL: {energy: 0x628, socTemperatures: 0x98, workpoint: 0x68, memoryBW: 0x0},
-	GenARL: {energy: 0x628, socTemperatures: 0x98, workpoint: 0x68, memoryBW: 0x0},
+	GenMTL: {energy: 0x628, socTemperatures: 0x98, workpoint: 0x68, memoryBW: -1},
+	GenARL: {energy: 0x628, socTemperatures: 0x98, workpoint: 0x68, memoryBW: -1},
 	GenLNL: {energy: 0x5d0, socTemperatures: 0x70, workpoint: 0x18, memoryBW: 0xc18},
 	GenPTL: {energy: 0x670, socTemperatures: 0x78, workpoint: 0x18, memoryBW: 0xc18},
 }
@@ -142,6 +142,10 @@ func (t *Telemetry) Update() error {
 	if err != nil {
 		return fmt.Errorf("reading telemetry from %s: %w", t.path, err)
 	}
+	minimumSize := max(t.regs.energy, t.regs.socTemperatures, t.regs.workpoint, t.regs.memoryBW) + 8
+	if len(buffer) < minimumSize {
+		return fmt.Errorf("telemetry snapshot too short: got %d bytes, need at least %d", len(buffer), minimumSize)
+	}
 	t.buffer = buffer
 	return nil
 }
@@ -206,10 +210,13 @@ func (t *Telemetry) EnergyJoules() float64 {
 	return float64(whole) + fraction
 }
 
-// BandwidthBytes returns the accumulated network-on-chip transfer counter.
+// BandwidthBytes returns the accumulated network-on-chip transfer counter, if available.
 // The 32-bit counter counts decimal kilobytes.
-func (t *Telemetry) BandwidthBytes() float64 {
-	return float64(t.read(uint(t.regs.memoryBW), 31, 0)) * 1e3
+func (t *Telemetry) BandwidthBytes() (float64, bool) {
+	if t.regs.memoryBW < 0 {
+		return 0, false
+	}
+	return float64(t.read(uint(t.regs.memoryBW), 31, 0)) * 1e3, true
 }
 
 // readTrimmed reads a sysfs attribute and strips surrounding whitespace.

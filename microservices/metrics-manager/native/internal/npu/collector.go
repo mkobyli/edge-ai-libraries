@@ -103,7 +103,7 @@ func NewCollector(sysfsRoot, hostname string) (*Collector, error) {
 		return nil, err
 	}
 	collector.prevEnergy = telemetry.EnergyJoules()
-	collector.prevBandwidth = telemetry.BandwidthBytes()
+	collector.prevBandwidth, _ = telemetry.BandwidthBytes()
 	collector.prevBusyUS, collector.hasPrevBusy = collector.readBusyUS()
 	collector.prevTime = collector.now()
 
@@ -141,20 +141,23 @@ func (c *Collector) Collect() ([]lineproto.Point, error) {
 	power := (energy - c.prevEnergy) / elapsed
 	c.prevEnergy = energy
 
-	bandwidth := c.telemetry.BandwidthBytes()
-	bandwidthDelta := bandwidth - c.prevBandwidth
-	if bandwidthDelta < 0 {
-		bandwidthDelta += float64(uint64(1)<<32) * 1e3
+	fields := make([]lineproto.Field, 0, 9)
+	if power >= 0 {
+		fields = append(fields, lineproto.FloatField("power_w", power))
 	}
-	c.prevBandwidth = bandwidth
-
-	fields := []lineproto.Field{
-		lineproto.FloatField("power_w", power),
+	fields = append(fields,
 		lineproto.FloatField("frequency_hz", c.telemetry.FrequencyHz()),
 		lineproto.IntField("temperature_c", int64(c.telemetry.TemperatureC())),
-		lineproto.FloatField("bandwidth_bytes_per_second", bandwidthDelta/elapsed),
-		lineproto.IntField("tile_config", int64(c.telemetry.TileConfig())),
+	)
+	if bandwidth, ok := c.telemetry.BandwidthBytes(); ok {
+		bandwidthDelta := bandwidth - c.prevBandwidth
+		if bandwidthDelta < 0 {
+			bandwidthDelta += float64(uint64(1)<<32) * 1e3
+		}
+		c.prevBandwidth = bandwidth
+		fields = append(fields, lineproto.FloatField("bandwidth_bytes_per_second", bandwidthDelta/elapsed))
 	}
+	fields = append(fields, lineproto.IntField("tile_config", int64(c.telemetry.TileConfig())))
 	if utilization, ok := c.utilization(elapsed); ok {
 		fields = append(fields, lineproto.IntField("utilization", utilization))
 	}
@@ -216,9 +219,9 @@ func (c *Collector) utilization(elapsed float64) (int64, bool) {
 	}
 
 	// The counter resets when the NPU driver reloads. A negative delta is
-	// meaningless, so report idle rather than a large negative number.
+	// meaningless, so omit utilisation until the next valid interval.
 	if busyUS < prevBusyUS {
-		return 0, true
+		return 0, false
 	}
 
 	percent := 100 * float64(busyUS-prevBusyUS) / (elapsed * 1e6)
